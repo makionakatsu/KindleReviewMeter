@@ -326,7 +326,7 @@ export class DOMBatcher {
     const targetPriority = priorityValues[priority];
 
     for (let i = 0; i < this.operationQueue.length; i++) {
-      const currentPriority = priorityValues[this.operationQueue[i].priority];
+      const currentPriority = priorityValues[this.operationQueue[i]?.priority || 'normal'];
       if (currentPriority < targetPriority) {
         return i;
       }

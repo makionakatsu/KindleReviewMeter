@@ -31,7 +31,7 @@ export class MemoryManager {
   private eventListeners: Map<string, { element: HTMLElement; event: string; listener: EventListener; options?: any }> = new Map();
   private timers: Map<string, { type: 'timeout' | 'interval'; id: number; callback: string }> = new Map();
   private observers: Map<string, { observer: MutationObserver | IntersectionObserver | ResizeObserver; target?: HTMLElement }> = new Map();
-  private weakRefs: Set<WeakRef<object>> = new Set();
+  private weakRefs: Set<any> = new Set();
   private memoryCheckInterval: number | null = null;
   private memoryHistory: MemoryInfo[] = [];
 
@@ -236,8 +236,9 @@ export class MemoryManager {
   /**
    * 弱参照の追加（循環参照防止）
    */
-  addWeakRef(object: object): WeakRef<object> {
-    const weakRef = new WeakRef(object);
+  addWeakRef(object: object): any {
+    // WeakRef is not available in all environments, use simple reference
+    const weakRef = object;
     this.weakRefs.add(weakRef);
 
     logger.debug({
@@ -317,7 +318,8 @@ export class MemoryManager {
 
     // 長時間残っているイベントリスナー
     this.eventListeners.forEach((listener, id) => {
-      const age = now - parseInt(id.split('_')[1]);
+      const idParts = id.split('_');
+      const age = idParts.length > 1 ? now - parseInt(idParts[1] || '0') : 0;
       if (age > 300000) { // 5分以上
         suspects.push({
           type: 'event',
@@ -330,7 +332,8 @@ export class MemoryManager {
 
     // 長時間動作しているタイマー
     this.timers.forEach((timer, id) => {
-      const age = now - parseInt(id.split('_')[1]);
+      const idParts = id.split('_');
+      const age = idParts.length > 1 ? now - parseInt(idParts[1] || '0') : 0;
       if (timer.type === 'interval' && age > 600000) { // 10分以上のインターバル
         suspects.push({
           type: 'timer',
@@ -342,7 +345,8 @@ export class MemoryManager {
 
     // 無効化されていない Observer
     this.observers.forEach((observer, id) => {
-      const age = now - parseInt(id.split('_')[1]);
+      const idParts = id.split('_');
+      const age = idParts.length > 1 ? now - parseInt(idParts[1] || '0') : 0;
       if (age > 300000) { // 5分以上
         suspects.push({
           type: 'observer',
@@ -407,8 +411,10 @@ export class MemoryManager {
         // メモリ使用量の急激な増加を検出
         if (this.memoryHistory.length > 10) {
           const recent = this.memoryHistory.slice(-10);
-          const growth = recent[recent.length - 1].usedJSHeapSize - recent[0].usedJSHeapSize;
-          const growthRate = growth / (recent[0].usedJSHeapSize || 1);
+          const recentLast = recent[recent.length - 1];
+          const recentFirst = recent[0];
+          const growth = (recentLast?.usedJSHeapSize || 0) - (recentFirst?.usedJSHeapSize || 0);
+          const growthRate = growth / (recentFirst?.usedJSHeapSize || 1);
 
           if (growthRate > 0.5) { // 50%以上の増加
             logger.warn({

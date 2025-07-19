@@ -387,58 +387,17 @@ export abstract class BaseComponent {
     this.cleanupResources();
   }
 
-  /**
-   * 明示的なコンポーネント破棄
-   */
-  public async destroy(): Promise<void> {
-    await this.onDestroy();
-  }
 
-  /**
-   * 要素の表示/非表示を切り替え
-   */
-  protected toggle(element: HTMLElement, show?: boolean): void {
-    if (show === undefined) {
-      element.style.display = element.style.display === 'none' ? '' : 'none';
-    } else {
-      element.style.display = show ? '' : 'none';
-    }
-  }
 
-  /**
-   * 要素を表示
-   */
-  protected show(element: HTMLElement): void {
-    element.style.display = '';
-  }
 
-  /**
-   * 要素を非表示
-   */
-  protected hide(element: HTMLElement): void {
-    element.style.display = 'none';
-  }
 
   /**
    * クラスの追加/削除
    */
   protected toggleClass(element: HTMLElement, className: string, force?: boolean): void {
-    element.classList.toggle(className, force);
+    domBatcher.toggleClass(element, className, force !== undefined ? force : true, 'normal');
   }
 
-  /**
-   * クラスを追加
-   */
-  protected addClass(element: HTMLElement, className: string): void {
-    element.classList.add(className);
-  }
-
-  /**
-   * クラスを削除
-   */
-  protected removeClass(element: HTMLElement, className: string): void {
-    element.classList.remove(className);
-  }
 
   /**
    * エラーハンドリング
@@ -546,8 +505,7 @@ export abstract class BaseComponent {
 
   // ライフサイクルメソッド（サブクラスでオーバーライド可能）
   protected async onInit?(): Promise<void>;
-  protected async onMount?(): Promise<void>;
-  protected async onUpdate?(data?: any): Promise<void>;
-  protected async onUnmount?(): Promise<void>;
-  protected async onDestroy?(): Promise<void>;
+  protected onMount?(): Promise<void>;
+  protected onUpdate?(data?: any): Promise<void>;
+  protected onUnmount?(): Promise<void>;
 }

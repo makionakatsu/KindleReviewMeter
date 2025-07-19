@@ -179,7 +179,7 @@ export const PERFORMANCE = {
 
 // 開発環境設定
 export const DEV_CONFIG = {
-  DEBUG_MODE: process?.env?.NODE_ENV === 'development',
+  DEBUG_MODE: typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'),
   ENABLE_LOGGING: true,
   ENABLE_PERFORMANCE_MONITORING: true,
   MOCK_API_DELAY: 1000,
