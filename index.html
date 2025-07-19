@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon書籍レビュー数トラッカー - 設定</title>
+    
+    <!-- Meta tags -->
+    <meta name="description" content="Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化するツール">
+    <meta name="keywords" content="Amazon, 書籍, レビュー, 進捗管理, 目標設定">
+    <meta name="author" content="Kindle Review Meter">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📚</text></svg>">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/forms.css">
+    <link rel="stylesheet" href="css/settings.css">
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="src/main.js" as="script">
+    
+    <!-- Security headers -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' cdnjs.cloudflare.com;
+        style-src 'self' 'unsafe-inline' fonts.googleapis.com;
+        font-src 'self' fonts.gstatic.com;
+        img-src 'self' data: https: ssl-images-amazon.com m.media-amazon.com;
+        connect-src 'self' api.allorigins.win amazon.co.jp amazon.com;
+    ">
+</head>
+<body>
+    <!-- Main application container -->
+    <div id="app" class="app-container">
+        <!-- Loading indicator -->
+        <div id="loading" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">アプリケーションを読み込み中...</div>
+        </div>
+        
+        <!-- Error fallback -->
+        <div id="error-fallback" class="error-fallback" style="display: none;">
+            <div class="error-content">
+                <h1>⚠️ エラーが発生しました</h1>
+                <p id="error-message">アプリケーションの読み込みに失敗しました。</p>
+                <div class="error-actions">
+                    <button onclick="location.reload()" class="btn btn-primary">
+                        🔄 再読み込み
+                    </button>
+                    <button onclick="localStorage.clear(); location.reload()" class="btn btn-secondary">
+                        🗑️ データをクリアして再読み込み
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div class="footer-content">
+            <p>&copy; 2024 Amazon書籍レビュー数トラッカー</p>
+            <div class="footer-links">
+                <a href="amazon-review-visual.html">📊 ビジュアル表示</a>
+                <a href="#" onclick="showHelp(); return false;">❓ ヘルプ</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script type="module">
+        // Early error handling
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+            showErrorFallback(event.error?.message || event.message);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled promise rejection:', event.reason);
+            showErrorFallback('非同期処理でエラーが発生しました: ' + event.reason);
+        });
+
+        // Show error fallback
+        function showErrorFallback(message) {
+            const loading = document.getElementById('loading');
+            const errorFallback = document.getElementById('error-fallback');
+            const errorMessage = document.getElementById('error-message');
+            
+            if (loading) loading.style.display = 'none';
+            if (errorFallback) errorFallback.style.display = 'flex';
+            if (errorMessage) errorMessage.textContent = message;
+        }
+
+        // Show help function
+        window.showHelp = function() {
+            alert(`
+📚 Amazon書籍レビュー数トラッカー
+
+【使い方】
+1. Amazon書籍のURLを入力
+2. 「自動取得」ボタンをクリックして書籍情報を取得
+3. 目標レビュー数とストレッチ目標を設定
+4. 「設定を保存」をクリック
+5. ビジュアル表示ページで進捗を確認
+
+【対応URL】
+- https://www.amazon.co.jp/dp/XXXXXXXXXX
+- https://www.amazon.co.jp/gp/product/XXXXXXXXXX
+- https://www.amazon.com/dp/XXXXXXXXXX
+
+【キーボードショートカット】
+- Ctrl+S: 設定を保存
+- Ctrl+R: データを再取得
+- F1: このヘルプを表示
+
+【トラブルシューティング】
+- 書籍情報が取得できない場合：URLを確認してください
+- 著者名が正しくない場合：「✏️ 修正」ボタンで手動修正できます
+- データが保存されない場合：ブラウザの設定を確認してください
+            `);
+        };
+
+        // Loading management
+        let loadingTimeout;
+        
+        function hideLoading() {
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.style.opacity = '0';
+                setTimeout(() => {
+                    loading.style.display = 'none';
+                }, 300);
+            }
+            clearTimeout(loadingTimeout);
+        }
+
+        // Hide loading after maximum wait time
+        loadingTimeout = setTimeout(() => {
+            hideLoading();
+            showErrorFallback('アプリケーションの読み込みがタイムアウトしました。ページを再読み込みしてください。');
+        }, 10000);
+
+        // Load main application
+        import('./src/main.js')
+            .then(module => {
+                console.log('✅ Main module loaded successfully');
+                // Wait a bit for DOM updates, then hide loading
+                setTimeout(hideLoading, 500);
+            })
+            .catch(error => {
+                console.error('❌ Failed to load main module:', error);
+                console.error('詳細:', error);
+                showErrorFallback('メインモジュールの読み込みに失敗しました: ' + error.message);
+            });
+
+        // Performance monitoring
+        window.addEventListener('load', () => {
+            const loadTime = performance.now();
+            console.log(`📊 Page fully loaded in ${loadTime.toFixed(2)}ms`);
+            
+            // Report performance
+            if ('sendBeacon' in navigator && loadTime > 3000) {
+                console.warn('⚠️ Slow page load detected:', loadTime);
+            }
+        });
+
+        // Network status monitoring
+        window.addEventListener('online', () => {
+            console.log('🌐 Network: Online');
+        });
+
+        window.addEventListener('offline', () => {
+            console.log('📴 Network: Offline');
+            alert('インターネット接続が切断されました。一部の機能が利用できない場合があります。');
+        });
+    </script>
+
+    <!-- Analytics placeholder (for future use) -->
+    <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
+</body>
+</html>

@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon書籍レビュー数トラッカー - 設定</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style-settings.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📚 Amazon書籍レビュー数トラッカー</h1>
+        
+        <form id="settingsForm">
+            <!-- 書籍URLセクション -->
+            <div class="form-group">
+                <div class="section-title">📚 書籍情報</div>
+                <label for="bookUrl">Amazon書籍URL <span class="required">*</span></label>
+                <div class="input-with-button">
+                    <input type="url" id="bookUrl" name="bookUrl" placeholder="https://www.amazon.co.jp/dp/..." required>
+                    <button type="button" id="fetchAllBtn" class="btn-fetch" style="background: linear-gradient(45deg, #e67e22, #f39c12);">🚀 自動取得</button>
+                </div>
+                <div class="fetch-status" id="fetchAllStatus"></div>
+                <div class="error" id="bookUrlError">有効なAmazonのURLを入力してください</div>
+                <div class="auto-fetch-info">
+                    🎆 URLを入力して自動取得ボタンをクリックすると、タイトル・レビュー数・書影が自動で取得されます！
+                </div>
+            </div>
+
+            <!-- 目標設定セクション -->
+            <div class="form-group">
+                <div class="section-title">🎯 目標設定</div>
+                
+                <label for="targetReviews">目標レビュー数 <span class="required">*</span></label>
+                <input type="number" id="targetReviews" name="targetReviews" required min="1" placeholder="100">
+                <div class="error" id="targetReviewsError">1以上の整数を入力してください</div>
+
+                <label for="stretchReviews" style="margin-top: 15px;">ストレッチ目標レビュー数 <span class="required">*</span></label>
+                <input type="number" id="stretchReviews" name="stretchReviews" required min="1" placeholder="200">
+                <div class="error" id="stretchReviewsError">目標レビュー数より大きい整数を入力してください</div>
+            </div>
+
+            <div class="preview-section">
+                <div class="preview-title">📊 設定プレビュー</div>
+                <div class="preview-item">
+                    <span class="preview-label">書籍タイトル:</span>
+                    <span class="preview-value" id="previewTitle">未設定</span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">著者名:</span>
+                    <span class="preview-value" id="previewAuthor">未設定</span>
+                    <button type="button" id="editAuthorBtn" class="btn-edit" style="display: none; margin-left: 10px; padding: 2px 8px; font-size: 12px; background: #4ecdc4; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ 修正</button>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">現在のレビュー数:</span>
+                    <span class="preview-value" id="previewCurrent">0</span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">目標レビュー数:</span>
+                    <span class="preview-value" id="previewTarget">未設定</span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">ストレッチ目標:</span>
+                    <span class="preview-value" id="previewStretch">未設定</span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">達成率:</span>
+                    <span class="preview-value" id="previewProgress">0%</span>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-label">自動取得状態:</span>
+                    <span class="preview-value" id="previewAutoFetch">未取得</span>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn btn-primary">💾 設定を保存</button>
+                <a href="amazon-review-visual.html" class="btn btn-secondary">📊 ビジュアル表示</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'amazonReviewTracker';
+
+        // フォーム要素の取得
+        const form = document.getElementById('settingsForm');
+        const inputs = {
+            bookUrl: document.getElementById('bookUrl'),
+            targetReviews: document.getElementById('targetReviews'),
+            stretchReviews: document.getElementById('stretchReviews')
+        };
+
+        // 自動取得されたデータを保持する変数
+        let fetchedData = {
+            bookTitle: '',
+            bookAuthor: '',
+            currentReviews: 0,
+            bookCoverUrl: ''
+        };
+
+        // プレビュー要素の取得
+        const preview = {
+            title: document.getElementById('previewTitle'),
+            author: document.getElementById('previewAuthor'),
+            current: document.getElementById('previewCurrent'),
+            target: document.getElementById('previewTarget'),
+            stretch: document.getElementById('previewStretch'),
+            progress: document.getElementById('previewProgress'),
+            autoFetch: document.getElementById('previewAutoFetch')
+        };
+
+        // データの読み込み
+        function loadData() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    inputs.bookUrl.value = data.bookUrl || '';
+                    inputs.targetReviews.value = data.targetReviews || '';
+                    inputs.stretchReviews.value = data.stretchReviews || '';
+                    
+                    // 自動取得データの復元
+                    fetchedData.bookTitle = data.bookTitle || '';
+                    fetchedData.bookAuthor = data.bookAuthor || '';
+                    fetchedData.currentReviews = data.currentReviews || 0;
+                    fetchedData.bookCoverUrl = data.bookCoverUrl || '';
+                    
+                    updatePreview();
+                } catch (e) {
+                    console.error('データの読み込みに失敗しました:', e);
+                }
+            }
+        }
+
+        // データの保存
+        function saveData() {
+            const data = {
+                bookUrl: inputs.bookUrl.value,
+                bookTitle: fetchedData.bookTitle,
+                bookAuthor: fetchedData.bookAuthor,
+                currentReviews: fetchedData.currentReviews,
+                targetReviews: parseInt(inputs.targetReviews.value) || 0,
+                stretchReviews: parseInt(inputs.stretchReviews.value) || 0,
+                bookCoverUrl: fetchedData.bookCoverUrl,
+                lastUpdated: new Date().toISOString()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        }
+
+        // プレビューの更新
+        function updatePreview() {
+            const target = parseInt(inputs.targetReviews.value) || 0;
+            const stretch = parseInt(inputs.stretchReviews.value) || 0;
+
+            // 自動取得状態の更新
+            if (fetchedData.bookTitle) {
+                preview.autoFetch.textContent = '取得済み';
+                preview.title.textContent = fetchedData.bookTitle;
+                preview.author.textContent = fetchedData.bookAuthor || '未設定';
+                preview.current.textContent = fetchedData.currentReviews;
+                
+                // 著者名修正ボタンの表示制御 - データが取得されていれば常に表示
+                const editBtn = document.getElementById('editAuthorBtn');
+                editBtn.style.display = 'inline-block';
+            } else {
+                preview.autoFetch.textContent = '未取得';
+                preview.title.textContent = '未設定';
+                preview.author.textContent = '未設定';
+                preview.current.textContent = '0';
+                document.getElementById('editAuthorBtn').style.display = 'none';
+            }
+
+            preview.target.textContent = target > 0 ? target : '未設定';
+            preview.stretch.textContent = stretch > 0 ? stretch : '未設定';
+
+            // 達成率の計算
+            if (target > 0 && fetchedData.currentReviews > 0) {
+                const progress = Math.min(Math.round((fetchedData.currentReviews / target) * 100), 100);
+                preview.progress.textContent = `${progress}%`;
+            } else {
+                preview.progress.textContent = '0%';
+            }
+        }
+
+        // 著者名手動修正機能
+        function editAuthorName() {
+            const currentAuthor = fetchedData.bookAuthor || '';
+            const displayAuthor = currentAuthor === '' ? '' : currentAuthor;
+            const newAuthor = prompt('著者名を入力・修正してください:\n（空白にすると「未設定」になります）', displayAuthor);
+            
+            if (newAuthor !== null) {
+                if (newAuthor.trim() !== '') {
+                    const cleanedAuthor = cleanAuthorName(newAuthor);
+                    if (validateAuthorName(cleanedAuthor)) {
+                        fetchedData.bookAuthor = cleanedAuthor;
+                        updatePreview();
+                        console.log('手動修正で著者名を更新:', cleanedAuthor);
+                        showFetchStatus('success', `著者名を「${cleanedAuthor}」に更新しました`, 'fetchAllStatus');
+                    } else {
+                        alert('無効な著者名です。2-50文字で、適切な文字を使用してください。');
+                    }
+                } else {
+                    // 空文字で著者名をクリア
+                    fetchedData.bookAuthor = '';
+                    updatePreview();
+                    console.log('著者名をクリアしました');
+                    showFetchStatus('success', '著者名を「未設定」にリセットしました', 'fetchAllStatus');
+                }
+            }
+        }
+
+        // Amazon URLの検証
+        function isValidAmazonUrl(url) {
+            try {
+                const urlObj = new URL(url);
+                return urlObj.hostname.includes('amazon.co.jp') || urlObj.hostname.includes('amazon.com');
+            } catch {
+                return false;
+            }
+        }
+
+        // 強化された著者名抽出エンジン
+        async function extractAuthorName(html, url) {
+            console.log('🔍 改良版著者名抽出エンジン開始');
+            
+            // Tier 1: 構造化データの抽出
+            let author = await extractFromStructuredData(html);
+            if (author) {
+                console.log('✅ Tier 1 (構造化データ) で著者名取得:', author);
+                return author;
+            }
+            
+            // Tier 2: セマンティックHTMLの抽出
+            author = await extractFromSemanticHTML(html);
+            if (author) {
+                console.log('✅ Tier 2 (セマンティックHTML) で著者名取得:', author);
+                return author;
+            }
+            
+            // Tier 3: テキストパターンマッチング
+            author = await extractFromTextPatterns(html);
+            if (author) {
+                console.log('✅ Tier 3 (テキストパターン) で著者名取得:', author);
+                return author;
+            }
+            
+            // Tier 4: DOM構造解析
+            author = await extractFromDOMAnalysis(html);
+            if (author) {
+                console.log('✅ Tier 4 (DOM解析) で著者名取得:', author);
+                return author;
+            }
+            
+            console.log('❌ 全ての手法で著者名取得に失敗');
+            await logExtractionFailure(html, url);
+            return null;
+        }
+
+        // Tier 1: 構造化データからの抽出
+        async function extractFromStructuredData(html) {
+            console.log('🔍 Tier 1: 構造化データ解析');
+            
+            // JSON-LD抽出
+            const jsonLdPatterns = [
+                // 基本的なJSON-LD構造
+                /"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+                /"author"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+                /"author"\s*:\s*{\s*"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+                
+                // 配列形式のauthors
+                /"authors?"[^[]*?\[\s*{\s*"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+                
+                // Bookのauthorプロパティ
+                /"@type"\s*:\s*"Book"[^}]*?"author"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+            ];
+            
+            for (const pattern of jsonLdPatterns) {
+                const matches = [...html.matchAll(pattern)];
+                for (const match of matches) {
+                    const candidate = cleanAuthorName(match[1]);
+                    if (validateAuthorName(candidate)) {
+                        console.log('JSON-LD から著者名抽出:', candidate);
+                        return candidate;
+                    }
+                }
+            }
+            
+            // Microdata抽出
+            const microdataPatterns = [
+                /itemprop="author"[^>]*>([^<]+)/gi,
+                /itemprop="name"[^>]*>([^<]+)/gi,
+                /itemtype="[^"]*Person"[^>]*>[^<]*<[^>]*itemprop="name"[^>]*>([^<]+)/gi,
+            ];
+            
+            for (const pattern of microdataPatterns) {
+                const matches = [...html.matchAll(pattern)];
+                for (const match of matches) {
+                    const candidate = cleanAuthorName(match[1]);
+                    if (validateAuthorName(candidate)) {
+                        console.log('Microdata から著者名抽出:', candidate);
+                        return candidate;
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        // Tier 2: セマンティックHTMLからの抽出
+        async function extractFromSemanticHTML(html) {
+            console.log('🔍 Tier 2: セマンティックHTML解析');
+            
+            const semanticPatterns = [
+                // author/byline系のクラス・ID
+                /<[^>]*(?:class|id)="[^"]*author[^"]*"[^>]*>(?:<[^>]*>)*([^<]+?)(?:<\/[^>]*>)*<\/[^>]+>/gi,
+                /<[^>]*(?:class|id)="[^"]*byline[^"]*"[^>]*>(?:<[^>]*>)*([^<]+?)(?:<\/[^>]*>)*<\/[^>]+>/gi,
+                /<[^>]*(?:class|id)="[^"]*contributor[^"]*"[^>]*>(?:<[^>]*>)*([^<]+?)(?:<\/[^>]*>)*<\/[^>]+>/gi,
+                
+                // data属性ベース
+                /<[^>]*data-[^=]*author[^=]*="[^"]*"[^>]*>([^<]+?)<\/[^>]+>/gi,
+                /<[^>]*data-testid="[^"]*author[^"]*"[^>]*>([^<]+?)<\/[^>]+>/gi,
+                
+                // aria属性ベース
+                /<[^>]*aria-label="[^"]*author[^"]*"[^>]*>([^<]+?)<\/[^>]+>/gi,
+                /<[^>]*role="[^"]*author[^"]*"[^>]*>([^<]+?)<\/[^>]+>/gi,
+                
+                // 著者専用タグ（HTML5）
+                /<address[^>]*>([^<]+?)<\/address>/gi,
+                
+                // link要素のauthor
+                /<link[^>]*rel="author"[^>]*title="([^"]+?)"/gi,
+            ];
+            
+            for (const pattern of semanticPatterns) {
+                const matches = [...html.matchAll(pattern)];
+                for (const match of matches) {
+                    const candidate = cleanAuthorName(match[1]);
+                    if (validateAuthorName(candidate)) {
+                        console.log('セマンティックHTML から著者名抽出:', candidate);
+                        return candidate;
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        // Tier 3: テキストパターンマッチング
+        async function extractFromTextPatterns(html) {
+            console.log('🔍 Tier 3: テキストパターン解析');
+            
+            const textPatterns = [
+                // 日本語パターン（優先度高）
+                /著者[：:\s]*([あ-んア-ンー\u4e00-\u9faf\s]{2,30}?)(?:\s*[（(]|<|$)/gi,
+                /作者[：:\s]*([あ-んア-ンー\u4e00-\u9faf\s]{2,30}?)(?:\s*[（(]|<|$)/gi,
+                /([あ-んア-ンー\u4e00-\u9faf]{2,}[あ-んア-ンー\u4e00-\u9faf\s]*?)\s*(?:著|\\(著\\)|Author)/gi,
+                
+                // 英語パターン
+                /By:?\s+([A-Z][a-zA-Z\s.'-]{1,40}?)(?:\s*[,(]|<|$)/gi,
+                /Author:?\s+([A-Z][a-zA-Z\s.'-]{1,40}?)(?:\s*[,(]|<|$)/gi,
+                /Written by\s+([A-Z][a-zA-Z\s.'-]{1,40}?)(?:\s*[,(]|<|$)/gi,
+                
+                // byline内のパターン
+                /<[^>]*(?:byline|author)[^>]*>.*?([A-Z][a-zA-Z\s.'-]{1,40}?)(?:\s*Follow|\s*フォロー|<\/|$)/gi,
+                /<[^>]*(?:byline|author)[^>]*>.*?([あ-んア-ンー\u4e00-\u9faf]{2,}[あ-んア-ンー\u4e00-\u9faf\s]*?)(?:\s*Follow|\s*フォロー|<\/|$)/gi,
+                
+                // aタグ内（Follow除外）
+                /<a[^>]*>\s*([A-Z][a-zA-Z\s.'-]{1,40}?)\s*<\/a>(?!\s*Follow)/gi,
+                /<a[^>]*>\s*([あ-んア-ンー\u4e00-\u9faf]{2,}[あ-んア-ンー\u4e00-\u9faf\s]*?)\s*<\/a>(?!\s*Follow)/gi,
+                
+                // 複数著者対応
+                /Authors?[：:\s]*([A-Z][a-zA-Z\s.'-]+(?:,\s*[A-Z][a-zA-Z\s.'-]+)*?)(?:\s*[,(]|<|$)/gi,
+                /著者[：:\s]*([あ-んア-ンー\u4e00-\u9faf\s]+(?:、\s*[あ-んア-ンー\u4e00-\u9faf\s]+)*?)(?:\s*[（(]|<|$)/gi,
+            ];
+            
+            let bestCandidate = null;
+            let bestScore = 0;
+            
+            for (const pattern of textPatterns) {
+                const matches = [...html.matchAll(pattern)];
+                for (const match of matches) {
+                    const candidate = cleanAuthorName(match[1]);
+                    if (validateAuthorName(candidate)) {
+                        const score = scoreAuthorName(candidate);
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestCandidate = candidate;
+                        }
+                    }
+                }
+            }
+            
+            if (bestCandidate) {
+                console.log('テキストパターン から著者名抽出:', bestCandidate, 'スコア:', bestScore);
+                return bestCandidate;
+            }
+            
+            return null;
+        }
+
+        // Tier 4: DOM構造解析
+        async function extractFromDOMAnalysis(html) {
+            console.log('🔍 Tier 4: DOM構造解析');
+            
+            // 特定の構造パターンを解析
+            const structuralPatterns = [
+                // タイトル近辺の構造解析
+                /<h1[^>]*>.*?<\/h1>[\s\S]{0,500}?([A-Z][a-zA-Z\s.'-]{2,40}?)(?:<|\(|$)/gi,
+                /<h1[^>]*>.*?<\/h1>[\s\S]{0,500}?([あ-んア-ンー\u4e00-\u9faf]{2,}[あ-んア-ンー\u4e00-\u9faf\s]*?)(?:<|\(|$)/gi,
+                
+                // テーブル構造での著者情報
+                /<t[rd][^>]*>.*?(?:著者|Author|By)[^<]*<\/t[rd]>[\s]*<t[rd][^>]*>([^<]+?)<\/t[rd]>/gi,
+                
+                // リスト内の著者情報
+                /<li[^>]*>.*?(?:著者|Author|By)[^<]*([A-Z][a-zA-Z\s.'-]{2,40}?)<\/li>/gi,
+                /<li[^>]*>.*?(?:著者|Author|By)[^<]*([あ-んア-ンー\u4e00-\u9faf]{2,}[あ-んア-ンー\u4e00-\u9faf\s]*?)<\/li>/gi,
+            ];
+            
+            for (const pattern of structuralPatterns) {
+                const matches = [...html.matchAll(pattern)];
+                for (const match of matches) {
+                    const candidate = cleanAuthorName(match[1]);
+                    if (validateAuthorName(candidate)) {
+                        console.log('DOM構造解析 から著者名抽出:', candidate);
+                        return candidate;
+                    }
+                }
+            }
+            
+            return null;
+        }
+
+        // 著者名のクリーニング
+        function cleanAuthorName(rawName) {
+            if (!rawName) return '';
+            
+            return rawName
+                .replace(/\s*\(著\)/g, '')
+                .replace(/\s*\(Author\)/g, '')
+                .replace(/\s*著$/g, '')
+                .replace(/\s*Author$/g, '')
+                .replace(/Follow/gi, '')
+                .replace(/フォロー/g, '')
+                .replace(/\s*\([^)]*\)\s*/g, ' ') // 括弧内を削除
+                .replace(/[""''""]/g, '') // 引用符を削除
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        // 著者名の検証
+        function validateAuthorName(name) {
+            if (!name || name.length < 2 || name.length > 50) return false;
+            
+            // 無効な用語をチェック
+            const invalidTerms = [
+                'follow', 'more', 'see', 'clothing', 'store', 'shop', 'brand',
+                'kindle', 'amazon', 'paperback', 'hardcover', 'format',
+                'page', 'pages', 'price', 'buy', 'purchase', 'cart', 'wishlist',
+                'review', 'reviews', 'customer', 'rating', 'star', 'stars',
+                'visit', 'website', 'profile', 'biography', 'bio', 'more info'
+            ];
+            
+            const lowerName = name.toLowerCase();
+            if (invalidTerms.some(term => lowerName.includes(term))) return false;
+            
+            // 数字のみや記号のみを除外
+            if (/^\d+$/.test(name) || /^[^\w\s]*$/.test(name)) return false;
+            
+            // 空白のみを除外
+            if (name.trim() === '') return false;
+            
+            return true;
+        }
+
+        // 著者名のスコアリング（優先度付け）
+        function scoreAuthorName(name) {
+            let score = 0;
+            
+            // 日本語名を優先
+            if (/[あ-んア-ンー\u4e00-\u9faf]/.test(name)) score += 10;
+            
+            // 適切な長さ
+            if (name.length >= 3 && name.length <= 20) score += 5;
+            
+            // 大文字で始まる英語名
+            if (/^[A-Z][a-z]/.test(name)) score += 3;
+            
+            // スペースを含む（フルネーム）
+            if (/\s/.test(name) && name.split(' ').length <= 4) score += 2;
+            
+            return score;
+        }
+
+        // 抽出失敗時のログ出力
+        async function logExtractionFailure(html, url) {
+            console.log('=== 著者名抽出失敗の詳細分析 ===');
+            
+            // 関連するHTML構造を詳細表示
+            const relevantSections = [
+                html.match(/<[^>]*(?:byline|author|contributor)[^>]*>[\s\S]{0,300}/gi),
+                html.match(/<script[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/gi),
+                html.match(/<[^>]*(?:class|id)="[^"]*author[^"]*"[^>]*>[\s\S]{0,200}/gi),
+            ].filter(Boolean).flat();
+            
+            console.log('関連HTML構造:');
+            relevantSections.forEach((section, index) => {
+                console.log(`構造 ${index + 1}:`, section.substring(0, 200) + '...');
+            });
+            
+            // URL情報
+            console.log('対象URL:', url);
+            console.log('HTMLサイズ:', html.length, '文字');
+        }
+
+        // 一括取得機能（タイトル、レビュー数、書影）
+        async function fetchAllBookInfo() {
+            const url = inputs.bookUrl.value;
+            if (!url || !isValidAmazonUrl(url)) {
+                showFetchStatus('error', 'Amazon URLを正しく入力してください', 'fetchAllStatus');
+                return;
+            }
+
+            const fetchBtn = document.getElementById('fetchAllBtn');
+            fetchBtn.disabled = true;
+            fetchBtn.textContent = '🚀 取得中...';
+            showFetchStatus('loading', '書籍情報を取得中...', 'fetchAllStatus');
+
+            try {
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const response = await fetch(proxyUrl + encodeURIComponent(url));
+                
+                if (!response.ok) {
+                    throw new Error('ページの取得に失敗しました');
+                }
+
+                const html = await response.text();
+                let successCount = 0;
+                let results = [];
+                
+                // 1. タイトルの抽出
+                const titlePatterns = [
+                    /<title[^>]*>([^<]+Amazon[^<]*|[^<]*アマゾン[^<]*)<\/title>/i,
+                    /<span[^>]+id="[^"]*title[^"]*"[^>]*>([^<]+)<\/span>/i,
+                    /<h1[^>]+class="[^"]*title[^"]*"[^>]*>([^<]+)<\/h1>/i,
+                    /"title"\s*:\s*"([^"]+)"/,
+                    /<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i
+                ];
+                
+                let title = null;
+                for (const pattern of titlePatterns) {
+                    const match = html.match(pattern);
+                    if (match && match[1]) {
+                        title = match[1]
+                            .replace(/\s*[-|:]\s*Amazon.*$/i, '')
+                            .replace(/\s*[-|:]\s*アマゾン.*$/i, '')
+                            .replace(/\s*\|\s*.*$/, '')
+                            .trim();
+                        if (title.length > 5) {
+                            break;
+                        }
+                    }
+                }
+                
+                if (title && title.length <= 100) {
+                    fetchedData.bookTitle = title;
+                    results.push('タイトル');
+                    successCount++;
+                }
+
+                // 2. 著者名の抽出 - 改良版エンジン
+                console.log('=== 著者名抽出開始（改良版） ===');
+                let author = await extractAuthorName(html, url);
+                
+                if (author && author.length <= 50) {
+                    fetchedData.bookAuthor = author;
+                    results.push('著者名');
+                    successCount++;
+                } else if (!author) {
+                    console.log('著者名の取得に失敗しました');
+                }
+
+                // 3. レビュー数の抽出
+                const reviewPatterns = [
+                    /(?:レビュー|reviews?)\s*[：:]?\s*(\d+)\s*件/i,
+                    /data-hook="total-review-count"[^>]*>([\d,]+)/i,
+                    /"reviewCount"\s*:\s*(\d+)/i,
+                    /(\d+)\s*(?:件のレビュー|reviews?)/i,
+                    /(\d+)\s*個のカスタマーレビュー/i
+                ];
+
+                let reviewCount = null;
+                for (const pattern of reviewPatterns) {
+                    const match = html.match(pattern);
+                    if (match) {
+                        reviewCount = parseInt(match[1].replace(/,/g, ''));
+                        if (!isNaN(reviewCount)) break;
+                    }
+                }
+
+                if (reviewCount !== null && !isNaN(reviewCount)) {
+                    fetchedData.currentReviews = reviewCount;
+                    results.push('レビュー数');
+                    successCount++;
+                }
+
+                // 4. 書影の抽出
+                const coverPatterns = [
+                    /"hiRes":"([^"]+)"/,
+                    /"large":"([^"]+)"/,
+                    /<img[^>]+id="landingImage"[^>]+src="([^"]+)"/i,
+                    /<img[^>]+class="[^"]*book[^"]*"[^>]+src="([^"]+)"/i,
+                    /data-old-hires="([^"]+)"/,
+                    /"imageUrl":"([^"]+)"/
+                ];
+
+                let coverUrl = null;
+                for (const pattern of coverPatterns) {
+                    const match = html.match(pattern);
+                    if (match && match[1]) {
+                        coverUrl = match[1].replace(/\\u002F/g, '/').replace(/\\/g, '');
+                        if (coverUrl.startsWith('//')) {
+                            coverUrl = 'https:' + coverUrl;
+                        } else if (coverUrl.startsWith('/')) {
+                            const urlObj = new URL(url);
+                            coverUrl = urlObj.origin + coverUrl;
+                        }
+                        if (coverUrl.startsWith('http')) break;
+                    }
+                }
+
+                if (coverUrl && coverUrl.startsWith('http')) {
+                    fetchedData.bookCoverUrl = coverUrl;
+                    results.push('書影');
+                    successCount++;
+                }
+
+                if (successCount > 0) {
+                    updatePreview();
+                    showFetchStatus('success', `取得完了: ${results.join('、')} (${successCount}/4項目)`, 'fetchAllStatus');
+                } else {
+                    showFetchStatus('error', '情報を取得できませんでした。手動で入力してください。', 'fetchAllStatus');
+                }
+            } catch (error) {
+                console.error('書籍情報取得エラー:', error);
+                showFetchStatus('error', '取得に失敗しました。手動で入力してください。', 'fetchAllStatus');
+            } finally {
+                fetchBtn.disabled = false;
+                fetchBtn.textContent = '🚀 自動取得';
+            }
+        }
+
+        // バリデーション
+        function validateForm() {
+            let isValid = true;
+
+            // エラー表示をリセット
+            document.querySelectorAll('.error').forEach(error => error.style.display = 'none');
+            document.querySelectorAll('input').forEach(input => input.classList.remove('input-error'));
+
+            // Amazon URLの検証
+            if (!inputs.bookUrl.value.trim()) {
+                showError('bookUrl', 'bookUrlError');
+                isValid = false;
+            } else if (!isValidAmazonUrl(inputs.bookUrl.value)) {
+                showError('bookUrl', 'bookUrlError');
+                isValid = false;
+            }
+
+            // 自動取得データの検証
+            if (!fetchedData.bookTitle.trim()) {
+                alert('書籍情報を自動取得してください。');
+                isValid = false;
+            }
+
+            // 目標レビュー数の検証
+            const targetReviews = parseInt(inputs.targetReviews.value);
+            if (isNaN(targetReviews) || targetReviews < 1) {
+                showError('targetReviews', 'targetReviewsError');
+                isValid = false;
+            }
+
+            // ストレッチ目標の検証
+            const stretchReviews = parseInt(inputs.stretchReviews.value);
+            if (isNaN(stretchReviews) || stretchReviews <= targetReviews) {
+                showError('stretchReviews', 'stretchReviewsError');
+                isValid = false;
+            }
+
+            return isValid;
+        }
+
+        function showError(inputId, errorId) {
+            inputs[inputId].classList.add('input-error');
+            document.getElementById(errorId).style.display = 'block';
+        }
+
+        // 取得ステータスの表示
+        function showFetchStatus(type, message, statusId = 'fetchStatus') {
+            const statusEl = document.getElementById(statusId);
+            statusEl.className = `fetch-status ${type}`;
+            statusEl.textContent = message;
+            statusEl.style.display = 'block';
+            
+            if (type === 'success' || type === 'error') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // イベントリスナーの設定
+        Object.values(inputs).forEach(input => {
+            input.addEventListener('input', updatePreview);
+        });
+
+        document.getElementById('fetchAllBtn').addEventListener('click', fetchAllBookInfo);
+        document.getElementById('editAuthorBtn').addEventListener('click', editAuthorName);
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (validateForm()) {
+                saveData();
+                alert('設定が保存されました！\n\nビジュアル表示ページで確認してください。');
+            }
+        });
+
+        // 初期化
+        loadData();
+        updatePreview();
+    </script>
+</body>
+</html>

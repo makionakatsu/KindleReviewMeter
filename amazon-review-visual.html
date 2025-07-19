@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon書籍レビュー数トラッカー - ビジュアル表示</title>
+    
+    <!-- Meta tags -->
+    <meta name="description" content="Amazon書籍のレビュー数進捗をビジュアルで表示し、目標達成状況を確認">
+    <meta name="keywords" content="Amazon, 書籍, レビュー, 進捗表示, 可視化">
+    <meta name="author" content="Kindle Review Meter">
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/progress.css">
+    <link rel="stylesheet" href="css/visual.css">
+    <link rel="stylesheet" href="css/share.css">
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="src/visual.js" as="script">
+    
+    <!-- Security headers -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' cdnjs.cloudflare.com;
+        style-src 'self' 'unsafe-inline' fonts.googleapis.com;
+        font-src 'self' fonts.gstatic.com;
+        img-src 'self' data: https: ssl-images-amazon.com m.media-amazon.com;
+        connect-src 'self' api.allorigins.win amazon.co.jp amazon.com;
+    ">
+    
+    <!-- Open Graph meta tags for social sharing -->
+    <meta property="og:title" content="Amazon書籍レビュー数トラッカー">
+    <meta property="og:description" content="書籍のレビュー数目標達成を可視化">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://example.com/og-image.png">
+    
+    <!-- Twitter Card meta tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Amazon書籍レビュー数トラッカー">
+    <meta name="twitter:description" content="書籍のレビュー数目標達成を可視化">
+</head>
+<body class="visual-page">
+    <!-- Main application container -->
+    <div id="app" class="app-container visual-container">
+        <!-- Loading indicator -->
+        <div id="loading" class="loading-overlay">
+            <div class="loading-spinner pulse"></div>
+            <div class="loading-text">プログレスデータを読み込み中...</div>
+        </div>
+        
+        <!-- Error fallback -->
+        <div id="error-fallback" class="error-fallback" style="display: none;">
+            <div class="error-content">
+                <h1>⚠️ エラーが発生しました</h1>
+                <p id="error-message">アプリケーションの読み込みに失敗しました。</p>
+                <div class="error-actions">
+                    <button onclick="location.reload()" class="btn btn-primary">
+                        🔄 再読み込み
+                    </button>
+                    <a href="index.html" class="btn btn-secondary">
+                        ⚙️ 設定ページに戻る
+                    </a>
+                    <button onclick="localStorage.clear(); location.reload()" class="btn btn-secondary">
+                        🗑️ データをクリアして再読み込み
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share modal template (hidden) -->
+    <template id="share-modal-template">
+        <div class="share-modal">
+            <div class="share-modal-content">
+                <div class="share-modal-header">
+                    <h3>📤 シェア</h3>
+                    <button class="share-modal-close" aria-label="閉じる">&times;</button>
+                </div>
+                <div class="share-modal-body">
+                    <div class="share-preview">
+                        <img class="share-preview-image" alt="シェア画像プレビュー">
+                    </div>
+                    <div class="share-actions">
+                        <button class="btn btn-primary share-download">
+                            📥 画像をダウンロード
+                        </button>
+                        <button class="btn btn-secondary share-twitter">
+                            🐦 Twitterでシェア
+                        </button>
+                        <button class="btn btn-secondary share-copy">
+                            📋 URLをコピー
+                        </button>
+                    </div>
+                    <div class="share-info">
+                        <small class="share-details">
+                            <!-- シェア詳細情報がここに表示される -->
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Toast notification container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div class="footer-content">
+            <p>&copy; 2024 Amazon書籍レビュー数トラッカー</p>
+            <div class="footer-links">
+                <a href="index.html">⚙️ 設定ページ</a>
+                <a href="#" onclick="showHelp(); return false;">❓ ヘルプ</a>
+                <a href="#" onclick="showKeyboardShortcuts(); return false;">⌨️ ショートカット</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script type="module">
+        // Early error handling
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+            showErrorFallback(event.error?.message || event.message);
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            console.error('Unhandled promise rejection:', event.reason);
+            showErrorFallback('非同期処理でエラーが発生しました: ' + event.reason);
+        });
+
+        // Utility functions
+        function showErrorFallback(message) {
+            const loading = document.getElementById('loading');
+            const errorFallback = document.getElementById('error-fallback');
+            const errorMessage = document.getElementById('error-message');
+            
+            if (loading) loading.style.display = 'none';
+            if (errorFallback) errorFallback.style.display = 'flex';
+            if (errorMessage) errorMessage.textContent = message;
+        }
+
+        function showToast(message, type = 'info', duration = 3000) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `
+                <div class="toast-content">
+                    <span class="toast-message">${message}</span>
+                    <button class="toast-close" onclick="this.parentElement.parentElement.remove()">&times;</button>
+                </div>
+            `;
+
+            container.appendChild(toast);
+
+            // Animate in
+            setTimeout(() => toast.classList.add('show'), 10);
+
+            // Auto remove
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // Help functions
+        window.showHelp = function() {
+            alert(`
+📊 ビジュアル表示ページ
+
+【機能】
+- 書籍レビュー数の進捗をグラフィカルに表示
+- マイルストーンの達成状況を確認
+- シェア用画像の生成とSNS投稿
+- リアルタイムでのデータ更新
+
+【操作方法】
+- 🔄 更新ボタン: 最新のレビュー数を取得
+- 📤 シェアボタン: SNS用の画像を生成
+- ← 設定に戻る: 設定ページに移動
+
+【シェア機能】
+- 画像として保存してSNSに投稿可能
+- Twitter用の投稿テキストを自動生成
+- URLをコピーしてシェア可能
+
+【キーボードショートカット】
+- Ctrl+R: データを更新
+- Ctrl+S: シェア画像を生成
+- Esc: モーダルを閉じる
+            `);
+        };
+
+        window.showKeyboardShortcuts = function() {
+            alert(`
+⌨️ キーボードショートカット
+
+【データ操作】
+- Ctrl+R: レビューデータを更新
+- Ctrl+S: シェア画像を生成
+
+【ナビゲーション】
+- Esc: モーダルダイアログを閉じる
+
+【その他】
+- F1: ヘルプを表示
+- F5: ページを再読み込み
+
+💡 ヒント: ほとんどの操作はマウスでも行えますが、キーボードショートカットを使うとより効率的に操作できます。
+            `);
+        };
+
+        // Loading management
+        let loadingTimeout;
+        
+        function hideLoading() {
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.style.opacity = '0';
+                setTimeout(() => {
+                    loading.style.display = 'none';
+                }, 300);
+            }
+            clearTimeout(loadingTimeout);
+        }
+
+        // Hide loading after maximum wait time
+        loadingTimeout = setTimeout(() => {
+            hideLoading();
+            showErrorFallback('アプリケーションの読み込みがタイムアウトしました。');
+        }, 10000);
+
+        // Load visual application
+        import('./src/visual.js')
+            .then(module => {
+                console.log('✅ Visual module loaded successfully');
+                showToast('アプリケーションが読み込まれました', 'success', 2000);
+                setTimeout(hideLoading, 500);
+            })
+            .catch(error => {
+                console.error('❌ Failed to load visual module:', error);
+                console.error('詳細:', error);
+                showErrorFallback('ビジュアル表示モジュールの読み込みに失敗しました: ' + error.message);
+            });
+
+        // Performance monitoring
+        window.addEventListener('load', () => {
+            const loadTime = performance.now();
+            console.log(`📊 Visual page loaded in ${loadTime.toFixed(2)}ms`);
+            
+            if (loadTime > 3000) {
+                console.warn('⚠️ Slow page load detected:', loadTime);
+                showToast('ページの読み込みが遅くなっています', 'warning', 5000);
+            }
+        });
+
+        // Network status monitoring
+        window.addEventListener('online', () => {
+            console.log('🌐 Network: Online');
+            showToast('インターネット接続が復旧しました', 'success', 3000);
+        });
+
+        window.addEventListener('offline', () => {
+            console.log('📴 Network: Offline');
+            showToast('インターネット接続が切断されました。更新機能は利用できません。', 'warning', 5000);
+        });
+
+        // Page visibility API for performance optimization
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                console.log('👁️ Page hidden - pausing non-critical operations');
+            } else {
+                console.log('👁️ Page visible - resuming operations');
+            }
+        });
+
+        // Touch gesture support for mobile
+        let touchStartX = null;
+        let touchStartY = null;
+
+        document.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        });
+
+        document.addEventListener('touchend', (e) => {
+            if (touchStartX === null || touchStartY === null) return;
+
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+
+            // Swipe right to go back (if significant horizontal movement)
+            if (Math.abs(deltaX) > Math.abs(deltaY) && deltaX > 100 && Math.abs(deltaY) < 100) {
+                // Navigate back to settings
+                window.location.href = 'index.html';
+            }
+
+            touchStartX = null;
+            touchStartY = null;
+        });
+
+        // Expose utility functions globally
+        window.showToast = showToast;
+    </script>
+</body>
+</html>
