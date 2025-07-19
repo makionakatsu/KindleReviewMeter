@@ -1,6 +1,6 @@
 {
   "name": "kindle-review-meter",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Amazon書籍レビュー数トラッカー - 書籍のレビュー数を追跡し、目標達成までの進捗を可視化するツール",
   "type": "module",
   "main": "src/main.js",
@@ -10,7 +10,7 @@
     "build:assets": "npm run copy:css && npm run copy:html",
     "build:dev": "npm run build:ts -- --sourceMap",
     "build:prod": "npm run build && npm run minify",
-    "build:github": "npm run build:ts || true && npm run copy:css && npm run copy:html",
+    "build:github": "npm run build:ts && npm run copy:css && npm run copy:html",
     "clean": "rimraf dist",
     "copy:css": "cpx 'css/**/*' dist/css",
     "copy:html": "cpx '*.html' dist",

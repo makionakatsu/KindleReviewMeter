@@ -20,8 +20,13 @@
     <link rel="stylesheet" href="css/visual.css">
     <link rel="stylesheet" href="css/share.css">
     
-    <!-- Preload critical resources -->
-    <link rel="preload" href="visual.js" as="script">
+    <!-- Cache control for debugging -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
+    <!-- Preload critical resources with timestamp -->
+    <link rel="preload" href="visual.js?v=2.0.1" as="script">
     
     <!-- Security headers - Optimized CSP -->
     <meta http-equiv="Content-Security-Policy" content="
@@ -242,16 +247,23 @@
             showErrorFallback('アプリケーションの読み込みがタイムアウトしました。');
         }, 10000);
 
-        // Load visual application
-        import('./visual.js')
+        // Load visual application with version parameter
+        import('./visual.js?v=2.0.1')
             .then(module => {
-                console.log('✅ Visual module loaded successfully');
+                console.log('✅ Visual module loaded successfully v2.0.1');
                 showToast('アプリケーションが読み込まれました', 'success', 2000);
                 setTimeout(hideLoading, 500);
             })
             .catch(error => {
                 console.error('❌ Failed to load visual module:', error);
-                console.error('詳細:', error);
+                console.error('📊 Error details:', {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name,
+                    timestamp: new Date().toISOString(),
+                    userAgent: navigator.userAgent,
+                    url: window.location.href
+                });
                 showErrorFallback('ビジュアル表示モジュールの読み込みに失敗しました: ' + error.message);
             });
 
@@ -319,6 +331,6 @@
     </script>
 
     <!-- Main visual application script -->
-    <script type="module" src="visual.js"></script>
+    <script type="module" src="visual.js?v=2.0.1"></script>
 </body>
 </html>

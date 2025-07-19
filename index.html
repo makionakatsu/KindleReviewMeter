@@ -19,8 +19,13 @@
     <link rel="stylesheet" href="css/forms.css">
     <link rel="stylesheet" href="css/settings.css">
     
-    <!-- Preload critical resources -->
-    <link rel="preload" href="main.js" as="script">
+    <!-- Cache control for debugging -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
+    <!-- Preload critical resources with timestamp -->
+    <link rel="preload" href="main.js?v=2.0.1" as="script">
     
     <!-- Security headers - Optimized CSP -->
     <meta http-equiv="Content-Security-Policy" content="
@@ -147,16 +152,23 @@
             showErrorFallback('アプリケーションの読み込みがタイムアウトしました。ページを再読み込みしてください。');
         }, 10000);
 
-        // Load main application
-        import('./main.js')
+        // Load main application with version parameter
+        import('./main.js?v=2.0.1')
             .then(module => {
-                console.log('✅ Main module loaded successfully');
+                console.log('✅ Main module loaded successfully v2.0.1');
                 // Wait a bit for DOM updates, then hide loading
                 setTimeout(hideLoading, 500);
             })
             .catch(error => {
                 console.error('❌ Failed to load main module:', error);
-                console.error('詳細:', error);
+                console.error('📊 Error details:', {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name,
+                    timestamp: new Date().toISOString(),
+                    userAgent: navigator.userAgent,
+                    url: window.location.href
+                });
                 showErrorFallback('メインモジュールの読み込みに失敗しました: ' + error.message);
             });
 
@@ -183,7 +195,7 @@
     </script>
 
     <!-- Main application script -->
-    <script type="module" src="main.js"></script>
+    <script type="module" src="main.js?v=2.0.1"></script>
 
     <!-- Analytics placeholder (for future use) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
