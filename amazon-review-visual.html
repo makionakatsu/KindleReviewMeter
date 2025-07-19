@@ -26,9 +26,9 @@
     <meta http-equiv="Expires" content="0">
     
     <!-- Preload critical resources with timestamp -->
-    <link rel="preload" href="visual.js?v=2.0.1" as="script">
+    <link rel="preload" href="visual.js?v=2.0.1" as="script" crossorigin="anonymous">
     
-    <!-- Security headers - Optimized CSP -->
+    <!-- Security headers - Optimized CSP (frame-ancestors must be set via server header) -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
         script-src 'self' 'unsafe-inline';
@@ -36,7 +36,6 @@
         font-src 'self' fonts.gstatic.com;
         img-src 'self' data: https: ssl-images-amazon.com m.media-amazon.com images-amazon.com;
         connect-src 'self' api.allorigins.win *.amazon.co.jp *.amazon.com cors-anywhere.herokuapp.com;
-        frame-ancestors 'none';
         form-action 'self';
         base-uri 'self';
         object-src 'none';
