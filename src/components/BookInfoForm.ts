@@ -45,6 +45,9 @@ export class BookInfoForm extends BaseComponent {
     statusDisplay?: HTMLElement;
     previewSection?: HTMLElement;
     editAuthorButton?: HTMLButtonElement;
+    authorInput?: HTMLInputElement;
+    titleInput?: HTMLInputElement;
+    currentReviewsInput?: HTMLInputElement;
   } = {};
 
   constructor(
@@ -84,6 +87,7 @@ export class BookInfoForm extends BaseComponent {
   protected override async onInit(): Promise<void> {
     this.createFormStructure();
     this.bindEvents();
+    this.loadExistingData();
     this.updatePreview();
   }
 
@@ -126,6 +130,11 @@ export class BookInfoForm extends BaseComponent {
 
           ${this.options.showPreview ? this.createPreviewSection() : ''}
 
+          <!-- 隠し入力フィールド (著者名の保存用) -->
+          <input type="hidden" id="bookAuthor" name="bookAuthor" value="">
+          <input type="hidden" id="bookTitle" name="bookTitle" value="">
+          <input type="hidden" id="currentReviews" name="currentReviews" value="0">
+          
           <div class="button-group">
             <button type="submit" class="btn btn-primary">💾 設定を保存</button>
             <a href="amazon-review-visual.html" class="btn btn-secondary">📊 ビジュアル表示</a>
@@ -144,6 +153,9 @@ export class BookInfoForm extends BaseComponent {
       statusDisplay: this.select<HTMLElement>('#fetchAllStatus') ?? undefined,
       previewSection: this.select<HTMLElement>('.preview-section') ?? undefined,
       editAuthorButton: this.select<HTMLButtonElement>('#editAuthorBtn') ?? undefined,
+      authorInput: this.select<HTMLInputElement>('#bookAuthor') ?? undefined,
+      titleInput: this.select<HTMLInputElement>('#bookTitle') ?? undefined,
+      currentReviewsInput: this.select<HTMLInputElement>('#currentReviews') ?? undefined,
     };
   }
 
@@ -364,9 +376,9 @@ export class BookInfoForm extends BaseComponent {
       bookUrl: this.elements.urlInput?.value?.trim() || '',
       targetReviews: parseInt(this.elements.targetInput?.value || '0', 10),
       stretchReviews: parseInt(this.elements.stretchInput?.value || '0', 10),
-      bookTitle: data.bookTitle,
-      bookAuthor: data.bookAuthor,
-      currentReviews: data.currentReviews,
+      bookTitle: this.elements.titleInput?.value || data.bookTitle,
+      bookAuthor: this.elements.authorInput?.value || data.bookAuthor,
+      currentReviews: parseInt(this.elements.currentReviewsInput?.value || '0', 10) || data.currentReviews,
       averageRating: data.averageRating,
       bookImage: data.bookImage,
       lastFetchedAt: data.lastFetchedAt,
@@ -426,11 +438,14 @@ export class BookInfoForm extends BaseComponent {
    * プレビューを更新
    */
   private updatePreview(): void {
-    if (!this.options.showPreview) return;
-
     const data = this.bookModel.getData();
     const formData = this.getFormData();
     const progressData = this.bookModel.calculateProgress();
+
+    // 隠し入力フィールドを更新
+    this.syncHiddenInputs(data);
+
+    if (!this.options.showPreview) return;
 
     // プレビュー要素を更新
     const updates: [string, string][] = [
@@ -453,6 +468,21 @@ export class BookInfoForm extends BaseComponent {
     // 著者名編集ボタンの表示制御
     if (this.elements.editAuthorButton) {
       this.toggle(this.elements.editAuthorButton, data.bookTitle !== '');
+    }
+  }
+
+  /**
+   * 隠し入力フィールドを同期
+   */
+  private syncHiddenInputs(data: BookData): void {
+    if (this.elements.authorInput) {
+      this.elements.authorInput.value = data.bookAuthor || '';
+    }
+    if (this.elements.titleInput) {
+      this.elements.titleInput.value = data.bookTitle || '';
+    }
+    if (this.elements.currentReviewsInput) {
+      this.elements.currentReviewsInput.value = data.currentReviews.toString();
     }
   }
 

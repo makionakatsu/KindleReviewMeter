@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     
     <!-- Preload critical resources with timestamp -->
-    <link rel="preload" href="main.js?v=2.0.1" as="script" crossorigin="anonymous">
+    <link rel="preload" href="main.js?v=2.0.2" as="script" crossorigin="anonymous">
     
     <!-- Security headers - Optimized CSP (frame-ancestors must be set via server header) -->
     <meta http-equiv="Content-Security-Policy" content="
@@ -152,9 +152,9 @@
         }, 10000);
 
         // Load main application with version parameter
-        import('./main.js?v=2.0.1')
+        import('./main.js?v=2.0.2')
             .then(module => {
-                console.log('✅ Main module loaded successfully v2.0.1');
+                console.log('✅ Main module loaded successfully v2.0.2');
                 // Wait a bit for DOM updates, then hide loading
                 setTimeout(hideLoading, 500);
             })
@@ -194,7 +194,7 @@
     </script>
 
     <!-- Main application script -->
-    <script type="module" src="main.js?v=2.0.1"></script>
+    <script type="module" src="main.js?v=2.0.2"></script>
 
     <!-- Analytics placeholder (for future use) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
