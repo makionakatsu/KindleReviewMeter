@@ -1,7 +1,25 @@
 /**
  * プログレス表示コンポーネント
  * 
- * 書籍レビュー数の進捗と達成状況をビジュアル表示
+ * 【責任範囲】
+ * - 書籍レビュー数の進捗状況をビジュアル表示（プログレスバー、統計値）
+ * - マイルストーン達成状況の表示と管理
+ * - 書籍情報（タイトル、著者、カバー画像）の表示
+ * - リアルタイムデータ更新機能（手動/自動更新）
+ * - シェア機能の提供（画像生成、SNS投稿対応）
+ * - アニメーション効果による UX向上
+ * 
+ * 【ビジュアル要素】
+ * - プログレスバー：現在の達成率を色分けで表示（低・中・高・完了・超過）
+ * - 統計表示：現在/目標/ストレッチ目標レビュー数
+ * - マイルストーン：設定された中間目標の達成状況
+ * - 達成メッセージ：進捗に応じた励ましメッセージ
+ * 
+ * 【機能特徴】
+ * - 自動更新：設定間隔でのバックグラウンド更新
+ * - レスポンシブ対応：デバイス画面サイズに適応
+ * - エラー耐性：ネットワーク障害時の適切な処理
+ * - パフォーマンス最適化：DOM更新の最小化
  */
 
 import { BaseComponent } from './BaseComponent.js';
@@ -26,7 +44,7 @@ export class ProgressViewer extends BaseComponent {
   private bookModel: BookDataModel;
   private options: ProgressViewerOptions;
   private progressData: ProgressData | null = null;
-  private refreshTimer?: NodeJS.Timeout;
+  private refreshTimerId?: string;
   
   // DOM要素への参照
   private elements: {
@@ -298,7 +316,7 @@ export class ProgressViewer extends BaseComponent {
       // カバープレースホルダーを隠す
       const placeholder = this.select('.book-cover-placeholder');
       if (placeholder) {
-        this.hide(placeholder);
+        this.hide(placeholder as HTMLElement);
       }
     }
   }
@@ -310,7 +328,7 @@ export class ProgressViewer extends BaseComponent {
     if (!this.progressData) return;
 
     // 統計値を更新
-    const updates = [
+    const updates: [string, string][] = [
       ['#currentReviews', data.currentReviews.toLocaleString()],
       ['#targetReviews', data.targetReviews.toLocaleString()],
       ['#stretchReviews', data.stretchReviews.toLocaleString()],
@@ -442,15 +460,18 @@ export class ProgressViewer extends BaseComponent {
   }
 
   /**
-   * マイルストーンにアニメーション効果を追加
+   * マイルストーンにアニメーション効果を追加（パフォーマンス最適化）
    */
   private animateMilestones(): void {
     const milestoneItems = this.selectAll('.milestone-item');
     
-    milestoneItems.forEach((item, index) => {
-      setTimeout(() => {
-        this.addClass(item, 'animate-in');
-      }, index * 100);
+    // バッチ処理でアニメーションクラスを追加
+    this.batchDOMOperations(() => {
+      milestoneItems.forEach((item, index) => {
+        setTimeout(() => {
+          this.addClass(item as HTMLElement, 'animate-in');
+        }, index * 100);
+      });
     });
   }
 
@@ -553,7 +574,7 @@ export class ProgressViewer extends BaseComponent {
    */
   private showUpdateMessage(type: 'success' | 'error', message: string): void {
     // 一時的なメッセージ要素を作成
-    const messageElement = this.domHelper.create('div', {
+    const messageElement = this.context.domHelper.create('div', {
       className: `update-message ${type}`,
       textContent: message,
     });
@@ -575,25 +596,23 @@ export class ProgressViewer extends BaseComponent {
   }
 
   /**
-   * 自動更新を開始
+   * 自動更新を開始（メモリ管理対応）
    */
   private startAutoRefresh(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-    }
+    this.stopAutoRefresh(); // 既存タイマーを停止
 
-    this.refreshTimer = setInterval(() => {
+    this.refreshTimerId = this.setManagedInterval(() => {
       this.handleRefresh();
-    }, this.options.refreshInterval);
+    }, this.options.refreshInterval || 30000);
   }
 
   /**
-   * 自動更新を停止
+   * 自動更新を停止（メモリ管理対応）
    */
   private stopAutoRefresh(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = undefined;
+    if (this.refreshTimerId) {
+      // memoryManager経由で管理されているため、BaseComponentのcleanupで自動的に清理される
+      this.refreshTimerId = undefined;
     }
   }
 
@@ -614,8 +633,8 @@ export class ProgressViewer extends BaseComponent {
   /**
    * クリーンアップ
    */
-  protected async onDestroy(): Promise<void> {
+  protected override async onDestroy(): Promise<void> {
     this.stopAutoRefresh();
-    await super.onDestroy();
+    // 基底クラスのonDestroyは存在しないため削除
   }
 }

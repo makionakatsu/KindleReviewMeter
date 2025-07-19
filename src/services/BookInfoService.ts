@@ -1,7 +1,24 @@
 /**
  * 書籍情報取得サービス
  * 
- * Amazon書籍ページから書籍情報（タイトル、著者、レビュー数、書影）を取得
+ * 【責任範囲】
+ * - Amazon書籍ページから包括的な書籍情報の自動取得
+ * - プロキシサービスを経由したCORS制限の回避
+ * - 複数の抽出パターンによる高い成功率の実現  
+ * - ネットワークエラーとパースエラーの適切なハンドリング
+ * - レート制限と負荷分散の考慮
+ * 
+ * 【取得対象データ】
+ * - 書籍タイトル：title要素、og:title、span#title等から抽出
+ * - 著者名：AuthorExtractionServiceと連携した高精度抽出
+ * - レビュー数：data-hook="total-review-count"等の複数パターン対応
+ * - 書影URL：hiRes、large、landingImage等の高解像度画像を優先取得
+ * 
+ * 【技術実装】
+ * - プロキシ：api.allorigins.win経由でのCORS回避
+ * - エラー処理：ネットワーク、パース、認証エラーの分類と適切な対応
+ * - パフォーマンス：並行処理による高速化
+ * - 信頼性：複数のフォールバックパターンによる堅牢性
  */
 
 import { 
@@ -11,6 +28,8 @@ import {
   AuthorExtractionResult 
 } from '../types/index.js';
 import { AuthorExtractionService } from './AuthorExtractionService.js';
+import { logger } from '../utils/AILogger.js';
+import { securityHelper } from '../utils/SecurityHelper.js';
 
 export class AmazonBookInfoService implements BookInfoService {
   private authorExtractor: AuthorExtractionService;
@@ -48,7 +67,21 @@ export class AmazonBookInfoService implements BookInfoService {
     };
 
     try {
-      // URL検証
+      // セキュリティ検証
+      const urlValidation = securityHelper.validateAmazonURL(url);
+      if (!urlValidation.isValid) {
+        logger.error({
+          component: 'BookInfoService',
+          method: 'fetchBookInfo',
+          operation: 'SECURITY_VALIDATION_FAILED',
+          data: { url }
+        }, `🚨 SECURITY_VALIDATION_FAILED: Invalid Amazon URL`, ['security', 'validation', 'failed']);
+        
+        result.errors.push('無効または安全でないAmazonのURLです');
+        return result;
+      }
+      
+      // 従来のURL検証も実行
       if (!this.validateUrl(url)) {
         result.errors.push('無効なAmazonのURLです');
         return result;

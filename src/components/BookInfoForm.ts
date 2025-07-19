@@ -1,7 +1,23 @@
 /**
  * 書籍情報フォームコンポーネント
  * 
- * Amazon URLの入力、自動取得、手動修正機能を提供
+ * 【責任範囲】
+ * - Amazon書籍URLの入力と検証を管理
+ * - 書籍情報（タイトル、著者、レビュー数、書影）の自動取得機能を提供
+ * - 目標レビュー数とストレッチ目標の設定フォームを管理
+ * - リアルタイムプレビュー表示で設定内容の可視化
+ * - 著者名の手動修正機能（自動取得結果が不正確な場合の対応）
+ * - フォームバリデーションとエラー表示
+ * - データの永続化（LocalStorage）とデータモデルとの連携
+ * 
+ * 【主要機能】
+ * - URLバリデーション：Amazon.co.jp/Amazon.comのURL形式チェック
+ * - 自動取得：プロキシサービス経由での書籍情報スクレイピング
+ * - プレビュー：設定値の即座反映とプログレス計算表示
+ * - エラーハンドリング：ネットワークエラー、パースエラーの適切な処理
+ * 
+ * 【データフロー】
+ * 1. ユーザーURL入力 → 2. 自動取得実行 → 3. データ解析・保存 → 4. プレビュー更新
  */
 
 import { BaseComponent } from './BaseComponent.js';
@@ -417,7 +433,7 @@ export class BookInfoForm extends BaseComponent {
     const progressData = this.bookModel.calculateProgress();
 
     // プレビュー要素を更新
-    const updates = [
+    const updates: [string, string][] = [
       ['#previewTitle', data.bookTitle || '未設定'],
       ['#previewAuthor', data.bookAuthor || '未設定'],
       ['#previewCurrent', data.currentReviews.toString()],
@@ -430,7 +446,7 @@ export class BookInfoForm extends BaseComponent {
     updates.forEach(([selector, text]) => {
       const element = this.select(selector);
       if (element) {
-        element.textContent = text || '';
+        element.textContent = text;
       }
     });
 

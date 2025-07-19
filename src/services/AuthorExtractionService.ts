@@ -1,8 +1,24 @@
 /**
  * 著者名抽出サービス
  * 
- * Amazon書籍ページから著者名を抽出する高度なエンジン
- * 4段階のフォールバック戦略を使用
+ * 【責任範囲】
+ * - Amazon書籍ページHTMLから著者名を高精度で抽出
+ * - 4段階のフォールバック戦略による堅牢な抽出システム
+ * - 抽出結果の信頼度評価とメソッド判別
+ * - デバッグ情報の詳細記録と失敗時の診断機能
+ * - 著者名の正規化とバリデーション
+ * 
+ * 【抽出戦略（優先度順）】
+ * 1. Tier 1 - 構造化データ抽出 (信頼度95%)：JSON-LD、Microdata形式の構造化データから抽出
+ * 2. Tier 2 - セマンティックHTML抽出 (信頼度80%)：author、bylineクラス等のセマンティックな要素から抽出  
+ * 3. Tier 3 - テキストパターンマッチング (信頼度60%)：正規表現による日本語・英語パターンマッチング
+ * 4. Tier 4 - DOM構造解析 (信頼度40%)：HTML構造の文脈分析による抽出
+ * 
+ * 【技術特徴】
+ * - 多言語対応：日本語・英語著者名の適切な処理
+ * - ノイズ除去：Follow、商品情報等の無関係テキストを排除
+ * - スコアリング：複数候補から最適な著者名を選択
+ * - エラー耐性：パース失敗時の詳細診断とロギング
  */
 
 import { 
@@ -10,6 +26,7 @@ import {
   AuthorExtractionMethod, 
   AuthorExtractionDebug 
 } from '../types/index.js';
+import { logger } from '../utils/AILogger.js';
 
 export class AuthorExtractionService {
   private readonly DEBUG_MODE: boolean;
@@ -22,7 +39,10 @@ export class AuthorExtractionService {
    * メイン抽出メソッド
    */
   async extractAuthor(html: string, url: string): Promise<AuthorExtractionResult> {
-    console.log('🔍 改良版著者名抽出エンジン開始');
+    const correlationId = logger.startOperation('AuthorExtraction', 'extractAuthor', 'FULL_EXTRACTION', { 
+      url, 
+      htmlLength: html.length 
+    });
     const startTime = performance.now();
     const debug: AuthorExtractionDebug = {
       patterns: [],
@@ -32,72 +52,118 @@ export class AuthorExtractionService {
 
     try {
       // Tier 1: 構造化データの抽出
+      logger.trace('AuthorExtraction', 'extractAuthor', 'TIER1_START', { tier: 1, method: 'STRUCTURED_DATA' });
       let result = await this.extractFromStructuredData(html, debug);
       if (result.author) {
-        result.method = AuthorExtractionMethod.STRUCTURED_DATA;
-        result.confidence = 0.95;
-        result.debug = this.finalizeDebug(debug, startTime);
-        console.log('✅ Tier 1 (構造化データ) で著者名取得:', result.author);
-        return result;
+        logger.info({
+          component: 'AuthorExtraction',
+          method: 'extractAuthor', 
+          operation: 'TIER1_SUCCESS',
+          data: { author: result.author, confidence: 0.95 }
+        }, `✅ TIER1_SUCCESS: 構造化データで著者名取得: ${result.author}`, ['tier1', 'success', 'structured-data']);
+        
+        const finalResult = {
+          ...result,
+          method: AuthorExtractionMethod.STRUCTURED_DATA,
+          confidence: 0.95,
+          debug: this.finalizeDebug(debug, startTime)
+        };
+        logger.endOperation(correlationId, true, performance.now() - startTime, { author: result.author });
+        return finalResult;
       }
 
       // Tier 2: セマンティックHTMLの抽出
       result = await this.extractFromSemanticHTML(html, debug);
       if (result.author) {
-        result.method = AuthorExtractionMethod.SEMANTIC_HTML;
-        result.confidence = 0.8;
-        result.debug = this.finalizeDebug(debug, startTime);
         console.log('✅ Tier 2 (セマンティックHTML) で著者名取得:', result.author);
-        return result;
+        return {
+          ...result,
+          method: AuthorExtractionMethod.SEMANTIC_HTML,
+          confidence: 0.8,
+          debug: this.finalizeDebug(debug, startTime)
+        };
       }
 
       // Tier 3: テキストパターンマッチング
       result = await this.extractFromTextPatterns(html, debug);
       if (result.author) {
-        result.method = AuthorExtractionMethod.TEXT_PATTERNS;
-        result.confidence = 0.6;
-        result.debug = this.finalizeDebug(debug, startTime);
         console.log('✅ Tier 3 (テキストパターン) で著者名取得:', result.author);
-        return result;
+        return {
+          ...result,
+          method: AuthorExtractionMethod.TEXT_PATTERNS,
+          confidence: 0.6,
+          debug: this.finalizeDebug(debug, startTime)
+        };
       }
 
       // Tier 4: DOM構造解析
       result = await this.extractFromDOMAnalysis(html, debug);
       if (result.author) {
-        result.method = AuthorExtractionMethod.DOM_ANALYSIS;
-        result.confidence = 0.4;
-        result.debug = this.finalizeDebug(debug, startTime);
         console.log('✅ Tier 4 (DOM解析) で著者名取得:', result.author);
-        return result;
+        return {
+          ...result,
+          method: AuthorExtractionMethod.DOM_ANALYSIS,
+          confidence: 0.4,
+          debug: this.finalizeDebug(debug, startTime)
+        };
       }
 
       // 全ての手法で失敗
-      console.log('❌ 全ての手法で著者名取得に失敗');
+      logger.error({
+        component: 'AuthorExtraction',
+        method: 'extractAuthor',
+        operation: 'ALL_TIERS_FAILED',
+        data: { 
+          url, 
+          htmlLength: html.length,
+          patternsAttempted: debug.patterns.length,
+          debugInfo: debug 
+        }
+      }, '❌ ALL_TIERS_FAILED: 全ての手法で著者名取得に失敗', ['extraction', 'failure', 'all-tiers']);
+      
       await this.logExtractionFailure(html, url, debug);
       
-      return {
+      const failureResult = {
         author: null,
         confidence: 0,
         method: AuthorExtractionMethod.STRUCTURED_DATA,
         debug: this.finalizeDebug(debug, startTime),
       };
+      
+      logger.endOperation(correlationId, false, performance.now() - startTime, failureResult);
+      return failureResult;
 
     } catch (error) {
-      console.error('著者名抽出でエラーが発生:', error);
-      return {
+      logger.fatal({
+        component: 'AuthorExtraction',
+        method: 'extractAuthor',
+        operation: 'EXTRACTION_EXCEPTION',
+        error: error as Error,
+        data: { url, htmlLength: html.length }
+      }, `💥 EXTRACTION_EXCEPTION: 著者名抽出で予期しないエラー`, ['extraction', 'exception', 'fatal']);
+      
+      const errorResult = {
         author: null,
         confidence: 0,
         method: AuthorExtractionMethod.STRUCTURED_DATA,
         debug: this.finalizeDebug(debug, startTime),
       };
+      
+      logger.endOperation(correlationId, false, performance.now() - startTime, errorResult);
+      return errorResult;
     }
   }
 
   /**
    * Tier 1: 構造化データからの抽出
    */
-  private async extractFromStructuredData(html: string, debug: AuthorExtractionDebug): Promise<{ author: string | null }> {
-    if (this.DEBUG_MODE) console.log('🔍 Tier 1: 構造化データ解析');
+  private async extractFromStructuredData(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
+    logger.debug({
+      component: 'AuthorExtraction',
+      method: 'extractFromStructuredData',
+      operation: 'TIER1_ANALYSIS_START',
+      data: { htmlLength: html.length }
+    }, '🔍 TIER1_ANALYSIS: 構造化データ解析開始', ['tier1', 'structured-data', 'analysis']);
 
     // JSON-LD抽出パターン
     const jsonLdPatterns = [
@@ -113,14 +179,31 @@ export class AuthorExtractionService {
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
       for (const match of matches) {
+        if (!match[1]) continue;
         const candidate = this.cleanAuthorName(match[1]);
         patternInfo.matches.push(candidate);
         
         if (this.validateAuthorName(candidate)) {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
-          if (this.DEBUG_MODE) console.log('JSON-LD から著者名抽出:', candidate);
-          return { author: candidate };
+          
+          logger.info({
+            component: 'AuthorExtraction',
+            method: 'extractFromStructuredData',
+            operation: 'JSON_LD_SUCCESS',
+            data: { 
+              candidate, 
+              pattern: pattern.toString().substring(0, 50) + '...',
+              confidence: 0.95 
+            }
+          }, `✅ JSON_LD_SUCCESS: JSON-LD から著者名抽出: ${candidate}`, ['tier1', 'json-ld', 'success']);
+          
+          return { 
+            author: candidate, 
+            confidence: 0.95, 
+            method: AuthorExtractionMethod.STRUCTURED_DATA,
+            debug: this.finalizeDebug(debug, Date.now())
+          };
         }
       }
       
@@ -141,6 +224,7 @@ export class AuthorExtractionService {
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
       for (const match of matches) {
+        if (!match[1]) continue;
         const candidate = this.cleanAuthorName(match[1]);
         patternInfo.matches.push(candidate);
         
@@ -148,7 +232,12 @@ export class AuthorExtractionService {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
           if (this.DEBUG_MODE) console.log('Microdata から著者名抽出:', candidate);
-          return { author: candidate };
+          return { 
+            author: candidate, 
+            confidence: 0.95, 
+            method: AuthorExtractionMethod.STRUCTURED_DATA,
+            debug: this.finalizeDebug(debug, Date.now())
+          };
         }
       }
       
@@ -157,13 +246,18 @@ export class AuthorExtractionService {
       }
     }
 
-    return { author: null };
+    return { 
+      author: null, 
+      confidence: 0, 
+      method: AuthorExtractionMethod.STRUCTURED_DATA,
+      debug: this.finalizeDebug(debug, Date.now())
+    };
   }
 
   /**
    * Tier 2: セマンティックHTMLからの抽出
    */
-  private async extractFromSemanticHTML(html: string, debug: AuthorExtractionDebug): Promise<{ author: string | null }> {
+  private async extractFromSemanticHTML(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
     if (this.DEBUG_MODE) console.log('🔍 Tier 2: セマンティックHTML解析');
 
     const semanticPatterns = [
@@ -192,6 +286,7 @@ export class AuthorExtractionService {
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
       for (const match of matches) {
+        if (!match[1]) continue;
         const candidate = this.cleanAuthorName(match[1]);
         patternInfo.matches.push(candidate);
         
@@ -199,7 +294,12 @@ export class AuthorExtractionService {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
           if (this.DEBUG_MODE) console.log('セマンティックHTML から著者名抽出:', candidate);
-          return { author: candidate };
+          return { 
+            author: candidate, 
+            confidence: 0.95, 
+            method: AuthorExtractionMethod.STRUCTURED_DATA,
+            debug: this.finalizeDebug(debug, Date.now())
+          };
         }
       }
       
@@ -208,13 +308,18 @@ export class AuthorExtractionService {
       }
     }
 
-    return { author: null };
+    return { 
+      author: null, 
+      confidence: 0, 
+      method: AuthorExtractionMethod.SEMANTIC_HTML,
+      debug: this.finalizeDebug(debug, Date.now())
+    };
   }
 
   /**
    * Tier 3: テキストパターンマッチング
    */
-  private async extractFromTextPatterns(html: string, debug: AuthorExtractionDebug): Promise<{ author: string | null }> {
+  private async extractFromTextPatterns(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
     if (this.DEBUG_MODE) console.log('🔍 Tier 3: テキストパターン解析');
 
     const textPatterns = [
@@ -249,6 +354,7 @@ export class AuthorExtractionService {
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
       for (const match of matches) {
+        if (!match[1]) continue;
         const candidate = this.cleanAuthorName(match[1]);
         patternInfo.matches.push(candidate);
         
@@ -269,16 +375,26 @@ export class AuthorExtractionService {
 
     if (bestCandidate) {
       if (this.DEBUG_MODE) console.log('テキストパターン から著者名抽出:', bestCandidate, 'スコア:', bestScore);
-      return { author: bestCandidate };
+      return { 
+        author: bestCandidate, 
+        confidence: 0.6, 
+        method: AuthorExtractionMethod.TEXT_PATTERNS,
+        debug: this.finalizeDebug(debug, Date.now())
+      };
     }
 
-    return { author: null };
+    return { 
+      author: null, 
+      confidence: 0, 
+      method: AuthorExtractionMethod.TEXT_PATTERNS,
+      debug: this.finalizeDebug(debug, Date.now())
+    };
   }
 
   /**
    * Tier 4: DOM構造解析
    */
-  private async extractFromDOMAnalysis(html: string, debug: AuthorExtractionDebug): Promise<{ author: string | null }> {
+  private async extractFromDOMAnalysis(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
     if (this.DEBUG_MODE) console.log('🔍 Tier 4: DOM構造解析');
 
     const structuralPatterns = [
@@ -299,6 +415,7 @@ export class AuthorExtractionService {
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
       for (const match of matches) {
+        if (!match[1]) continue;
         const candidate = this.cleanAuthorName(match[1]);
         patternInfo.matches.push(candidate);
         
@@ -306,7 +423,12 @@ export class AuthorExtractionService {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
           if (this.DEBUG_MODE) console.log('DOM構造解析 から著者名抽出:', candidate);
-          return { author: candidate };
+          return { 
+            author: candidate, 
+            confidence: 0.95, 
+            method: AuthorExtractionMethod.STRUCTURED_DATA,
+            debug: this.finalizeDebug(debug, Date.now())
+          };
         }
       }
       
@@ -315,7 +437,12 @@ export class AuthorExtractionService {
       }
     }
 
-    return { author: null };
+    return { 
+      author: null, 
+      confidence: 0, 
+      method: AuthorExtractionMethod.DOM_ANALYSIS,
+      debug: this.finalizeDebug(debug, Date.now())
+    };
   }
 
   /**

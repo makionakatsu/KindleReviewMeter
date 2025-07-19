@@ -85,7 +85,6 @@ class VisualDisplayApp {
       storage,
       // ビジュアル表示では書籍情報取得サービスは不要
       validationService: {} as any,
-      authorExtractionService: {} as any,
       bookInfoService: {} as any,
       config: DEFAULT_CONFIG,
     };

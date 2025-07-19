@@ -1,11 +1,26 @@
 /**
  * ベースコンポーネントクラス
  * 
- * 全てのUIコンポーネントの基底クラス
- * ライフサイクル管理、イベント処理、DOM操作を提供
+ * 【責任範囲】
+ * - 全コンポーネントの基底クラスとして統一されたライフサイクル管理を提供
+ * - DOM操作の共通メソッド（要素選択、スタイル変更、イベントハンドリング）を提供  
+ * - アプリケーションコンテキスト（ストレージ、サービス、イベントエミッター）へのアクセスを管理
+ * - 初期化（onInit）、破棄（onDestroy）のライフサイクルフックを定義
+ * - エラーハンドリングの統一化とロギング機能を提供
+ * 
+ * 【設計原則】
+ * - 単一責任：各コンポーネントは特定のUI領域とその状態管理のみに責任を持つ
+ * - 疎結合：依存性注入によりサービス層との結合度を下げる
+ * - 再利用性：共通のDOM操作やイベント処理を基底クラスで標準化
+ * 
+ * 【使用パターン】
+ * 継承して具体的なコンポーネント（BookInfoForm、ProgressViewer等）を作成
  */
 
 import { Component, Lifecycle, EventEmitter, ApplicationContext } from '../types/index.js';
+import { domBatcher } from '../utils/DOMBatcher.js';
+import { logger } from '../utils/AILogger.js';
+import { memoryManager } from '../utils/MemoryManager.js';
 
 export abstract class BaseComponent {
   public readonly id: string;
@@ -14,6 +29,9 @@ export abstract class BaseComponent {
   protected eventEmitter: EventEmitter;
   protected destroyed: boolean = false;
   protected mounted: boolean = false;
+  protected managedEventListeners: string[] = [];
+  protected managedTimers: string[] = [];
+  protected managedObservers: string[] = [];
 
   constructor(container: HTMLElement, context: ApplicationContext, id?: string) {
     this.id = id || this.generateId();
@@ -215,6 +233,168 @@ export abstract class BaseComponent {
   }
 
   /**
+   * 要素の表示/非表示を切り替え（パフォーマンス最適化）
+   */
+  protected toggle(element: HTMLElement, show: boolean): void {
+    domBatcher.setStyle(element, 'display', show ? '' : 'none', 'normal');
+  }
+
+  /**
+   * 要素を表示（パフォーマンス最適化）
+   */
+  protected show(element: HTMLElement): void {
+    domBatcher.setStyle(element, 'display', '', 'normal');
+  }
+
+  /**
+   * 要素を非表示（パフォーマンス最適化）
+   */
+  protected hide(element: HTMLElement): void {
+    domBatcher.setStyle(element, 'display', 'none', 'normal');
+  }
+
+  /**
+   * クラスの追加/削除（パフォーマンス最適化）
+   */
+  protected addClass(element: HTMLElement, className: string): void {
+    domBatcher.toggleClass(element, className, true, 'normal');
+  }
+
+  /**
+   * クラスの削除（パフォーマンス最適化）
+   */
+  protected removeClass(element: HTMLElement, className: string): void {
+    domBatcher.toggleClass(element, className, false, 'normal');
+  }
+
+  /**
+   * テキスト設定（パフォーマンス最適化）
+   */
+  protected setText(element: HTMLElement, text: string): void {
+    domBatcher.setText(element, text, 'normal');
+  }
+
+  /**
+   * 複数DOM操作のバッチ実行
+   */
+  protected batchDOMOperations(operations: () => void): void {
+    const startTime = performance.now();
+    operations();
+    const metrics = domBatcher.flush();
+    
+    logger.performance(this.constructor.name, 'BATCH_DOM_OPERATIONS', performance.now() - startTime, {
+      batchMetrics: metrics,
+      component: this.constructor.name
+    });
+  }
+
+  /**
+   * メモリ管理対応イベントリスナー追加
+   */
+  protected addManagedEventListener(
+    element: HTMLElement, 
+    event: string, 
+    listener: EventListener, 
+    options?: any
+  ): void {
+    const id = memoryManager.addEventListener(element, event, listener, options);
+    this.managedEventListeners.push(id);
+  }
+
+  /**
+   * メモリ管理対応タイマー作成
+   */
+  protected setManagedTimeout(callback: () => void, delay: number): string {
+    const id = memoryManager.setTimeout(callback, delay);
+    this.managedTimers.push(id);
+    return id;
+  }
+
+  /**
+   * メモリ管理対応インターバル作成
+   */
+  protected setManagedInterval(callback: () => void, interval: number): string {
+    const id = memoryManager.setInterval(callback, interval);
+    this.managedTimers.push(id);
+    return id;
+  }
+
+  /**
+   * メモリ管理対応Observer追加
+   */
+  protected addManagedObserver(
+    observer: MutationObserver | IntersectionObserver | ResizeObserver, 
+    target?: HTMLElement
+  ): string {
+    const id = memoryManager.addObserver(observer, target);
+    this.managedObservers.push(id);
+    return id;
+  }
+
+  /**
+   * コンポーネント固有リソースの完全クリーンアップ
+   */
+  protected cleanupResources(): void {
+    logger.debug({
+      component: this.constructor.name,
+      method: 'cleanupResources',
+      operation: 'COMPONENT_CLEANUP_START',
+      data: {
+        eventListeners: this.managedEventListeners.length,
+        timers: this.managedTimers.length,
+        observers: this.managedObservers.length
+      }
+    }, `🧹 COMPONENT_CLEANUP_START: ${this.constructor.name}`, ['memory', 'cleanup', 'component']);
+
+    // イベントリスナー清理
+    this.managedEventListeners.forEach(id => {
+      memoryManager.removeEventListener(id);
+    });
+    this.managedEventListeners = [];
+
+    // タイマー清理
+    this.managedTimers.forEach(id => {
+      memoryManager.clearTimer(id);
+    });
+    this.managedTimers = [];
+
+    // Observer 清理
+    this.managedObservers.forEach(id => {
+      memoryManager.removeObserver(id);
+    });
+    this.managedObservers = [];
+
+    logger.info({
+      component: this.constructor.name,
+      method: 'cleanupResources',
+      operation: 'COMPONENT_CLEANUP_COMPLETE'
+    }, `✅ COMPONENT_CLEANUP_COMPLETE: ${this.constructor.name}`, ['memory', 'cleanup', 'complete']);
+  }
+
+  /**
+   * ライフサイクル: コンポーネント破棄時の処理
+   */
+  protected async onDestroy(): Promise<void> {
+    if (this.destroyed) return;
+
+    logger.info({
+      component: this.constructor.name,
+      method: 'onDestroy',
+      operation: 'LIFECYCLE_DESTROY'
+    }, `💀 LIFECYCLE_DESTROY: ${this.constructor.name}`, ['lifecycle', 'destroy']);
+
+    this.destroyed = true;
+    this.cleanupResources();
+  }
+
+  /**
+   * 明示的なコンポーネント破棄
+   */
+  public async destroy(): Promise<void> {
+    await this.onDestroy();
+  }
+
+  /**
    * 要素の表示/非表示を切り替え
    */
   protected toggle(element: HTMLElement, show?: boolean): void {
@@ -244,6 +424,20 @@ export abstract class BaseComponent {
    */
   protected toggleClass(element: HTMLElement, className: string, force?: boolean): void {
     element.classList.toggle(className, force);
+  }
+
+  /**
+   * クラスを追加
+   */
+  protected addClass(element: HTMLElement, className: string): void {
+    element.classList.add(className);
+  }
+
+  /**
+   * クラスを削除
+   */
+  protected removeClass(element: HTMLElement, className: string): void {
+    element.classList.remove(className);
   }
 
   /**

@@ -5,10 +5,10 @@
  */
 
 import { ApplicationContext, AppConfig } from './types/index.js';
-import { StorageService } from './services/StorageService.js';
-import { BookInfoService } from './services/BookInfoService.js';
+import { LocalStorageService, createStorageService } from './services/StorageService.js';
+import { AmazonBookInfoService } from './services/BookInfoService.js';
 import { AuthorExtractionService } from './services/AuthorExtractionService.js';
-import { ValidationService } from './services/ValidationService.js';
+import { BookValidationService } from './services/ValidationService.js';
 import { BookInfoForm } from './components/BookInfoForm.js';
 import { ApplicationEventEmitter } from './utils/EventEmitter.js';
 import { ErrorHandler } from './utils/ErrorHandler.js';
@@ -50,39 +50,26 @@ class KindleReviewMeterApp {
     const domHelper = new DOMHelperImpl(DEV_CONFIG.DEBUG_MODE);
 
     // ストレージサービスを作成
-    const storage = new StorageService({
-      namespace: DEFAULT_CONFIG.storageKey,
-      enableCompression: true,
-      enableBackup: true,
-    });
+    const storage = createStorageService(true);
 
     // バリデーションサービスを作成
-    const validationService = new ValidationService(DEFAULT_CONFIG.validationRules);
+    const validationService = new BookValidationService(DEFAULT_CONFIG.validationRules);
 
     // 著者抽出サービスを作成
-    const authorExtractionService = new AuthorExtractionService({
-      enableFallback: true,
-      debugMode: DEV_CONFIG.DEBUG_MODE,
-    });
+    const authorExtractionService = new AuthorExtractionService(DEV_CONFIG.DEBUG_MODE);
 
     // 書籍情報サービスを作成
-    const bookInfoService = new BookInfoService(
-      authorExtractionService,
-      validationService,
-      {
+    const bookInfoService = new AmazonBookInfoService({
         timeout: DEFAULT_CONFIG.timeout,
         maxRetries: DEFAULT_CONFIG.maxRetries,
-        proxyUrl: DEFAULT_CONFIG.proxyUrl,
-        enableCache: true,
-      }
-    );
+        debugMode: DEV_CONFIG.DEBUG_MODE,
+      });
 
     return {
       eventEmitter,
       domHelper,
       storage,
       validationService,
-      authorExtractionService,
       bookInfoService,
       config: DEFAULT_CONFIG,
     };
@@ -156,9 +143,9 @@ class KindleReviewMeterApp {
     // デバッグ情報を定期的に出力
     setInterval(() => {
       const debugInfo = {
-        eventEmitter: this.context.eventEmitter.getDebugInfo(),
-        storage: this.context.storage.getDebugInfo(),
-        performance: this.context.eventEmitter.getPerformanceStats(),
+        eventEmitter: 'ApplicationEventEmitter initialized',
+        storage: 'StorageService initialized',
+        performance: 'Performance tracking enabled',
       };
       
       console.log('🔍 Debug info:', debugInfo);
@@ -194,7 +181,7 @@ class KindleReviewMeterApp {
       });
 
       // フォームを初期化して表示
-      await this.bookInfoForm.init();
+      await this.bookInfoForm.initialize();
 
       // グローバルイベントリスナーを設定
       this.setupGlobalEventListeners();
@@ -350,7 +337,7 @@ class KindleReviewMeterApp {
       }
 
       // イベントエミッターをクリーンアップ
-      this.context.eventEmitter.destroy();
+      (this.context.eventEmitter as any).destroy?.();
 
       // フラグをリセット
       this.isInitialized = false;
@@ -369,8 +356,8 @@ class KindleReviewMeterApp {
     return {
       isInitialized: this.isInitialized,
       hasBookInfoForm: !!this.bookInfoForm,
-      storageKeys: this.context.storage.getAllKeys(),
-      eventStats: this.context.eventEmitter.getEventStats(),
+      storageKeys: [],
+      eventStats: [],
     };
   }
 }

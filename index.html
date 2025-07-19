@@ -20,16 +20,21 @@
     <link rel="stylesheet" href="css/settings.css">
     
     <!-- Preload critical resources -->
-    <link rel="preload" href="src/main.js" as="script">
+    <link rel="preload" href="main.js" as="script">
     
-    <!-- Security headers -->
+    <!-- Security headers - Optimized CSP -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
-        script-src 'self' 'unsafe-inline' cdnjs.cloudflare.com;
+        script-src 'self' 'unsafe-inline';
         style-src 'self' 'unsafe-inline' fonts.googleapis.com;
         font-src 'self' fonts.gstatic.com;
-        img-src 'self' data: https: ssl-images-amazon.com m.media-amazon.com;
-        connect-src 'self' api.allorigins.win amazon.co.jp amazon.com;
+        img-src 'self' data: https: ssl-images-amazon.com m.media-amazon.com images-amazon.com;
+        connect-src 'self' api.allorigins.win *.amazon.co.jp *.amazon.com cors-anywhere.herokuapp.com;
+        frame-ancestors 'none';
+        form-action 'self';
+        base-uri 'self';
+        object-src 'none';
+        upgrade-insecure-requests;
     ">
 </head>
 <body>
@@ -143,7 +148,7 @@
         }, 10000);
 
         // Load main application
-        import('./src/main.js')
+        import('./main.js')
             .then(module => {
                 console.log('✅ Main module loaded successfully');
                 // Wait a bit for DOM updates, then hide loading
@@ -178,7 +183,7 @@
     </script>
 
     <!-- Main application script -->
-    <script type="module" src="src/main.js"></script>
+    <script type="module" src="main.js"></script>
 
     <!-- Analytics placeholder (for future use) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
