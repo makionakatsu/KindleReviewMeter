@@ -323,10 +323,26 @@ export class BookInfoForm extends BaseComponent {
 
       const result = await this.context.bookInfoService.fetchBookInfo(url);
       
+      console.log('🔍 BookInfoService結果詳細:', {
+        success: result.success,
+        data: result.data,
+        dataKeys: result.data ? Object.keys(result.data) : [],
+        authorValue: result.data?.bookAuthor,
+        authorType: typeof result.data?.bookAuthor,
+        authorLength: result.data?.bookAuthor?.length || 0,
+        titleValue: result.data?.bookTitle,
+        reviewsValue: result.data?.currentReviews,
+        errors: result.errors,
+        metadata: result.metadata
+      });
+      
       if (result.success && result.data) {
         // 取得したデータでモデルを更新
+        console.log('📊 フェッチ前のモデル状態:', this.bookModel.getData());
         this.bookModel.updateData({ bookUrl: url });
+        console.log('📊 URL更新後のモデル状態:', this.bookModel.getData());
         this.bookModel.updateBookInfo(result.data);
+        console.log('📊 BookInfo更新後のモデル状態:', this.bookModel.getData());
         
         // 隠し入力フィールドを明示的に更新
         const updatedData = this.bookModel.getData();
@@ -341,7 +357,14 @@ export class BookInfoForm extends BaseComponent {
         this.showStatus('success', `取得完了: ${result.metadata.extractedFields.join('、')} (${result.metadata.extractedFields.length}/4項目)`);
         
         if (this.options.autoSave) {
-          await this.saveData();
+          // 自動取得後は隠し入力フィールドを優先せず、現在のモデルデータを保存
+          console.log('💾 自動保存開始（モデルデータ優先）');
+          const currentData = this.bookModel.getData();
+          const success = this.context.storage.set('bookData', currentData);
+          if (!success) {
+            throw new Error('データの保存に失敗しました');
+          }
+          console.log('💾 自動保存完了:', currentData);
         }
         
         this.emitEvent('book:fetched', result);
@@ -380,7 +403,14 @@ export class BookInfoForm extends BaseComponent {
             this.showStatus('success', `著者名を「${cleanedAuthor}」に更新しました`);
             
             if (this.options.autoSave) {
-              await this.saveData();
+              // 著者名編集後も現在のモデルデータを直接保存
+              console.log('💾 著者名編集後の自動保存開始');
+              const currentData = this.bookModel.getData();
+              const success = this.context.storage.set('bookData', currentData);
+              if (!success) {
+                throw new Error('データの保存に失敗しました');
+              }
+              console.log('💾 著者名編集後の自動保存完了:', currentData);
             }
           } else {
             this.showStatus('error', '無効な著者名です。2-50文字で、適切な文字を使用してください。');
@@ -391,7 +421,14 @@ export class BookInfoForm extends BaseComponent {
           this.showStatus('success', '著者名を「未設定」にリセットしました');
           
           if (this.options.autoSave) {
-            await this.saveData();
+            // 著者名リセット後も現在のモデルデータを直接保存
+            console.log('💾 著者名リセット後の自動保存開始');
+            const currentData = this.bookModel.getData();
+            const success = this.context.storage.set('bookData', currentData);
+            if (!success) {
+              throw new Error('データの保存に失敗しました');
+            }
+            console.log('💾 著者名リセット後の自動保存完了:', currentData);
           }
         }
         
@@ -554,24 +591,35 @@ export class BookInfoForm extends BaseComponent {
    */
   private updatePreview(): void {
     const data = this.bookModel.getData();
-    const formData = this.getFormData();
     const progressData = this.bookModel.calculateProgress();
+
+    console.log('🔄 プレビュー更新開始 - モデルデータ:', {
+      bookTitle: data.bookTitle,
+      bookAuthor: data.bookAuthor,
+      currentReviews: data.currentReviews
+    });
 
     // 隠し入力フィールドを更新
     this.syncHiddenInputs(data);
 
     if (!this.options.showPreview) return;
 
+    // 目標値は入力フィールドから直接取得
+    const targetReviews = parseInt(this.elements.targetInput?.value || '0', 10);
+    const stretchReviews = parseInt(this.elements.stretchInput?.value || '0', 10);
+
     // プレビュー要素を更新
     const updates: [string, string][] = [
       ['#previewTitle', data.bookTitle || '未設定'],
       ['#previewAuthor', data.bookAuthor || '未設定'],
       ['#previewCurrent', data.currentReviews.toString()],
-      ['#previewTarget', formData.targetReviews ? formData.targetReviews.toString() : '未設定'],
-      ['#previewStretch', formData.stretchReviews ? formData.stretchReviews.toString() : '未設定'],
+      ['#previewTarget', targetReviews ? targetReviews.toString() : '未設定'],
+      ['#previewStretch', stretchReviews ? stretchReviews.toString() : '未設定'],
       ['#previewProgress', `${progressData.achievementRate}%`],
       ['#previewAutoFetch', data.bookTitle ? '取得済み' : '未取得'],
     ];
+
+    console.log('🔄 プレビュー更新内容:', updates);
 
     updates.forEach(([selector, text]) => {
       const element = this.select(selector);
