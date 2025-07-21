@@ -205,7 +205,7 @@ class VisualDisplayApp {
    */
   private checkDataAvailability(): boolean {
     try {
-      const bookData = this.context.storage.get('bookData');
+      const bookData = this.context.storage.get('amazonReviewTracker');
       console.log('📊 ビジュアル表示 - データ可用性チェック:', {
         hasData: !!bookData,
         bookTitle: (bookData as any)?.bookTitle,

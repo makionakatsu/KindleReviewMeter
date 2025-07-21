@@ -34,6 +34,8 @@ export class BookInfoForm extends BaseComponent {
   private bookModel: BookDataModel;
   private options: BookInfoFormOptions;
   private fetchStatus: FetchStatus = { type: 'idle', message: '', timestamp: 0 };
+  private saveInProgress: boolean = false;
+  private saveOperationId: number = 0;
   
   // DOM要素への参照
   private elements: {
@@ -67,18 +69,71 @@ export class BookInfoForm extends BaseComponent {
   }
 
   /**
-   * 既存データを読み込み
+   * 既存データを読み込み（整合性検証付き）
    */
   private loadExistingData(): void {
     try {
-      const savedData = this.context.storage.get<BookData>('bookData');
+      const savedData = this.context.storage.get<BookData>('amazonReviewTracker');
       if (savedData) {
-        this.bookModel = new BookDataModel(savedData);
-        console.log('既存データを読み込みました:', savedData);
+        // データ整合性検証
+        if (this.validateBookDataStructure(savedData)) {
+          this.bookModel = new BookDataModel(savedData);
+          console.log('✅ 既存データ読み込み成功:', {
+            hasTitle: !!savedData.bookTitle,
+            hasAuthor: !!savedData.bookAuthor,
+            hasReviews: typeof savedData.currentReviews === 'number',
+            data: savedData
+          });
+        } else {
+          console.warn('⚠️ 既存データ構造が不正です。新しいモデルを作成:', savedData);
+          this.bookModel = new BookDataModel();
+        }
       }
     } catch (error) {
-      console.warn('データ読み込みエラー:', error);
+      console.error('❌ データ読み込みエラー:', error);
+      this.bookModel = new BookDataModel();
     }
+  }
+
+  /**
+   * BookDataの構造を検証
+   */
+  private validateBookDataStructure(data: any): data is BookData {
+    if (!data || typeof data !== 'object') {
+      console.warn('データが存在しないか、オブジェクトではありません:', data);
+      return false;
+    }
+
+    const requiredFields = ['bookTitle', 'bookAuthor', 'currentReviews', 'targetReviews', 'stretchReviews'];
+    const missingFields = requiredFields.filter(field => !(field in data));
+    
+    if (missingFields.length > 0) {
+      console.warn('必須フィールドが不足しています:', {
+        missingFields,
+        providedFields: Object.keys(data),
+        data
+      });
+      return false;
+    }
+
+    if (typeof data.currentReviews !== 'number' || data.currentReviews < 0) {
+      console.warn('currentReviewsが無効です:', data.currentReviews);
+      return false;
+    }
+
+    if (typeof data.targetReviews !== 'number' || data.targetReviews < 0) {
+      console.warn('targetReviewsが無効です:', data.targetReviews);
+      return false;
+    }
+
+    console.log('✅ データ構造検証成功:', {
+      bookTitle: typeof data.bookTitle,
+      bookAuthor: typeof data.bookAuthor,
+      currentReviews: typeof data.currentReviews,
+      targetReviews: typeof data.targetReviews
+    });
+    
+    return true;
   }
 
   /**
@@ -360,7 +415,7 @@ export class BookInfoForm extends BaseComponent {
           // 自動取得後は隠し入力フィールドを優先せず、現在のモデルデータを保存
           console.log('💾 自動保存開始（モデルデータ優先）');
           const currentData = this.bookModel.getData();
-          const success = this.context.storage.set('bookData', currentData);
+          const success = this.context.storage.set('amazonReviewTracker', currentData);
           if (!success) {
             throw new Error('データの保存に失敗しました');
           }
@@ -413,14 +468,9 @@ export class BookInfoForm extends BaseComponent {
             this.showStatus('success', `著者名を「${cleanedAuthor}」に更新しました`);
             
             if (this.options.autoSave) {
-              // 著者名編集後も現在のモデルデータを直接保存
+              // 著者名編集後の自動保存（排他制御使用）
               console.log('💾 著者名編集後の自動保存開始');
-              const currentData = this.bookModel.getData();
-              const success = this.context.storage.set('bookData', currentData);
-              if (!success) {
-                throw new Error('データの保存に失敗しました');
-              }
-              console.log('💾 著者名編集後の自動保存完了:', currentData);
+              await this.saveModelDataDirectly('著者名編集');
             }
           } else {
             this.showStatus('error', '無効な著者名です。2-50文字で、適切な文字を使用してください。');
@@ -441,14 +491,9 @@ export class BookInfoForm extends BaseComponent {
           this.showStatus('success', '著者名を「未設定」にリセットしました');
           
           if (this.options.autoSave) {
-            // 著者名リセット後も現在のモデルデータを直接保存
+            // 著者名リセット後の自動保存（排他制御使用）
             console.log('💾 著者名リセット後の自動保存開始');
-            const currentData = this.bookModel.getData();
-            const success = this.context.storage.set('bookData', currentData);
-            if (!success) {
-              throw new Error('データの保存に失敗しました');
-            }
-            console.log('💾 著者名リセット後の自動保存完了:', currentData);
+            await this.saveModelDataDirectly('著者名リセット');
           }
         }
         
@@ -513,29 +558,32 @@ export class BookInfoForm extends BaseComponent {
       }
     });
     
-    // 値の決定プロセスを詳細にログ
-    const authorValue = this.elements.authorInput?.value || data.bookAuthor || '';
-    const titleValue = this.elements.titleInput?.value || data.bookTitle || '';
-    const reviewsValue = parseInt(this.elements.currentReviewsInput?.value || '0', 10) || data.currentReviews;
+    // 値の決定プロセスを詳細にログ - モデルデータを最優先に修正
+    const authorValue = data.bookAuthor || this.elements.authorInput?.value || '';
+    const titleValue = data.bookTitle || this.elements.titleInput?.value || '';
+    const reviewsValue = data.currentReviews || parseInt(this.elements.currentReviewsInput?.value || '0', 10) || 0;
     
-    console.log('🔄 値の決定プロセス:', {
+    console.log('🔄 値の決定プロセス (モデル優先):', {
       author: {
-        hiddenInputValue: this.elements.authorInput?.value,
         modelValue: data.bookAuthor,
+        hiddenInputValue: this.elements.authorInput?.value,
         finalValue: authorValue,
-        source: this.elements.authorInput?.value ? 'hiddenInput' : (data.bookAuthor ? 'model' : 'empty')
+        source: data.bookAuthor ? 'model' : (this.elements.authorInput?.value ? 'hiddenInput' : 'empty'),
+        priorityFixed: true
       },
       title: {
-        hiddenInputValue: this.elements.titleInput?.value,
         modelValue: data.bookTitle,
+        hiddenInputValue: this.elements.titleInput?.value,
         finalValue: titleValue,
-        source: this.elements.titleInput?.value ? 'hiddenInput' : (data.bookTitle ? 'model' : 'empty')
+        source: data.bookTitle ? 'model' : (this.elements.titleInput?.value ? 'hiddenInput' : 'empty'),
+        priorityFixed: true
       },
       reviews: {
-        hiddenInputValue: this.elements.currentReviewsInput?.value,
         modelValue: data.currentReviews,
+        hiddenInputValue: this.elements.currentReviewsInput?.value,
         finalValue: reviewsValue,
-        source: this.elements.currentReviewsInput?.value ? 'hiddenInput' : 'model'
+        source: data.currentReviews > 0 ? 'model' : 'hiddenInput',
+        priorityFixed: true
       }
     });
     
@@ -587,22 +635,85 @@ export class BookInfoForm extends BaseComponent {
   }
 
   /**
-   * データを保存
+   * モデルデータを直接保存（排他制御付き）
    */
-  private async saveData(): Promise<void> {
+  private async saveModelDataDirectly(operationName: string): Promise<void> {
+    const operationId = ++this.saveOperationId;
+    
+    if (this.saveInProgress) {
+      console.log(`⏳ ${operationName}: 保存操作が進行中です。待機中...`, { operationId });
+      while (this.saveInProgress) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      console.log(`⌛ ${operationName}: 前の保存操作完了を確認`, { operationId });
+    }
+
+    this.saveInProgress = true;
+    console.log(`🔒 ${operationName}: モデル直接保存開始`, { operationId, timestamp: Date.now() });
+    
     try {
-      const formData = this.getFormData();
-      this.bookModel.updateData(formData);
+      const currentData = this.bookModel.getData();
+      console.log(`📊 ${operationName}: 保存するモデルデータ:`, { operationId, data: currentData });
       
-      const success = this.context.storage.set('bookData', this.bookModel.getData());
+      const success = this.context.storage.set('amazonReviewTracker', currentData);
       if (!success) {
         throw new Error('データの保存に失敗しました');
       }
       
-      console.log('データを保存しました:', this.bookModel.getData());
+      console.log(`💾 ${operationName}: モデル直接保存成功:`, { 
+        operationId, 
+        savedData: currentData,
+        timestamp: Date.now()
+      });
     } catch (error) {
-      console.error('データ保存エラー:', error);
+      console.error(`❌ ${operationName}: モデル直接保存エラー:`, { operationId, error });
       throw new Error('設定の保存に失敗しました');
+    } finally {
+      this.saveInProgress = false;
+      console.log(`🔓 ${operationName}: モデル直接保存完了`, { operationId, timestamp: Date.now() });
+    }
+  }
+
+  /**
+   * データを保存（排他制御付き）
+   */
+  private async saveData(): Promise<void> {
+    const operationId = ++this.saveOperationId;
+    
+    if (this.saveInProgress) {
+      console.log('⏳ 保存操作がすでに進行中です。待機中...', { operationId });
+      // 既存の保存操作の完了を待つ
+      while (this.saveInProgress) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      console.log('⌛ 前の保存操作完了を確認', { operationId });
+    }
+
+    this.saveInProgress = true;
+    console.log('🔒 保存操作開始', { operationId, timestamp: Date.now() });
+    
+    try {
+      const formData = this.getFormData();
+      console.log('📊 保存するデータ:', { operationId, formData });
+      
+      this.bookModel.updateData(formData);
+      
+      const success = this.context.storage.set('amazonReviewTracker', this.bookModel.getData());
+      if (!success) {
+        throw new Error('データの保存に失敗しました');
+      }
+      
+      console.log('💾 データ保存成功:', { 
+        operationId, 
+        savedData: this.bookModel.getData(),
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      console.error('❌ データ保存エラー:', { operationId, error });
+      throw new Error('設定の保存に失敗しました');
+    } finally {
+      this.saveInProgress = false;
+      console.log('🔓 保存操作完了', { operationId, timestamp: Date.now() });
     }
   }
 

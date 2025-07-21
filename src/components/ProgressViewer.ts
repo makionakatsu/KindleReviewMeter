@@ -88,7 +88,7 @@ export class ProgressViewer extends BaseComponent {
    */
   private loadData(): void {
     try {
-      const savedData = this.context.storage.get<BookData>('bookData');
+      const savedData = this.context.storage.get<BookData>('amazonReviewTracker');
       console.log('📊 ProgressViewer - データ読み込み:', {
         hasData: !!savedData,
         bookTitle: savedData?.bookTitle,
