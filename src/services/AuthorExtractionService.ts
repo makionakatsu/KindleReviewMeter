@@ -582,23 +582,42 @@ export class AuthorExtractionService {
       return false;
     }
 
-    // 無効な用語をチェック
-    const invalidTerms = [
-      'follow', 'more', 'see', 'clothing', 'store', 'shop', 'brand',
-      'kindle', 'amazon', 'paperback', 'hardcover', 'format',
-      'page', 'pages', 'price', 'buy', 'purchase', 'cart', 'wishlist',
-      'review', 'reviews', 'customer', 'rating', 'star', 'stars',
-      'visit', 'website', 'profile', 'biography', 'bio', 'more info',
-      'csa', 'mix_csa', 'script', 'function', 'var', 'window'
+    // 無効な用語をチェック - 改善版（より厳格な条件のみ適用）
+    const strictInvalidTerms = [
+      'csa', 'mix_csa', 'script', 'function', 'var', 'window',
+      'javascript', 'add to cart', 'buy now', 'more info',
+      'click here', 'learn more', 'sign up', 'log in'
     ];
 
-    const lowerName = name.toLowerCase();
-    for (const term of invalidTerms) {
+    // 完全一致でのみ無効とする用語
+    const exactMatchInvalids = [
+      'follow', 'more', 'see', 'visit', 'website', 'profile',
+      'kindle', 'amazon', 'store', 'shop', 'brand', 'clothing',
+      'paperback', 'hardcover', 'format', 'page', 'pages',
+      'price', 'buy', 'purchase', 'cart', 'wishlist',
+      'review', 'reviews', 'customer', 'rating', 'star', 'stars',
+      'biography', 'bio'
+    ];
+
+    const lowerName = name.toLowerCase().trim();
+    
+    // 厳格な無効用語（部分一致でも無効）
+    for (const term of strictInvalidTerms) {
       if (lowerName.includes(term)) {
-        console.log(`❌ バリデーション失敗 (無効用語): "${name}" - 検出用語: ${term}`);
+        console.log(`❌ バリデーション失敗 (厳格無効用語): "${name}" - 検出用語: ${term}`);
         return false;
       }
     }
+    
+    // 完全一致のみで無効とする用語
+    for (const term of exactMatchInvalids) {
+      if (lowerName === term) {
+        console.log(`❌ バリデーション失敗 (完全一致無効用語): "${name}" - 検出用語: ${term}`);
+        return false;
+      }
+    }
+    
+    console.log(`🔍 バリデーション詳細チェック通過: "${name}" - 無効用語チェック完了`);
 
     // 数字のみや記号のみを除外
     if (/^\d+$/.test(name)) {
