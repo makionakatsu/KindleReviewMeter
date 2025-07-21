@@ -575,8 +575,9 @@ export class ProgressViewer extends BaseComponent {
 
       this.emitEvent('share:started', { data: this.bookModel.getData(), options: shareOptions });
       
-      // 将来的にはShareServiceを使用してシェア機能を実装
-      console.log('シェア機能は実装予定です', this.progressData);
+      // 現在はイベント発火のみ - 将来的にShareServiceで実装予定  
+      alert('シェア機能は今後実装予定です。現在は設定内容をコピーしてお使いください。');
+      console.log('シェア機能プレースホルダー:', this.progressData);
       
     } catch (error) {
       console.error('シェアエラー:', error);

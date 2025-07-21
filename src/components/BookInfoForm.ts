@@ -23,6 +23,7 @@
 import { BaseComponent } from './BaseComponent.js';
 import { ApplicationContext, BookData, FetchStatus, ValidationResult } from '../types/index.js';
 import { BookDataModel } from '../models/BookData.js';
+import { STATUS_MESSAGE_DURATION, SAVE_POLLING_INTERVAL } from '../utils/constants.js';
 
 export interface BookInfoFormOptions {
   autoSave?: boolean;
@@ -450,32 +451,33 @@ export class BookInfoForm extends BaseComponent {
 
   /**
    * フォームデータを取得（簡素化版）
+   * 
+   * データソースの設計方針:
+   * - ユーザー入力値（URL, 目標値）: 直接フォームから取得
+   * - 書籍情報（タイトル、著者、レビュー数）: BookDataModelから取得（自動取得・編集結果を反映）
+   * - メタデータ: BookDataModelから取得（一貫性を保証）
    */
   private getFormData(): Partial<BookData> {
     const modelData = this.bookModel.getData();
     
     const formData = {
-      // フォーム入力値
+      // ユーザー直接入力値 - フォームが信頼できるソース
       bookUrl: this.elements.urlInput?.value?.trim() || '',
       targetReviews: parseInt(this.elements.targetInput?.value || '0', 10),
       stretchReviews: parseInt(this.elements.stretchInput?.value || '0', 10),
       
-      // モデルから取得（自動取得・編集されたデータ）
+      // 書籍データ - BookDataModelが信頼できるソース（自動取得・手動編集を反映）
       bookTitle: modelData.bookTitle,
-      bookAuthor: modelData.bookAuthor,
+      bookAuthor: modelData.bookAuthor,  // 著者名編集はここで反映される
       currentReviews: modelData.currentReviews,
       averageRating: modelData.averageRating,
       bookImage: modelData.bookImage,
       lastFetchedAt: modelData.lastFetchedAt,
     };
     
-    console.log('📤 フォームデータ:', {
-      url: formData.bookUrl,
-      target: formData.targetReviews,
-      stretch: formData.stretchReviews,
-      title: formData.bookTitle,
-      author: formData.bookAuthor,
-      current: formData.currentReviews
+    console.log('📤 フォームデータ結合:', {
+      userInputs: { url: formData.bookUrl, target: formData.targetReviews, stretch: formData.stretchReviews },
+      modelData: { title: formData.bookTitle, author: formData.bookAuthor, current: formData.currentReviews }
     });
     
     return formData;
@@ -519,7 +521,7 @@ export class BookInfoForm extends BaseComponent {
     if (this.saveInProgress) {
       console.log(`⏳ ${operationName}: 保存操作が進行中です。待機中...`, { operationId });
       while (this.saveInProgress) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, SAVE_POLLING_INTERVAL));
       }
       console.log(`⌛ ${operationName}: 前の保存操作完了を確認`, { operationId });
     }
@@ -551,46 +553,12 @@ export class BookInfoForm extends BaseComponent {
   }
 
   /**
-   * データを保存（排他制御付き）
+   * データを保存（フォーム送信用 - モデルとフォーム入力の統合）
    */
   private async saveData(): Promise<void> {
-    const operationId = ++this.saveOperationId;
-    
-    if (this.saveInProgress) {
-      console.log('⏳ 保存操作がすでに進行中です。待機中...', { operationId });
-      // 既存の保存操作の完了を待つ
-      while (this.saveInProgress) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      console.log('⌛ 前の保存操作完了を確認', { operationId });
-    }
-
-    this.saveInProgress = true;
-    console.log('🔒 保存操作開始', { operationId, timestamp: Date.now() });
-    
-    try {
-      const formData = this.getFormData();
-      console.log('📊 保存するデータ:', { operationId, formData });
-      
-      this.bookModel.updateData(formData);
-      
-      const success = this.context.storage.set('amazonReviewTracker', this.bookModel.getData());
-      if (!success) {
-        throw new Error('データの保存に失敗しました');
-      }
-      
-      console.log('💾 データ保存成功:', { 
-        operationId, 
-        savedData: this.bookModel.getData(),
-        timestamp: Date.now()
-      });
-    } catch (error) {
-      console.error('❌ データ保存エラー:', { operationId, error });
-      throw new Error('設定の保存に失敗しました');
-    } finally {
-      this.saveInProgress = false;
-      console.log('🔓 保存操作完了', { operationId, timestamp: Date.now() });
-    }
+    const formData = this.getFormData();
+    this.bookModel.updateData(formData);
+    await this.saveModelDataDirectly('フォーム送信');
   }
 
   /**
@@ -663,7 +631,7 @@ export class BookInfoForm extends BaseComponent {
         if (this.elements.statusDisplay) {
           this.hide(this.elements.statusDisplay);
         }
-      }, 5000);
+      }, STATUS_MESSAGE_DURATION);
     }
   }
 

@@ -22,6 +22,7 @@ export const MAX_RETRIES = 3;
 export const DEBOUNCE_DELAY = 300;
 export const ANIMATION_DURATION = 1000;
 export const STATUS_MESSAGE_DURATION = 5000;
+export const SAVE_POLLING_INTERVAL = 50; // 保存操作の競合チェック間隔(ms)
 
 // マイルストーン設定
 export const DEFAULT_MILESTONES = [10, 25, 50, 75, 100, 150, 200];
