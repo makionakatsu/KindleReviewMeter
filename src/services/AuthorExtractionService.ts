@@ -158,6 +158,7 @@ export class AuthorExtractionService {
    * Tier 1: 構造化データからの抽出
    */
   private async extractFromStructuredData(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
+    console.log('🔍 Tier 1: 構造化データ解析開始');
     logger.debug({
       component: 'AuthorExtraction',
       method: 'extractFromStructuredData',
@@ -165,27 +166,54 @@ export class AuthorExtractionService {
       data: { htmlLength: html.length }
     }, '🔍 TIER1_ANALYSIS: 構造化データ解析開始', ['tier1', 'structured-data', 'analysis']);
 
-    // JSON-LD抽出パターン
+    // JSON-LD抽出パターン（より具体的で厳密に）
     const jsonLdPatterns = [
-      /"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
-      /"author"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
-      /"author"\s*:\s*{\s*"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
-      /"authors?"[^[]*?\[\s*{\s*"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+      // Book構造内のauthorフィールド（最も信頼性が高い）
+      /"@type"\s*:\s*"Book"[^}]*?"author"[^}]*?"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
       /"@type"\s*:\s*"Book"[^}]*?"author"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+      
+      // 直接的なPerson->name構造
+      /"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+      
+      // author配列内のPerson
+      /"authors?"[^[]*?\[\s*{\s*"@type"\s*:\s*"Person"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
+      
+      // 一般的なauthorフィールド（優先度低）
+      /"author"[^}]*?"name"\s*:\s*"([^"]+?)"/gi,
     ];
 
-    for (const pattern of jsonLdPatterns) {
+    for (const [index, pattern] of jsonLdPatterns.entries()) {
+      console.log(`📋 JSON-LDパターン ${index + 1}/${jsonLdPatterns.length} 実行中:`, pattern.toString().substring(0, 100) + '...');
       const matches = [...html.matchAll(pattern)];
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
-      for (const match of matches) {
-        if (!match[1]) continue;
-        const candidate = this.cleanAuthorName(match[1]);
+      console.log(`🔍 パターン ${index + 1} マッチ数:`, matches.length);
+      
+      for (const [matchIndex, match] of matches.entries()) {
+        if (!match[1]) {
+          console.log(`⚠️ マッチ ${matchIndex + 1}: match[1]が空`);
+          continue;
+        }
+        
+        const rawCandidate = match[1];
+        const candidate = this.cleanAuthorName(rawCandidate);
         patternInfo.matches.push(candidate);
+        
+        console.log(`🧹 マッチ ${matchIndex + 1}:`, {
+          raw: rawCandidate,
+          cleaned: candidate,
+          isValid: this.validateAuthorName(candidate)
+        });
         
         if (this.validateAuthorName(candidate)) {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
+          
+          console.log(`✅ Tier 1 SUCCESS: JSON-LD から著者名抽出成功!`, {
+            candidate,
+            pattern: pattern.toString().substring(0, 50) + '...',
+            confidence: 0.95
+          });
           
           logger.info({
             component: 'AuthorExtraction',
@@ -209,29 +237,59 @@ export class AuthorExtractionService {
       
       if (patternInfo.matches.length > 0) {
         debug.patterns.push(patternInfo);
+        console.log(`📊 パターン ${index + 1} 結果:`, patternInfo.matches, '(有効な候補なし)');
+      } else {
+        console.log(`❌ パターン ${index + 1}: マッチなし`);
       }
     }
 
-    // Microdata抽出パターン
+    // Microdata抽出パターン（より厳密に）
+    console.log('🔍 Microdata パターン解析開始');
     const microdataPatterns = [
-      /itemprop="author"[^>]*>([^<]+)/gi,
-      /itemprop="name"[^>]*>([^<]+)/gi,
+      // 最も具体的：itemtype="Person"内のitemprop="name"
       /itemtype="[^"]*Person"[^>]*>[^<]*<[^>]*itemprop="name"[^>]*>([^<]+)/gi,
+      /itemtype="[^"]*Person"[^>]*>.*?itemprop="name"[^>]*>([^<]+)/gi,
+      
+      // 直接的なitemprop="author"
+      /itemprop="author"[^>]*>([^<]+)/gi,
+      
+      // 一般的なitemprop="name"（最低優先度）
+      /itemprop="name"[^>]*>([^<]+)/gi,
     ];
 
-    for (const pattern of microdataPatterns) {
+    for (const [index, pattern] of microdataPatterns.entries()) {
+      console.log(`📋 Microdataパターン ${index + 1}/${microdataPatterns.length} 実行中:`, pattern.toString().substring(0, 100) + '...');
       const matches = [...html.matchAll(pattern)];
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
-      for (const match of matches) {
-        if (!match[1]) continue;
-        const candidate = this.cleanAuthorName(match[1]);
+      console.log(`🔍 パターン ${index + 1} マッチ数:`, matches.length);
+      
+      for (const [matchIndex, match] of matches.entries()) {
+        if (!match[1]) {
+          console.log(`⚠️ マッチ ${matchIndex + 1}: match[1]が空`);
+          continue;
+        }
+        
+        const rawCandidate = match[1];
+        const candidate = this.cleanAuthorName(rawCandidate);
         patternInfo.matches.push(candidate);
+        
+        console.log(`🧹 マッチ ${matchIndex + 1}:`, {
+          raw: rawCandidate,
+          cleaned: candidate,
+          isValid: this.validateAuthorName(candidate)
+        });
         
         if (this.validateAuthorName(candidate)) {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
-          if (this.DEBUG_MODE) console.log('Microdata から著者名抽出:', candidate);
+          
+          console.log(`✅ Tier 1 SUCCESS: Microdata から著者名抽出成功!`, {
+            candidate,
+            pattern: pattern.toString().substring(0, 50) + '...',
+            confidence: 0.95
+          });
+          
           return { 
             author: candidate, 
             confidence: 0.95, 
@@ -243,9 +301,13 @@ export class AuthorExtractionService {
       
       if (patternInfo.matches.length > 0) {
         debug.patterns.push(patternInfo);
+        console.log(`📊 パターン ${index + 1} 結果:`, patternInfo.matches, '(有効な候補なし)');
+      } else {
+        console.log(`❌ パターン ${index + 1}: マッチなし`);
       }
     }
 
+    console.log('❌ Tier 1 FAILED: 構造化データからの著者名抽出に失敗');
     return { 
       author: null, 
       confidence: 0, 
@@ -258,7 +320,7 @@ export class AuthorExtractionService {
    * Tier 2: セマンティックHTMLからの抽出
    */
   private async extractFromSemanticHTML(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
-    if (this.DEBUG_MODE) console.log('🔍 Tier 2: セマンティックHTML解析');
+    console.log('🔍 Tier 2: セマンティックHTML解析開始');
 
     const semanticPatterns = [
       // author/byline系のクラス・ID
@@ -281,23 +343,43 @@ export class AuthorExtractionService {
       /<link[^>]*rel="author"[^>]*title="([^"]+?)"/gi,
     ];
 
-    for (const pattern of semanticPatterns) {
+    for (const [index, pattern] of semanticPatterns.entries()) {
+      console.log(`📋 セマンティックパターン ${index + 1}/${semanticPatterns.length} 実行中:`, pattern.toString().substring(0, 100) + '...');
       const matches = [...html.matchAll(pattern)];
       const patternInfo: { pattern: string; matches: string[]; selected?: string } = { pattern: pattern.toString(), matches: [] };
       
-      for (const match of matches) {
-        if (!match[1]) continue;
-        const candidate = this.cleanAuthorName(match[1]);
+      console.log(`🔍 パターン ${index + 1} マッチ数:`, matches.length);
+      
+      for (const [matchIndex, match] of matches.entries()) {
+        if (!match[1]) {
+          console.log(`⚠️ マッチ ${matchIndex + 1}: match[1]が空`);
+          continue;
+        }
+        
+        const rawCandidate = match[1];
+        const candidate = this.cleanAuthorName(rawCandidate);
         patternInfo.matches.push(candidate);
+        
+        console.log(`🧹 マッチ ${matchIndex + 1}:`, {
+          raw: rawCandidate,
+          cleaned: candidate,
+          isValid: this.validateAuthorName(candidate)
+        });
         
         if (this.validateAuthorName(candidate)) {
           patternInfo.selected = candidate;
           debug.patterns.push(patternInfo);
-          if (this.DEBUG_MODE) console.log('セマンティックHTML から著者名抽出:', candidate);
+          
+          console.log(`✅ Tier 2 SUCCESS: セマンティックHTML から著者名抽出成功!`, {
+            candidate,
+            pattern: pattern.toString().substring(0, 50) + '...',
+            confidence: 0.8
+          });
+          
           return { 
             author: candidate, 
-            confidence: 0.95, 
-            method: AuthorExtractionMethod.STRUCTURED_DATA,
+            confidence: 0.8, 
+            method: AuthorExtractionMethod.SEMANTIC_HTML,
             debug: this.finalizeDebug(debug, Date.now())
           };
         }
@@ -305,9 +387,13 @@ export class AuthorExtractionService {
       
       if (patternInfo.matches.length > 0) {
         debug.patterns.push(patternInfo);
+        console.log(`📊 パターン ${index + 1} 結果:`, patternInfo.matches, '(有効な候補なし)');
+      } else {
+        console.log(`❌ パターン ${index + 1}: マッチなし`);
       }
     }
 
+    console.log('❌ Tier 2 FAILED: セマンティックHTMLからの著者名抽出に失敗');
     return { 
       author: null, 
       confidence: 0, 
@@ -320,7 +406,7 @@ export class AuthorExtractionService {
    * Tier 3: テキストパターンマッチング
    */
   private async extractFromTextPatterns(html: string, debug: AuthorExtractionDebug): Promise<AuthorExtractionResult> {
-    if (this.DEBUG_MODE) console.log('🔍 Tier 3: テキストパターン解析');
+    console.log('🔍 Tier 3: テキストパターン解析開始');
 
     const textPatterns = [
       // 日本語パターン（優先度高）
@@ -468,7 +554,33 @@ export class AuthorExtractionService {
    * 著者名の検証
    */
   private validateAuthorName(name: string): boolean {
-    if (!name || name.length < 2 || name.length > 50) return false;
+    if (!name || name.length < 2 || name.length > 50) {
+      console.log(`❌ バリデーション失敗 (長さ): "${name}" (length: ${name?.length})`);
+      return false;
+    }
+
+    // JavaScriptコードの検出
+    const jsPatterns = [
+      /\{.*\}/, // 波括弧
+      /window\./i, // window オブジェクト
+      /function|var|let|const|if|else|for|while/i, // JavaScript キーワード
+      /[<>{}()[\]=;]/g, // プログラミング記号
+      /\$\{.*\}/, // テンプレートリテラル
+      /\/\*|\*\/|\/\//, // コメント
+    ];
+
+    for (const pattern of jsPatterns) {
+      if (pattern.test(name)) {
+        console.log(`❌ バリデーション失敗 (JavaScript検出): "${name}" - パターン: ${pattern}`);
+        return false;
+      }
+    }
+
+    // HTMLタグの検出
+    if (/<[^>]*>/.test(name)) {
+      console.log(`❌ バリデーション失敗 (HTMLタグ検出): "${name}"`);
+      return false;
+    }
 
     // 無効な用語をチェック
     const invalidTerms = [
@@ -476,18 +588,42 @@ export class AuthorExtractionService {
       'kindle', 'amazon', 'paperback', 'hardcover', 'format',
       'page', 'pages', 'price', 'buy', 'purchase', 'cart', 'wishlist',
       'review', 'reviews', 'customer', 'rating', 'star', 'stars',
-      'visit', 'website', 'profile', 'biography', 'bio', 'more info'
+      'visit', 'website', 'profile', 'biography', 'bio', 'more info',
+      'csa', 'mix_csa', 'script', 'function', 'var', 'window'
     ];
 
     const lowerName = name.toLowerCase();
-    if (invalidTerms.some(term => lowerName.includes(term))) return false;
+    for (const term of invalidTerms) {
+      if (lowerName.includes(term)) {
+        console.log(`❌ バリデーション失敗 (無効用語): "${name}" - 検出用語: ${term}`);
+        return false;
+      }
+    }
 
     // 数字のみや記号のみを除外
-    if (/^\d+$/.test(name) || /^[^\w\s]*$/.test(name)) return false;
+    if (/^\d+$/.test(name)) {
+      console.log(`❌ バリデーション失敗 (数字のみ): "${name}"`);
+      return false;
+    }
+    
+    if (/^[^\w\s]*$/.test(name)) {
+      console.log(`❌ バリデーション失敗 (記号のみ): "${name}"`);
+      return false;
+    }
 
     // 空白のみを除外
-    if (name.trim() === '') return false;
+    if (name.trim() === '') {
+      console.log(`❌ バリデーション失敗 (空白のみ): "${name}"`);
+      return false;
+    }
 
+    // URLっぽいものを除外
+    if (/https?:\/\/|www\./i.test(name)) {
+      console.log(`❌ バリデーション失敗 (URL検出): "${name}"`);
+      return false;
+    }
+
+    console.log(`✅ バリデーション成功: "${name}"`);
     return true;
   }
 

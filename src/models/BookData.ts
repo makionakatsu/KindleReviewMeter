@@ -74,14 +74,44 @@ export class BookDataModel {
    * 書籍情報を更新
    */
   updateBookInfo(info: PartialBookData): void {
+    console.log('📚 BookDataModel.updateBookInfo() 開始');
+    console.log('📥 入力データ:', info);
+    console.log('📊 現在のモデル状態:', {
+      bookTitle: this.data.bookTitle,
+      bookAuthor: this.data.bookAuthor,
+      currentReviews: this.data.currentReviews,
+      bookCoverUrl: this.data.bookCoverUrl
+    });
+    
     const updates: Partial<BookData> = {};
     
-    if (info.bookTitle !== undefined) updates.bookTitle = info.bookTitle;
-    if (info.bookAuthor !== undefined) updates.bookAuthor = info.bookAuthor;
-    if (info.currentReviews !== undefined) updates.currentReviews = info.currentReviews;
-    if (info.bookCoverUrl !== undefined) updates.bookCoverUrl = info.bookCoverUrl;
+    if (info.bookTitle !== undefined) {
+      updates.bookTitle = info.bookTitle;
+      console.log('✏️ タイトル更新:', info.bookTitle);
+    }
+    if (info.bookAuthor !== undefined) {
+      updates.bookAuthor = info.bookAuthor;
+      console.log('✏️ 著者名更新:', info.bookAuthor);
+    }
+    if (info.currentReviews !== undefined) {
+      updates.currentReviews = info.currentReviews;
+      console.log('✏️ レビュー数更新:', info.currentReviews);
+    }
+    if (info.bookCoverUrl !== undefined) {
+      updates.bookCoverUrl = info.bookCoverUrl;
+      console.log('✏️ 書影URL更新:', info.bookCoverUrl);
+    }
 
+    console.log('🔄 適用する更新:', updates);
     this.updateData(updates);
+    
+    console.log('📤 更新後のモデル状態:', {
+      bookTitle: this.data.bookTitle,
+      bookAuthor: this.data.bookAuthor,
+      currentReviews: this.data.currentReviews,
+      bookCoverUrl: this.data.bookCoverUrl
+    });
+    console.log('✅ BookDataModel.updateBookInfo() 完了');
   }
 
   /**
