@@ -399,6 +399,16 @@ export class BookInfoForm extends BaseComponent {
           const cleanedAuthor = this.context.validationService.sanitizeInput(newAuthor);
           if (this.context.validationService.validateAuthorName(cleanedAuthor)) {
             this.bookModel.updateData({ bookAuthor: cleanedAuthor });
+            
+            // 隠し入力フィールドを即座に更新
+            const updatedData = this.bookModel.getData();
+            this.syncHiddenInputs(updatedData);
+            console.log('📝 著者名編集 - 隠し入力フィールド同期完了:', {
+              modelAuthor: updatedData.bookAuthor,
+              hiddenInputValue: this.elements.authorInput?.value,
+              syncSuccess: this.elements.authorInput?.value === updatedData.bookAuthor
+            });
+            
             this.updatePreview();
             this.showStatus('success', `著者名を「${cleanedAuthor}」に更新しました`);
             
@@ -417,6 +427,16 @@ export class BookInfoForm extends BaseComponent {
           }
         } else {
           this.bookModel.updateData({ bookAuthor: '' });
+          
+          // 隠し入力フィールドを即座に更新
+          const updatedData = this.bookModel.getData();
+          this.syncHiddenInputs(updatedData);
+          console.log('📝 著者名リセット - 隠し入力フィールド同期完了:', {
+            modelAuthor: updatedData.bookAuthor,
+            hiddenInputValue: this.elements.authorInput?.value,
+            syncSuccess: this.elements.authorInput?.value === updatedData.bookAuthor
+          });
+          
           this.updatePreview();
           this.showStatus('success', '著者名を「未設定」にリセットしました');
           

@@ -206,7 +206,23 @@ class VisualDisplayApp {
   private checkDataAvailability(): boolean {
     try {
       const bookData = this.context.storage.get('bookData');
-      return !!(bookData && (bookData as any).bookTitle && (bookData as any).targetReviews > 0);
+      console.log('📊 ビジュアル表示 - データ可用性チェック:', {
+        hasData: !!bookData,
+        bookTitle: (bookData as any)?.bookTitle,
+        bookAuthor: (bookData as any)?.bookAuthor,
+        targetReviews: (bookData as any)?.targetReviews,
+        fullData: bookData
+      });
+      
+      const isAvailable = !!(bookData && (bookData as any).bookTitle && (bookData as any).targetReviews > 0);
+      console.log('📊 データ可用性判定:', {
+        result: isAvailable,
+        hasTitle: !!(bookData as any)?.bookTitle,
+        hasTargetReviews: ((bookData as any)?.targetReviews || 0) > 0,
+        authorValue: (bookData as any)?.bookAuthor || '未設定'
+      });
+      
+      return isAvailable;
     } catch (error) {
       console.error('Data availability check failed:', error);
       return false;

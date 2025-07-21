@@ -89,9 +89,24 @@ export class ProgressViewer extends BaseComponent {
   private loadData(): void {
     try {
       const savedData = this.context.storage.get<BookData>('bookData');
+      console.log('📊 ProgressViewer - データ読み込み:', {
+        hasData: !!savedData,
+        bookTitle: savedData?.bookTitle,
+        bookAuthor: savedData?.bookAuthor,
+        currentReviews: savedData?.currentReviews,
+        targetReviews: savedData?.targetReviews,
+        fullData: savedData
+      });
+      
       if (savedData) {
         this.bookModel = new BookDataModel(savedData);
         this.progressData = this.bookModel.calculateProgress();
+        
+        console.log('📊 BookDataModel 初期化後:', {
+          modelData: this.bookModel.getData(),
+          authorFromModel: this.bookModel.getData().bookAuthor,
+          progressData: this.progressData
+        });
       }
     } catch (error) {
       console.warn('データ読み込みエラー:', error);
