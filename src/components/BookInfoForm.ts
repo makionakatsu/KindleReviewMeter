@@ -47,9 +47,6 @@ export class BookInfoForm extends BaseComponent {
     statusDisplay?: HTMLElement;
     previewSection?: HTMLElement;
     editAuthorButton?: HTMLButtonElement;
-    authorInput?: HTMLInputElement;
-    titleInput?: HTMLInputElement;
-    currentReviewsInput?: HTMLInputElement;
   } = {};
 
   constructor(
@@ -184,11 +181,6 @@ export class BookInfoForm extends BaseComponent {
           </div>
 
           ${this.options.showPreview ? this.createPreviewSection() : ''}
-
-          <!-- 隠し入力フィールド (著者名の保存用) -->
-          <input type="hidden" id="bookAuthor" name="bookAuthor" value="">
-          <input type="hidden" id="bookTitle" name="bookTitle" value="">
-          <input type="hidden" id="currentReviews" name="currentReviews" value="0">
           
           <div class="button-group">
             <button type="submit" class="btn btn-primary">💾 設定を保存</button>
@@ -199,7 +191,6 @@ export class BookInfoForm extends BaseComponent {
     `;
 
     // DOM要素への参照を取得
-    console.log('🔍 DOM要素の参照取得開始');
     this.elements = {
       form: this.select<HTMLFormElement>('#settingsForm') ?? undefined,
       urlInput: this.select<HTMLInputElement>('#bookUrl') ?? undefined,
@@ -209,43 +200,7 @@ export class BookInfoForm extends BaseComponent {
       statusDisplay: this.select<HTMLElement>('#fetchAllStatus') ?? undefined,
       previewSection: this.select<HTMLElement>('.preview-section') ?? undefined,
       editAuthorButton: this.select<HTMLButtonElement>('#editAuthorBtn') ?? undefined,
-      authorInput: this.select<HTMLInputElement>('#bookAuthor') ?? undefined,
-      titleInput: this.select<HTMLInputElement>('#bookTitle') ?? undefined,
-      currentReviewsInput: this.select<HTMLInputElement>('#currentReviews') ?? undefined,
     };
-
-    // 隠し入力フィールドの存在確認
-    console.log('🔍 隠し入力フィールド存在確認:', {
-      authorInput: {
-        exists: !!this.elements.authorInput,
-        element: this.elements.authorInput,
-        id: this.elements.authorInput?.id,
-        type: this.elements.authorInput?.type,
-        value: this.elements.authorInput?.value
-      },
-      titleInput: {
-        exists: !!this.elements.titleInput,
-        element: this.elements.titleInput,
-        id: this.elements.titleInput?.id,
-        type: this.elements.titleInput?.type,
-        value: this.elements.titleInput?.value
-      },
-      currentReviewsInput: {
-        exists: !!this.elements.currentReviewsInput,
-        element: this.elements.currentReviewsInput,
-        id: this.elements.currentReviewsInput?.id,
-        type: this.elements.currentReviewsInput?.type,
-        value: this.elements.currentReviewsInput?.value
-      }
-    });
-    
-    // DOM全体の隠し入力フィールドも検索
-    const allHiddenInputs = document.querySelectorAll('input[type="hidden"]');
-    console.log('🔍 DOM内の全隠し入力フィールド:', Array.from(allHiddenInputs).map(input => ({
-      id: input.id,
-      name: (input as HTMLInputElement).name,
-      value: (input as HTMLInputElement).value
-    })));
   }
 
   /**
@@ -399,27 +354,17 @@ export class BookInfoForm extends BaseComponent {
         this.bookModel.updateBookInfo(result.data);
         console.log('📊 BookInfo更新後のモデル状態:', this.bookModel.getData());
         
-        // 隠し入力フィールドを明示的に更新
-        const updatedData = this.bookModel.getData();
-        this.syncHiddenInputs(updatedData);
         console.log('📋 取得後データ確認:', {
-          bookAuthor: updatedData.bookAuthor,
-          bookTitle: updatedData.bookTitle,
-          currentReviews: updatedData.currentReviews
+          bookAuthor: this.bookModel.getData().bookAuthor,
+          bookTitle: this.bookModel.getData().bookTitle,
+          currentReviews: this.bookModel.getData().currentReviews
         });
         
         this.updatePreview();
         this.showStatus('success', `取得完了: ${result.metadata.extractedFields.join('、')} (${result.metadata.extractedFields.length}/4項目)`);
         
         if (this.options.autoSave) {
-          // 自動取得後は隠し入力フィールドを優先せず、現在のモデルデータを保存
-          console.log('💾 自動保存開始（モデルデータ優先）');
-          const currentData = this.bookModel.getData();
-          const success = this.context.storage.set('amazonReviewTracker', currentData);
-          if (!success) {
-            throw new Error('データの保存に失敗しました');
-          }
-          console.log('💾 自動保存完了:', currentData);
+          await this.saveModelDataDirectly('自動取得後');
         }
         
         this.emitEvent('book:fetched', result);
@@ -455,13 +400,9 @@ export class BookInfoForm extends BaseComponent {
           if (this.context.validationService.validateAuthorName(cleanedAuthor)) {
             this.bookModel.updateData({ bookAuthor: cleanedAuthor });
             
-            // 隠し入力フィールドを即座に更新
-            const updatedData = this.bookModel.getData();
-            this.syncHiddenInputs(updatedData);
-            console.log('📝 著者名編集 - 隠し入力フィールド同期完了:', {
-              modelAuthor: updatedData.bookAuthor,
-              hiddenInputValue: this.elements.authorInput?.value,
-              syncSuccess: this.elements.authorInput?.value === updatedData.bookAuthor
+            console.log('📝 著者名編集完了:', {
+              newAuthor: cleanedAuthor,
+              modelAuthor: this.bookModel.getData().bookAuthor
             });
             
             this.updatePreview();
@@ -478,13 +419,8 @@ export class BookInfoForm extends BaseComponent {
         } else {
           this.bookModel.updateData({ bookAuthor: '' });
           
-          // 隠し入力フィールドを即座に更新
-          const updatedData = this.bookModel.getData();
-          this.syncHiddenInputs(updatedData);
-          console.log('📝 著者名リセット - 隠し入力フィールド同期完了:', {
-            modelAuthor: updatedData.bookAuthor,
-            hiddenInputValue: this.elements.authorInput?.value,
-            syncSuccess: this.elements.authorInput?.value === updatedData.bookAuthor
+          console.log('📝 著者名リセット完了:', {
+            modelAuthor: this.bookModel.getData().bookAuthor
           });
           
           this.updatePreview();
@@ -513,94 +449,34 @@ export class BookInfoForm extends BaseComponent {
   }
 
   /**
-   * フォームデータを取得
+   * フォームデータを取得（簡素化版）
    */
   private getFormData(): Partial<BookData> {
-    console.log('📄 getFormData() 開始');
-    
-    const data = this.bookModel.getData();
-    console.log('📊 現在のBookDataModelデータ:', {
-      bookTitle: data.bookTitle,
-      bookAuthor: data.bookAuthor,
-      currentReviews: data.currentReviews,
-      bookCoverUrl: data.bookCoverUrl
-    });
-    
-    // 隠し入力フィールドの値を個別に検証
-    const hiddenAuthorValue = this.elements.authorInput?.value;
-    const hiddenTitleValue = this.elements.titleInput?.value;
-    const hiddenReviewsValue = this.elements.currentReviewsInput?.value;
-    
-    console.log('🔍 隠し入力フィールドからの値:', {
-      authorInput: {
-        exists: !!this.elements.authorInput,
-        value: hiddenAuthorValue,
-        isUndefined: hiddenAuthorValue === undefined,
-        isNull: hiddenAuthorValue === null,
-        isEmpty: hiddenAuthorValue === '',
-        length: hiddenAuthorValue?.length
-      },
-      titleInput: {
-        exists: !!this.elements.titleInput,
-        value: hiddenTitleValue,
-        isUndefined: hiddenTitleValue === undefined,
-        isNull: hiddenTitleValue === null,
-        isEmpty: hiddenTitleValue === '',
-        length: hiddenTitleValue?.length
-      },
-      reviewsInput: {
-        exists: !!this.elements.currentReviewsInput,
-        value: hiddenReviewsValue,
-        isUndefined: hiddenReviewsValue === undefined,
-        isNull: hiddenReviewsValue === null,
-        isEmpty: hiddenReviewsValue === '',
-        parsedInt: hiddenReviewsValue ? parseInt(hiddenReviewsValue, 10) : null
-      }
-    });
-    
-    // 値の決定プロセスを詳細にログ - モデルデータを最優先に修正
-    const authorValue = data.bookAuthor || this.elements.authorInput?.value || '';
-    const titleValue = data.bookTitle || this.elements.titleInput?.value || '';
-    const reviewsValue = data.currentReviews || parseInt(this.elements.currentReviewsInput?.value || '0', 10) || 0;
-    
-    console.log('🔄 値の決定プロセス (モデル優先):', {
-      author: {
-        modelValue: data.bookAuthor,
-        hiddenInputValue: this.elements.authorInput?.value,
-        finalValue: authorValue,
-        source: data.bookAuthor ? 'model' : (this.elements.authorInput?.value ? 'hiddenInput' : 'empty'),
-        priorityFixed: true
-      },
-      title: {
-        modelValue: data.bookTitle,
-        hiddenInputValue: this.elements.titleInput?.value,
-        finalValue: titleValue,
-        source: data.bookTitle ? 'model' : (this.elements.titleInput?.value ? 'hiddenInput' : 'empty'),
-        priorityFixed: true
-      },
-      reviews: {
-        modelValue: data.currentReviews,
-        hiddenInputValue: this.elements.currentReviewsInput?.value,
-        finalValue: reviewsValue,
-        source: data.currentReviews > 0 ? 'model' : 'hiddenInput',
-        priorityFixed: true
-      }
-    });
+    const modelData = this.bookModel.getData();
     
     const formData = {
+      // フォーム入力値
       bookUrl: this.elements.urlInput?.value?.trim() || '',
       targetReviews: parseInt(this.elements.targetInput?.value || '0', 10),
       stretchReviews: parseInt(this.elements.stretchInput?.value || '0', 10),
-      bookTitle: titleValue,
-      bookAuthor: authorValue,
-      currentReviews: reviewsValue,
-      averageRating: data.averageRating,
-      bookImage: data.bookImage,
-      lastFetchedAt: data.lastFetchedAt,
+      
+      // モデルから取得（自動取得・編集されたデータ）
+      bookTitle: modelData.bookTitle,
+      bookAuthor: modelData.bookAuthor,
+      currentReviews: modelData.currentReviews,
+      averageRating: modelData.averageRating,
+      bookImage: modelData.bookImage,
+      lastFetchedAt: modelData.lastFetchedAt,
     };
     
-    console.log('📤 最終的なフォームデータ:', formData);
-    console.log('✅ getFormData() 完了');
+    console.log('📤 フォームデータ:', {
+      url: formData.bookUrl,
+      target: formData.targetReviews,
+      stretch: formData.stretchReviews,
+      title: formData.bookTitle,
+      author: formData.bookAuthor,
+      current: formData.currentReviews
+    });
     
     return formData;
   }
@@ -730,8 +606,7 @@ export class BookInfoForm extends BaseComponent {
       currentReviews: data.currentReviews
     });
 
-    // 隠し入力フィールドを更新
-    this.syncHiddenInputs(data);
+    // プレビューデータの更新
 
     if (!this.options.showPreview) return;
 
@@ -765,36 +640,6 @@ export class BookInfoForm extends BaseComponent {
     }
   }
 
-  /**
-   * 隠し入力フィールドを同期
-   */
-  private syncHiddenInputs(data: BookData): void {
-    console.log('🔄 隠し入力フィールド同期開始:', {
-      inputData: {
-        bookAuthor: data.bookAuthor,
-        bookTitle: data.bookTitle,
-        currentReviews: data.currentReviews
-      },
-      elements: {
-        authorInputExists: !!this.elements.authorInput,
-        titleInputExists: !!this.elements.titleInput,
-        reviewsInputExists: !!this.elements.currentReviewsInput
-      }
-    });
-    
-    if (this.elements.authorInput) {
-      this.elements.authorInput.value = data.bookAuthor || '';
-      console.log('📝 著者入力フィールド更新:', this.elements.authorInput.value);
-    }
-    if (this.elements.titleInput) {
-      this.elements.titleInput.value = data.bookTitle || '';
-      console.log('📝 タイトル入力フィールド更新:', this.elements.titleInput.value);
-    }
-    if (this.elements.currentReviewsInput) {
-      this.elements.currentReviewsInput.value = data.currentReviews.toString();
-      console.log('📝 レビュー数入力フィールド更新:', this.elements.currentReviewsInput.value);
-    }
-  }
 
   /**
    * ステータスメッセージを表示
