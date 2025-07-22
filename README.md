@@ -43,6 +43,28 @@ Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可�
 - **モジュラー設計**: ES Modulesによる整理された構造
 - **GitHub Pages対応**: 設定なしで即座にデプロイ可能
 - **レスポンシブ対応**: デスクトップとモバイルに対応
+- **著者名/タイトル編集**: インライン編集機能
+- **手動データ入力**: API失敗時のフォールバック
+- **データ管理**: エクスポート/インポート機能
+- **複数プロキシ対応**: 自動フォールバック機能
+
+## 🔧 GitHub Pagesデプロイ手順
+
+このリポジトリはGitHub Actionsで自動デプロイされます：
+
+1. **リポジトリ設定**:
+   - Settings → Pages → Source を "GitHub Actions" に設定
+   
+2. **自動デプロイ**:
+   - mainブランチにpushすると自動的にデプロイ
+   - `.github/workflows/deploy.yml` でワークフローを管理
+
+3. **手動デプロイ**:
+   ```bash
+   git add .
+   git commit -m "Update application"
+   git push origin main
+   ```
 
 ---
 
