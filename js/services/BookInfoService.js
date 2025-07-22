@@ -5,9 +5,11 @@ export class BookInfoService {
     constructor() {
         // 複数のCORS プロキシを定義（フォールバック対応）
         this.corsProxies = [
-            'https://api.allorigins.win/get?url=',
-            // 'https://corsproxy.io/?', // 一時的に無効化（403エラーのため）
-            // 'https://cors-anywhere.herokuapp.com/', // 一時的に無効化（制限のため）
+            'https://api.cors.lol/?url=',
+            'https://proxy.cors.sh/',
+            // 'https://api.allorigins.win/get?url=', // 2024年6月にSSL証明書が期限切れ、サービス不安定
+            // 'https://corsproxy.io/?', // 登録制になり、制限が厳しくなった
+            // 'https://cors-anywhere.herokuapp.com/', // デモ使用のみに制限
         ];
         this.currentProxyIndex = 0;
     }
@@ -36,6 +38,8 @@ export class BookInfoService {
                 // プロキシのタイプに応じてURL構築を変更
                 if (currentProxy.includes('allorigins.win')) {
                     proxyUrl = currentProxy + encodeURIComponent(amazonUrl);
+                } else if (currentProxy.includes('cors.lol')) {
+                    proxyUrl = currentProxy + encodeURIComponent(amazonUrl);
                 } else {
                     proxyUrl = currentProxy + amazonUrl;
                 }
@@ -62,6 +66,9 @@ export class BookInfoService {
                     if (data.status && data.status.http_code !== 200) {
                         throw new Error(`Amazon returned HTTP ${data.status.http_code}`);
                     }
+                } else if (currentProxy.includes('cors.lol')) {
+                    const data = await response.json();
+                    html = data.contents || data.body || await response.text();
                 } else {
                     html = await response.text();
                 }
