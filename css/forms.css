@@ -11,6 +11,37 @@
   margin-bottom: 25px;
 }
 
+.input-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input-group input {
+  flex: 1;
+}
+
+.form-text {
+  color: #6c757d;
+  font-size: 0.875rem;
+  margin-top: 5px;
+  display: block;
+}
+
+.manual-input-section {
+  background: #f8f9fa;
+  border-radius: 15px;
+  padding: 20px;
+  margin: 20px 0;
+  border: 2px solid #e9ecef;
+}
+
+.manual-input-section h4 {
+  color: #667eea;
+  margin-bottom: 15px;
+  font-size: 1.2rem;
+}
+
 .section-title {
   font-size: 1.3rem;
   font-weight: 700;

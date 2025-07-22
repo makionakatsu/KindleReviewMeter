@@ -25,7 +25,9 @@
     <meta http-equiv="Expires" content="0">
     
     <!-- Preload critical resources with timestamp -->
-    <link rel="preload" href="js/main.js?v=2.0.2" as="script" crossorigin="anonymous">
+    <link rel="preload" href="js/main.js?v=2.0.4" as="script" crossorigin="anonymous">
+    <link rel="preload" href="js/services/StorageService.js?v=2.0.4" as="script" crossorigin="anonymous">
+    <link rel="preload" href="js/services/ValidationService.js?v=2.0.4" as="script" crossorigin="anonymous">
     
     <!-- Security headers - Optimized CSP (frame-ancestors must be set via server header) -->
     <meta http-equiv="Content-Security-Policy" content="
@@ -79,6 +81,36 @@
     </footer>
 
     <!-- Scripts -->
+    <script>
+        // ブラウザ互換性チェック
+        function checkBrowserCompatibility() {
+            const checks = {
+                esModules: 'noModule' in HTMLScriptElement.prototype,
+                fetch: 'fetch' in window,
+                localStorage: 'localStorage' in window,
+                promises: 'Promise' in window,
+                arrow: (() => { try { eval('() => {}'); return true; } catch(e) { return false; } })()
+            };
+            
+            const failed = Object.keys(checks).filter(key => !checks[key]);
+            
+            if (failed.length > 0) {
+                const message = `お使いのブラウザは一部機能に対応していません: ${failed.join(', ')}\n最新のブラウザをお使いください。`;
+                alert(message);
+                console.warn('Browser compatibility issues:', failed);
+                return false;
+            }
+            
+            return true;
+        }
+        
+        // 互換性チェック実行
+        if (!checkBrowserCompatibility()) {
+            document.getElementById('error-fallback').style.display = 'flex';
+            document.getElementById('loading').style.display = 'none';
+        }
+    </script>
+    
     <script type="module">
         // Early error handling
         window.addEventListener('error', (event) => {
@@ -182,7 +214,7 @@
     </script>
 
     <!-- Main application script -->
-    <script type="module" src="js/main.js?v=2.0.3"></script>
+    <script type="module" src="js/main.js?v=2.0.4"></script>
 
     <!-- Analytics placeholder (for future use) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
