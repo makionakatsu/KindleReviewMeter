@@ -32,7 +32,7 @@
     <!-- Security headers - Optimized CSP (frame-ancestors must be set via server header) -->
     <meta http-equiv="Content-Security-Policy" content="
         default-src 'self';
-        script-src 'self' 'unsafe-inline';
+        script-src 'self' 'unsafe-inline' cdnjs.cloudflare.com;
         style-src 'self' 'unsafe-inline' fonts.googleapis.com;
         font-src 'self' fonts.gstatic.com;
         img-src 'self' data: https: ssl-images-amazon.com m.media-amazon.com images-amazon.com;
@@ -74,7 +74,6 @@
         <div class="footer-content">
             <p>&copy; 2024 Amazon書籍レビュー数トラッカー</p>
             <div class="footer-links">
-                <a href="amazon-review-visual.html">📊 ビジュアル表示</a>
                 <a href="#" onclick="showHelp(); return false;">❓ ヘルプ</a>
             </div>
         </div>

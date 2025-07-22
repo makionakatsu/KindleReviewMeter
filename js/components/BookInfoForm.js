@@ -93,20 +93,65 @@ export class BookInfoForm {
                     </div>
                 </form>
 
+                <!-- プログレス表示セクション -->
+                <div id="progressSection" class="progress-section" style="display: none;">
+                    <h2>📊 進捗状況</h2>
+                    <div class="visual-display">
+                        <div class="book-header">
+                            <div class="book-image">
+                                <img id="progressBookImage" alt="書籍画像">
+                            </div>
+                            <div class="book-info">
+                                <h3 id="progressBookTitle"></h3>
+                                <p><strong>著者:</strong> <span id="progressBookAuthor"></span></p>
+                                <p><strong>目標:</strong> <span id="progressTargetReviews"></span> レビュー</p>
+                                <p id="progressStretchGoal" style="display: none;"><strong>ストレッチ目標:</strong> <span></span> レビュー</p>
+                            </div>
+                        </div>
+
+                        <div class="progress-display">
+                            <div class="progress-bar">
+                                <div id="progressFill" class="progress-fill"></div>
+                                <span id="progressText" class="progress-text"></span>
+                            </div>
+
+                            <div class="progress-stats">
+                                <div class="stat">
+                                    <div id="currentReviewsStat" class="stat-value">0</div>
+                                    <div class="stat-label">現在のレビュー数</div>
+                                </div>
+                                <div class="stat">
+                                    <div id="targetReviewsStat" class="stat-value">0</div>
+                                    <div class="stat-label">目標レビュー数</div>
+                                </div>
+                                <div class="stat">
+                                    <div id="remainingStat" class="stat-value">0</div>
+                                    <div class="stat-label">あと</div>
+                                </div>
+                            </div>
+
+                            <div id="achievementMessage" class="milestone">
+                                📈 目標まであと少し！
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="main-actions">
                     <!-- 主要アクション -->
                     <div class="action-group primary-group">
                         <h4 class="action-group-title">📚 書籍管理</h4>
                         <div class="button-row">
                             <button type="button" id="showManualBtn" class="btn btn-secondary">✏️ 手動入力</button>
-                            <a href="amazon-review-visual.html" class="btn btn-secondary">📊 ビジュアル表示</a>
+                            <button type="button" id="showProgressBtn" class="btn btn-secondary" style="display: none;">📊 進捗表示</button>
                         </div>
                     </div>
 
-                    <!-- データ管理アクション -->
+                    <!-- シェア・データ管理アクション -->
                     <div class="action-group secondary-group">
-                        <h4 class="action-group-title">💾 データ管理</h4>
+                        <h4 class="action-group-title">📤 シェア・データ管理</h4>
                         <div class="button-row">
+                            <button id="shareBtn" class="btn btn-primary" style="display: none;">📷 スクリーンショット</button>
                             <button id="exportBtn" class="btn btn-secondary">📤 エクスポート</button>
                             <button id="importBtn" class="btn btn-secondary">📥 インポート</button>
                             <input type="file" id="importFile" accept=".json" style="display: none;">
@@ -165,6 +210,16 @@ export class BookInfoForm {
             if (e.target.files.length > 0) {
                 this.importData(e.target.files[0]);
             }
+        });
+
+        // 進捗表示ボタン
+        document.getElementById('showProgressBtn').addEventListener('click', () => {
+            this.toggleProgressDisplay();
+        });
+
+        // スクリーンショットボタン
+        document.getElementById('shareBtn').addEventListener('click', () => {
+            this.takeScreenshot();
         });
 
         // 編集ボタン（動的に追加される要素なので、イベント委譲を使用）
@@ -305,6 +360,12 @@ export class BookInfoForm {
             if (this.storageService.save(data)) {
                 alert('設定を保存しました！');
                 console.log('✅ Settings saved:', data);
+                
+                // 進捗表示ボタンを表示
+                const showProgressBtn = document.getElementById('showProgressBtn');
+                if (showProgressBtn) {
+                    showProgressBtn.style.display = 'inline-block';
+                }
             } else {
                 alert('設定の保存に失敗しました。');
             }
@@ -326,6 +387,12 @@ export class BookInfoForm {
             
             if (data.title) {
                 this.displayBookInfo(data);
+                
+                // 進捗表示ボタンを表示
+                const showProgressBtn = document.getElementById('showProgressBtn');
+                if (showProgressBtn) {
+                    showProgressBtn.style.display = 'inline-block';
+                }
             }
         }
     }
@@ -492,5 +559,187 @@ export class BookInfoForm {
             this.storageService.clear();
             location.reload();
         }
+    }
+
+    /**
+     * 進捗表示セクションの表示/非表示を切り替え
+     */
+    toggleProgressDisplay() {
+        const progressSection = document.getElementById('progressSection');
+        const showBtn = document.getElementById('showProgressBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        
+        if (!progressSection || !showBtn) return;
+
+        const data = this.storageService.load();
+        if (!data || !data.title) {
+            alert('📝 まず書籍情報を保存してから進捗を表示してください。');
+            return;
+        }
+
+        if (progressSection.style.display === 'none') {
+            // 進捗データを更新して表示
+            this.updateProgressDisplay(data);
+            progressSection.style.display = 'block';
+            showBtn.textContent = '📁 進捗を閉じる';
+            shareBtn.style.display = 'inline-block';
+            
+            // スムーズスクロール
+            progressSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            progressSection.style.display = 'none';
+            showBtn.textContent = '📊 進捗表示';
+            shareBtn.style.display = 'none';
+        }
+    }
+
+    /**
+     * 進捗表示を更新
+     */
+    updateProgressDisplay(data) {
+        // 書籍情報の表示
+        const progressBookImage = document.getElementById('progressBookImage');
+        const progressBookTitle = document.getElementById('progressBookTitle');
+        const progressBookAuthor = document.getElementById('progressBookAuthor');
+        const progressTargetReviews = document.getElementById('progressTargetReviews');
+        const progressStretchGoal = document.getElementById('progressStretchGoal');
+
+        if (progressBookImage) {
+            progressBookImage.src = data.imageUrl || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="150" viewBox="0 0 100 150"><rect width="100" height="150" fill="%23e9ecef"/><text x="50" y="75" text-anchor="middle" font-family="Arial" font-size="12" fill="%236c757d">No Image</text></svg>';
+        }
+        if (progressBookTitle) progressBookTitle.textContent = data.title || '不明';
+        if (progressBookAuthor) progressBookAuthor.textContent = data.author || '不明';
+        if (progressTargetReviews) progressTargetReviews.textContent = data.targetReviews || 0;
+        
+        if (progressStretchGoal && data.stretchGoal) {
+            progressStretchGoal.style.display = 'block';
+            progressStretchGoal.querySelector('span').textContent = data.stretchGoal;
+        } else if (progressStretchGoal) {
+            progressStretchGoal.style.display = 'none';
+        }
+
+        // 進捗計算
+        const progress = this.calculateProgress(data);
+        
+        // 進捗バーの更新
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        if (progressFill) progressFill.style.width = `${progress.percentage}%`;
+        if (progressText) progressText.textContent = `${progress.percentage}%`;
+
+        // 統計の更新
+        const currentReviewsStat = document.getElementById('currentReviewsStat');
+        const targetReviewsStat = document.getElementById('targetReviewsStat');
+        const remainingStat = document.getElementById('remainingStat');
+        
+        if (currentReviewsStat) currentReviewsStat.textContent = progress.current;
+        if (targetReviewsStat) targetReviewsStat.textContent = progress.target;
+        if (remainingStat) remainingStat.textContent = progress.remaining;
+
+        // 達成メッセージの更新
+        const achievementMessage = document.getElementById('achievementMessage');
+        if (achievementMessage) {
+            if (progress.achieved) {
+                achievementMessage.textContent = '🎉 目標達成おめでとうございます！';
+                achievementMessage.className = 'milestone achieved';
+            } else if (progress.percentage >= 80) {
+                achievementMessage.textContent = '🔥 もうすぐ目標達成です！';
+                achievementMessage.className = 'milestone near-completion';
+            } else if (progress.percentage >= 50) {
+                achievementMessage.textContent = '📈 順調に進んでいます！';
+                achievementMessage.className = 'milestone on-track';
+            } else {
+                achievementMessage.textContent = '💪 目標に向けて頑張りましょう！';
+                achievementMessage.className = 'milestone getting-started';
+            }
+        }
+    }
+
+    /**
+     * 進捗を計算
+     */
+    calculateProgress(data) {
+        const current = data.reviewCount || 0;
+        const target = data.targetReviews || 1;
+        
+        const percentage = Math.min(Math.round((current / target) * 100), 100);
+        const remaining = Math.max(target - current, 0);
+        const achieved = current >= target;
+
+        return {
+            percentage,
+            remaining,
+            achieved,
+            current,
+            target
+        };
+    }
+
+    /**
+     * スクリーンショットを撮影してダウンロード
+     */
+    async takeScreenshot() {
+        const progressSection = document.getElementById('progressSection');
+        
+        if (!progressSection || progressSection.style.display === 'none') {
+            alert('📊 まず進捗表示を開いてからスクリーンショットを撮影してください。');
+            return;
+        }
+
+        try {
+            // HTML2Canvasライブラリが読み込まれているかチェック
+            if (typeof html2canvas === 'undefined') {
+                alert('📸 スクリーンショット機能を初期化中です...');
+                await this.loadHtml2Canvas();
+            }
+
+            // スクリーンショット撮影
+            const canvas = await html2canvas(progressSection, {
+                backgroundColor: '#ffffff',
+                scale: 2, // 高解像度
+                logging: false,
+                useCORS: true,
+                allowTaint: true
+            });
+
+            // 画像をダウンロード
+            const link = document.createElement('a');
+            const data = this.storageService.load();
+            const filename = `kindle-review-progress-${data.title.replace(/[^a-zA-Z0-9]/g, '-')}-${new Date().toISOString().split('T')[0]}.png`;
+            
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+
+            // 成功メッセージ
+            alert(`📸 スクリーンショットを保存しました！\n\nファイル名: ${filename}\n\nダウンロードフォルダをご確認ください。`);
+
+        } catch (error) {
+            console.error('Screenshot failed:', error);
+            alert('❌ スクリーンショットの撮影に失敗しました。\n\nブラウザがスクリーンショット機能に対応していない可能性があります。');
+        }
+    }
+
+    /**
+     * HTML2Canvasライブラリを動的に読み込み
+     */
+    async loadHtml2Canvas() {
+        return new Promise((resolve, reject) => {
+            if (typeof html2canvas !== 'undefined') {
+                resolve();
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script.onload = () => {
+                console.log('✅ HTML2Canvas loaded successfully');
+                resolve();
+            };
+            script.onerror = () => {
+                reject(new Error('Failed to load HTML2Canvas library'));
+            };
+            document.head.appendChild(script);
+        });
     }
 }

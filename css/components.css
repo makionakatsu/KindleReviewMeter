@@ -595,3 +595,272 @@
     font-size: 0.8rem;
   }
 }
+
+/* 進捗表示セクション */
+.progress-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 20px;
+  padding: 30px;
+  margin: 30px 0;
+  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+  animation: slideIn 0.5s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.progress-section h2 {
+  text-align: center;
+  margin-bottom: 25px;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.visual-display {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 15px;
+  padding: 25px;
+  backdrop-filter: blur(10px);
+}
+
+.book-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 25px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.book-header .book-image {
+  flex-shrink: 0;
+}
+
+.book-header .book-image img {
+  width: 80px;
+  height: 120px;
+  border-radius: 8px;
+  object-fit: cover;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.book-header .book-info {
+  flex: 1;
+}
+
+.book-header .book-info h3 {
+  margin: 0 0 10px 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.book-header .book-info p {
+  margin: 5px 0;
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.progress-display {
+  margin-top: 20px;
+}
+
+.progress-bar {
+  position: relative;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 25px;
+  height: 50px;
+  margin-bottom: 25px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+  border-radius: 25px;
+  transition: width 1s ease-out;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.progress-stats .stat {
+  text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 15px;
+  border-radius: 12px;
+  transition: transform 0.3s ease;
+}
+
+.progress-stats .stat:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.progress-stats .stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 5px;
+  color: #ffffff;
+}
+
+.progress-stats .stat-label {
+  font-size: 0.85rem;
+  opacity: 0.9;
+  font-weight: 500;
+}
+
+.milestone {
+  text-align: center;
+  padding: 15px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 1.1rem;
+  margin-top: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(5px);
+  transition: all 0.3s ease;
+}
+
+.milestone.achieved {
+  background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+  animation: pulse 2s infinite;
+}
+
+.milestone.near-completion {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+}
+
+.milestone.on-track {
+  background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+}
+
+.milestone.getting-started {
+  background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .progress-section {
+    padding: 20px;
+    margin: 20px 0;
+  }
+
+  .book-header {
+    flex-direction: column;
+    text-align: center;
+    gap: 15px;
+  }
+
+  .book-header .book-image img {
+    width: 70px;
+    height: 105px;
+  }
+
+  .progress-bar {
+    height: 40px;
+  }
+
+  .progress-text {
+    font-size: 1rem;
+  }
+
+  .progress-stats {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .progress-stats .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .milestone {
+    padding: 12px 15px;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .progress-section {
+    padding: 15px;
+  }
+
+  .visual-display {
+    padding: 15px;
+  }
+
+  .book-header .book-info h3 {
+    font-size: 1.1rem;
+  }
+
+  .book-header .book-info p {
+    font-size: 0.85rem;
+  }
+
+  .progress-bar {
+    height: 35px;
+  }
+
+  .progress-text {
+    font-size: 0.9rem;
+  }
+
+  .progress-stats .stat {
+    padding: 12px;
+  }
+
+  .progress-stats .stat-value {
+    font-size: 1.3rem;
+  }
+
+  .progress-stats .stat-label {
+    font-size: 0.8rem;
+  }
+}
