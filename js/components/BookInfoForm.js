@@ -187,9 +187,24 @@ export class BookInfoForm {
             const bookInfo = await this.bookInfoService.fetchBookInfo(validation.url);
             this.displayBookInfo(bookInfo);
 
+            // 取得失敗の場合の詳細メッセージ
+            if (bookInfo.isMockData || bookInfo.fetchError) {
+                const errorDetails = bookInfo.fetchError ? 
+                    `\n詳細エラー: ${bookInfo.fetchError}` : 
+                    '';
+                    
+                alert(`⚠️ Amazon から書籍情報を自動取得できませんでした。${errorDetails}\n\n以下の方法で情報を入力できます:\n\n1. 📝「手動入力」ボタンで直接入力\n2. ✏️ 表示された項目をクリックして編集\n3. 🔄 別のAmazon URLで再試行\n\n※ Amazon側のアクセス制限により自動取得が制限される場合があります。`);
+                
+                // 手動入力セクションを自動で開く
+                const manualSection = document.getElementById('manualInputSection');
+                if (manualSection && manualSection.style.display === 'none') {
+                    this.toggleManualInput();
+                }
+            }
+
         } catch (error) {
             console.error('Failed to fetch book info:', error);
-            alert('書籍情報の取得に失敗しました。URLを確認してください。');
+            alert(`❌ 書籍情報の取得に失敗しました。\n\n考えられる原因:\n• Amazon URLの形式が正しくない\n• インターネット接続の問題\n• Amazon側のアクセス制限\n\n解決方法:\n• URLを確認してください\n• 「手動入力」で情報を直接入力してください`);
         } finally {
             fetchBtn.textContent = '自動取得';
             fetchBtn.disabled = false;
@@ -216,14 +231,27 @@ export class BookInfoForm {
         author.textContent = bookInfo.author || '不明';
         reviews.textContent = bookInfo.reviewCount || 0;
 
-        // モックデータの場合の警告表示
-        if (bookInfo.isMockData) {
+        // 自動取得失敗の場合の警告表示
+        if (bookInfo.isMockData || !bookInfo.extractionSuccess || bookInfo.fetchError) {
             const warningDiv = document.createElement('div');
             warningDiv.className = 'alert alert-warning';
-            warningDiv.innerHTML = `
-                <strong>⚠️ 自動取得に失敗しました</strong><br>
-                書籍情報を手動で修正してください。タイトルと著者名をクリックして編集できます。
-            `;
+            
+            let warningMessage = '';
+            if (bookInfo.isMockData) {
+                warningMessage = `
+                    <strong>⚠️ Amazon情報の自動取得に失敗しました</strong><br>
+                    Amazon側のアクセス制限により情報を取得できませんでした。<br>
+                    <small>✏️ タイトルと著者名の横の編集ボタンで修正できます。または「手動入力」をご利用ください。</small>
+                `;
+            } else if (!bookInfo.extractionSuccess) {
+                warningMessage = `
+                    <strong>⚠️ 書籍情報の一部を取得できませんでした</strong><br>
+                    Amazon ページの構造変更により一部情報が取得できませんでした。<br>
+                    <small>✏️ 各項目の編集ボタンで修正してください。</small>
+                `;
+            }
+            
+            warningDiv.innerHTML = warningMessage;
             preview.insertBefore(warningDiv, preview.firstChild);
         }
 
