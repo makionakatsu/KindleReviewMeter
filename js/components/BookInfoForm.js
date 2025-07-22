@@ -47,20 +47,31 @@ export class BookInfoForm {
                     </div>
 
                     <div class="manual-input-section" style="display: none;" id="manualInputSection">
-                        <h4>📝 手動入力</h4>
-                        <div class="form-group">
-                            <label for="manualTitle">書籍タイトル</label>
-                            <input type="text" id="manualTitle" placeholder="書籍のタイトルを入力">
+                        <div class="manual-input-help">
+                            <h4>📝 書籍情報を手動で入力</h4>
+                            <p class="help-text">自動取得に失敗した場合は、下記のフォームで書籍情報を直接入力できます。</p>
                         </div>
-                        <div class="form-group">
-                            <label for="manualAuthor">著者名</label>
-                            <input type="text" id="manualAuthor" placeholder="著者名を入力">
+                        <div class="manual-input-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="manualTitle">書籍タイトル</label>
+                                    <input type="text" id="manualTitle" placeholder="書籍のタイトルを入力">
+                                </div>
+                                <div class="form-group">
+                                    <label for="manualAuthor">著者名</label>
+                                    <input type="text" id="manualAuthor" placeholder="著者名を入力">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="manualReviews">現在のレビュー数</label>
+                                    <input type="number" id="manualReviews" placeholder="0" min="0">
+                                </div>
+                                <div class="form-group form-actions">
+                                    <button type="button" id="applyManualBtn" class="btn btn-primary">📝 手動データを適用</button>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label for="manualReviews">現在のレビュー数</label>
-                            <input type="number" id="manualReviews" placeholder="0" min="0">
-                        </div>
-                        <button type="button" id="applyManualBtn" class="btn btn-primary">手動データを適用</button>
                     </div>
 
                     <div class="book-preview" id="bookPreview" style="display: none;">
@@ -68,13 +79,18 @@ export class BookInfoForm {
                             <img id="bookImage" alt="書籍画像">
                         </div>
                         <div class="book-details">
-                            <h3 id="bookTitle"></h3>
-                            <button type="button" id="editTitleBtn" class="btn-inline" title="タイトルを編集">✏️</button>
-                            <p><strong>著者:</strong> 
-                                <span id="bookAuthor"></span>
+                            <div class="detail-row">
+                                <h3 id="bookTitle"></h3>
+                                <button type="button" id="editTitleBtn" class="btn-inline" title="タイトルを編集">✏️</button>
+                            </div>
+                            <div class="detail-row">
+                                <p><strong>著者:</strong> <span id="bookAuthor"></span></p>
                                 <button type="button" id="editAuthorBtn" class="btn-inline" title="著者名を編集">✏️</button>
-                            </p>
-                            <p><strong>現在のレビュー数:</strong> <span id="currentReviews">0</span></p>
+                            </div>
+                            <div class="detail-row">
+                                <p><strong>現在のレビュー数:</strong> <span id="currentReviews">0</span></p>
+                                <button type="button" id="editReviewsBtn" class="btn-inline" title="レビュー数を編集">✏️</button>
+                            </div>
                         </div>
                     </div>
 
@@ -228,6 +244,8 @@ export class BookInfoForm {
                 this.editAuthor();
             } else if (e.target.id === 'editTitleBtn') {
                 this.editTitle();
+            } else if (e.target.id === 'editReviewsBtn') {
+                this.editReviews();
             } else if (e.target.id === 'applyManualBtn') {
                 this.applyManualData();
             }
@@ -508,6 +526,31 @@ export class BookInfoForm {
                 console.log('✅ Author updated:', validation.author);
             } else {
                 alert(validation.error);
+            }
+        }
+    }
+
+    /**
+     * レビュー数を編集
+     */
+    editReviews() {
+        const reviewsSpan = document.getElementById('currentReviews');
+        const currentReviews = reviewsSpan.textContent.trim();
+        
+        const newReviews = prompt('現在のレビュー数を入力してください:', currentReviews);
+        if (newReviews !== null && newReviews.trim() !== '') {
+            const reviewCount = parseInt(newReviews.trim(), 10);
+            if (!isNaN(reviewCount) && reviewCount >= 0) {
+                reviewsSpan.textContent = reviewCount;
+                
+                // 現在の書籍情報に反映
+                if (this.currentBookInfo) {
+                    this.currentBookInfo.reviewCount = reviewCount;
+                }
+                
+                console.log('✅ Review count updated:', reviewCount);
+            } else {
+                alert('有効な数値を入力してください（0以上の整数）。');
             }
         }
     }
