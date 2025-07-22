@@ -24,6 +24,15 @@ import { BaseComponent } from './BaseComponent.js';
 import { ApplicationContext, BookData, FetchStatus, ValidationResult } from '../types/index.js';
 import { BookDataModel } from '../models/BookData.js';
 import { STATUS_MESSAGE_DURATION, SAVE_POLLING_INTERVAL } from '../utils/constants.js';
+import { logger } from '../utils/logger.js';
+import { debounce } from '../utils/debounce.js';
+
+// 型安全なイベント定義
+interface ComponentEvents {
+  'book:fetched': { data: BookData; metadata: any };
+  'author:edited': { oldAuthor: string; newAuthor: string };
+  'form:submitted': BookData;
+}
 
 export interface BookInfoFormOptions {
   autoSave?: boolean;
@@ -37,6 +46,20 @@ export class BookInfoForm extends BaseComponent {
   private fetchStatus: FetchStatus = { type: 'idle', message: '', timestamp: 0 };
   private saveInProgress: boolean = false;
   private saveOperationId: number = 0;
+  
+  // パフォーマンス最適化
+  private updatePreviewDebounced: () => void;
+  
+  // 状態管理
+  private state: {
+    loading: boolean;
+    error: string | null;
+    data: BookData | null;
+  } = {
+    loading: false,
+    error: null,
+    data: null
+  };
   
   // DOM要素への参照
   private elements: {
@@ -63,6 +86,7 @@ export class BookInfoForm extends BaseComponent {
       ...options,
     };
     this.bookModel = new BookDataModel();
+    this.updatePreviewDebounced = debounce(() => this.updatePreview(), 300);
     this.loadExistingData();
   }
 
@@ -76,19 +100,19 @@ export class BookInfoForm extends BaseComponent {
         // データ整合性検証
         if (this.validateBookDataStructure(savedData)) {
           this.bookModel = new BookDataModel(savedData);
-          console.log('✅ 既存データ読み込み成功:', {
+          logger.info('既存データ読み込み成功', {
             hasTitle: !!savedData.bookTitle,
             hasAuthor: !!savedData.bookAuthor,
             hasReviews: typeof savedData.currentReviews === 'number',
             data: savedData
           });
         } else {
-          console.warn('⚠️ 既存データ構造が不正です。新しいモデルを作成:', savedData);
+          logger.warn('既存データ構造が不正です。新しいモデルを作成', savedData);
           this.bookModel = new BookDataModel();
         }
       }
     } catch (error) {
-      console.error('❌ データ読み込みエラー:', error);
+      logger.error('データ読み込みエラー', error);
       this.bookModel = new BookDataModel();
     }
   }
@@ -98,7 +122,7 @@ export class BookInfoForm extends BaseComponent {
    */
   private validateBookDataStructure(data: any): data is BookData {
     if (!data || typeof data !== 'object') {
-      console.warn('データが存在しないか、オブジェクトではありません:', data);
+      logger.warn('データが存在しないか、オブジェクトではありません', data);
       return false;
     }
 
@@ -106,7 +130,7 @@ export class BookInfoForm extends BaseComponent {
     const missingFields = requiredFields.filter(field => !(field in data));
     
     if (missingFields.length > 0) {
-      console.warn('必須フィールドが不足しています:', {
+      logger.warn('必須フィールドが不足しています', {
         missingFields,
         providedFields: Object.keys(data),
         data
@@ -115,16 +139,16 @@ export class BookInfoForm extends BaseComponent {
     }
 
     if (typeof data.currentReviews !== 'number' || data.currentReviews < 0) {
-      console.warn('currentReviewsが無効です:', data.currentReviews);
+      logger.warn('currentReviewsが無効です', data.currentReviews);
       return false;
     }
 
     if (typeof data.targetReviews !== 'number' || data.targetReviews < 0) {
-      console.warn('targetReviewsが無効です:', data.targetReviews);
+      logger.warn('targetReviewsが無効です', data.targetReviews);
       return false;
     }
 
-    console.log('✅ データ構造検証成功:', {
+    logger.debug('データ構造検証成功', {
       bookTitle: typeof data.bookTitle,
       bookAuthor: typeof data.bookAuthor,
       currentReviews: typeof data.currentReviews,
@@ -140,7 +164,6 @@ export class BookInfoForm extends BaseComponent {
   protected override async onInit(): Promise<void> {
     this.createFormStructure();
     this.bindEvents();
-    this.loadExistingData();
     this.updatePreview();
   }
 
@@ -254,10 +277,10 @@ export class BookInfoForm extends BaseComponent {
     // 自動取得ボタン
     this.addEventListenerToChild('#fetchAllBtn', 'click', this.handleAutoFetch.bind(this));
 
-    // 入力値変更時のプレビュー更新
-    this.addEventListenerToChild('#bookUrl', 'input', this.updatePreview.bind(this));
-    this.addEventListenerToChild('#targetReviews', 'input', this.updatePreview.bind(this));
-    this.addEventListenerToChild('#stretchReviews', 'input', this.updatePreview.bind(this));
+    // 入力値変更時のプレビュー更新（デバウンス適用）
+    this.addEventListenerToChild('#bookUrl', 'input', this.updatePreviewDebounced);
+    this.addEventListenerToChild('#targetReviews', 'input', this.updatePreviewDebounced);
+    this.addEventListenerToChild('#stretchReviews', 'input', this.updatePreviewDebounced);
 
     // 著者名手動編集ボタン
     if (this.options.allowManualEdit && this.elements.editAuthorButton) {
@@ -299,7 +322,7 @@ export class BookInfoForm extends BaseComponent {
 
       await this.saveData();
       this.showSuccess('設定が保存されました！\n\nビジュアル表示ページで確認してください。');
-      this.emitEvent('form:submitted', this.bookModel.getData());
+      this.emitEvent<ComponentEvents['form:submitted']>('form:submitted', this.bookModel.getData());
       
     } catch (error) {
       this.handleError(error as Error);
@@ -365,10 +388,12 @@ export class BookInfoForm extends BaseComponent {
         this.showStatus('success', `取得完了: ${result.metadata.extractedFields.join('、')} (${result.metadata.extractedFields.length}/4項目)`);
         
         if (this.options.autoSave) {
+          // 少し遅延を入れて確実に保存
+          await new Promise(resolve => setTimeout(resolve, 100));
           await this.saveModelDataDirectly('自動取得後');
         }
         
-        this.emitEvent('book:fetched', result);
+        this.emitEvent<ComponentEvents['book:fetched']>('book:fetched', { data: result.data as BookData, metadata: result.metadata });
       } else {
         this.showStatus('error', result.errors.join(', ') || '情報を取得できませんでした');
       }
@@ -412,6 +437,8 @@ export class BookInfoForm extends BaseComponent {
             if (this.options.autoSave) {
               // 著者名編集後の自動保存（排他制御使用）
               console.log('💾 著者名編集後の自動保存開始');
+              // 少し遅延を入れて確実に保存
+              await new Promise(resolve => setTimeout(resolve, 100));
               await this.saveModelDataDirectly('著者名編集');
             }
           } else {
@@ -430,11 +457,16 @@ export class BookInfoForm extends BaseComponent {
           if (this.options.autoSave) {
             // 著者名リセット後の自動保存（排他制御使用）
             console.log('💾 著者名リセット後の自動保存開始');
+            // 少し遅延を入れて確実に保存
+            await new Promise(resolve => setTimeout(resolve, 100));
             await this.saveModelDataDirectly('著者名リセット');
           }
         }
         
-        this.emitEvent('author:edited', this.bookModel.getData().bookAuthor);
+        this.emitEvent<ComponentEvents['author:edited']>('author:edited', { 
+          oldAuthor: currentAuthor, 
+          newAuthor: this.bookModel.getData().bookAuthor
+        });
       } catch (error) {
         this.handleError(error as Error);
       }
@@ -558,6 +590,8 @@ export class BookInfoForm extends BaseComponent {
   private async saveData(): Promise<void> {
     const formData = this.getFormData();
     this.bookModel.updateData(formData);
+    // 少し遅延を入れて確実に保存
+    await new Promise(resolve => setTimeout(resolve, 150));
     await this.saveModelDataDirectly('フォーム送信');
   }
 

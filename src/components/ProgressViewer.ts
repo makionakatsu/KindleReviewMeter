@@ -31,6 +31,7 @@ import {
   PROGRESS_CONFIG,
   ANIMATIONS 
 } from '../utils/constants.js';
+import { logger } from '../utils/logger.js';
 
 export interface ProgressViewerOptions {
   showMilestones?: boolean;
@@ -46,24 +47,35 @@ export class ProgressViewer extends BaseComponent {
   private progressData: ProgressData | null = null;
   private refreshTimerId?: string;
   
+  // 状態管理
+  private state: {
+    loading: boolean;
+    error: string | null;
+    data: BookData | null;
+  } = {
+    loading: false,
+    error: null,
+    data: null
+  };
+  
   // DOM要素への参照
   private elements: {
-    container?: HTMLElement;
-    bookCover?: HTMLImageElement;
-    bookTitle?: HTMLElement;
-    bookAuthor?: HTMLElement;
-    progressBar?: HTMLElement;
-    progressFill?: HTMLElement;
-    progressText?: HTMLElement;
-    currentReviews?: HTMLElement;
-    targetReviews?: HTMLElement;
-    stretchReviews?: HTMLElement;
-    milestoneList?: HTMLElement;
-    shareButton?: HTMLButtonElement;
-    refreshButton?: HTMLButtonElement;
-    backButton?: HTMLButtonElement;
-    lastUpdated?: HTMLElement;
-  } = {};
+    container: HTMLElement;
+    bookCover: HTMLImageElement;
+    bookTitle: HTMLElement;
+    bookAuthor: HTMLElement;
+    progressBar: HTMLElement;
+    progressFill: HTMLElement;
+    progressText: HTMLElement;
+    currentReviews: HTMLElement;
+    targetReviews: HTMLElement;
+    stretchReviews: HTMLElement;
+    milestoneList: HTMLElement;
+    refreshButton: HTMLButtonElement;
+    backButton: HTMLButtonElement;
+    lastUpdated: HTMLElement;
+    shareButton?: HTMLButtonElement; // 条件付きで存在
+  } = {} as any;
 
   constructor(
     container: HTMLElement,
@@ -89,7 +101,7 @@ export class ProgressViewer extends BaseComponent {
   private loadData(): void {
     try {
       const savedData = this.context.storage.get<BookData>('amazonReviewTracker');
-      console.log('📊 ProgressViewer - データ読み込み:', {
+      logger.debug('ProgressViewer - データ読み込み', {
         hasData: !!savedData,
         bookTitle: savedData?.bookTitle,
         bookAuthor: savedData?.bookAuthor,
@@ -158,21 +170,21 @@ export class ProgressViewer extends BaseComponent {
 
     // DOM要素への参照を取得
     this.elements = {
-      container: this.select<HTMLElement>('.progress-viewer') ?? document.createElement('div'),
-      bookCover: this.select<HTMLImageElement>('#bookCover') ?? document.createElement('img'),
-      bookTitle: this.select<HTMLElement>('#bookTitle') ?? document.createElement('div'),
-      bookAuthor: this.select<HTMLElement>('#bookAuthor') ?? document.createElement('div'),
-      progressBar: this.select<HTMLElement>('.progress-bar') ?? document.createElement('div'),
-      progressFill: this.select<HTMLElement>('.progress-fill') ?? document.createElement('div'),
-      progressText: this.select<HTMLElement>('#progressText') ?? document.createElement('div'),
-      currentReviews: this.select<HTMLElement>('#currentReviews') ?? document.createElement('span'),
-      targetReviews: this.select<HTMLElement>('#targetReviews') ?? document.createElement('span'),
-      stretchReviews: this.select<HTMLElement>('#stretchReviews') ?? document.createElement('span'),
-      milestoneList: this.select<HTMLElement>('#milestoneList') ?? document.createElement('ul'),
-      shareButton: this.select<HTMLButtonElement>('#shareBtn') ?? document.createElement('button'),
-      refreshButton: this.select<HTMLButtonElement>('#refreshBtn') ?? document.createElement('button'),
-      backButton: this.select<HTMLButtonElement>('#backBtn') ?? document.createElement('button'),
-      lastUpdated: this.select<HTMLElement>('#lastUpdated') ?? document.createElement('div'),
+      container: this.select<HTMLElement>('.progress-viewer')!,
+      bookCover: this.select<HTMLImageElement>('#bookCover')!,
+      bookTitle: this.select<HTMLElement>('#bookTitle')!,
+      bookAuthor: this.select<HTMLElement>('#bookAuthor')!,
+      progressBar: this.select<HTMLElement>('.progress-bar')!,
+      progressFill: this.select<HTMLElement>('.progress-fill')!,
+      progressText: this.select<HTMLElement>('#progressText')!,
+      currentReviews: this.select<HTMLElement>('#currentReviews')!,
+      targetReviews: this.select<HTMLElement>('#targetReviews')!,
+      stretchReviews: this.select<HTMLElement>('#stretchReviews')!,
+      milestoneList: this.select<HTMLElement>('#milestoneList')!,
+      refreshButton: this.select<HTMLButtonElement>('#refreshBtn')!,
+      backButton: this.select<HTMLButtonElement>('#backBtn')!,
+      lastUpdated: this.select<HTMLElement>('#lastUpdated')!,
+      shareButton: this.select<HTMLButtonElement>('#shareBtn') ?? undefined,
     };
   }
 
@@ -527,7 +539,7 @@ export class ProgressViewer extends BaseComponent {
         this.bookModel.updateBookInfo(result.data);
         
         // データを保存
-        const success = this.context.storage.set('bookData', this.bookModel.getData());
+        const success = this.context.storage.set('amazonReviewTracker', this.bookModel.getData());
         if (!success) {
           throw new Error('データの保存に失敗しました');
         }
@@ -615,11 +627,17 @@ export class ProgressViewer extends BaseComponent {
    * 自動更新を開始（メモリ管理対応）
    */
   private startAutoRefresh(): void {
-    this.stopAutoRefresh(); // 既存タイマーを停止
+    try {
+      this.stopAutoRefresh(); // 既存タイマーを停止
 
-    this.refreshTimerId = this.setManagedInterval(() => {
-      this.handleRefresh();
-    }, this.options.refreshInterval || 30000);
+      this.refreshTimerId = this.setManagedInterval(() => {
+        this.handleRefresh().catch(error => {
+          console.error('自動更新エラー:', error);
+        });
+      }, this.options.refreshInterval || 30000);
+    } catch (error) {
+      console.error('自動更新開始エラー:', error);
+    }
   }
 
   /**
