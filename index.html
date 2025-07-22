@@ -25,9 +25,9 @@
     <meta http-equiv="Expires" content="0">
     
     <!-- Preload critical resources with timestamp -->
-    <link rel="preload" href="js/main.js?v=2.0.4" as="script" crossorigin="anonymous">
-    <link rel="preload" href="js/services/StorageService.js?v=2.0.4" as="script" crossorigin="anonymous">
-    <link rel="preload" href="js/services/ValidationService.js?v=2.0.4" as="script" crossorigin="anonymous">
+    <link rel="preload" href="js/main.js?v=2.0.5" as="script" crossorigin="anonymous">
+    <link rel="preload" href="js/services/StorageService.js?v=2.0.5" as="script" crossorigin="anonymous">
+    <link rel="preload" href="js/services/ValidationService.js?v=2.0.5" as="script" crossorigin="anonymous">
     
     <!-- Security headers - Optimized CSP (frame-ancestors must be set via server header) -->
     <meta http-equiv="Content-Security-Policy" content="
@@ -192,11 +192,20 @@ Amazon側のアクセス制限により、自動取得が失敗する場合が�
 
         // App will be initialized by main.js script tag below
         console.log('🚀 Waiting for main.js to initialize...');
+        console.log('📍 Current URL:', window.location.href);
+        console.log('🌐 User Agent:', navigator.userAgent);
+        
         // Hide loading after initialization
         window.addEventListener('app:loaded', () => {
             console.log('✅ App loaded event received');
             setTimeout(hideLoading, 500);
         });
+
+        // Additional debug: Check if modules are supported
+        if (!('noModule' in HTMLScriptElement.prototype)) {
+            console.warn('⚠️ ES Modules may not be supported in this browser');
+            showErrorFallback('お使いのブラウザはES Modulesに対応していません。最新のブラウザをお使いください。');
+        }
 
         // Performance monitoring
         window.addEventListener('load', () => {
@@ -221,7 +230,7 @@ Amazon側のアクセス制限により、自動取得が失敗する場合が�
     </script>
 
     <!-- Main application script -->
-    <script type="module" src="js/main.js?v=2.0.4"></script>
+    <script type="module" src="js/main.js?v=2.0.5"></script>
 
     <!-- Analytics placeholder (for future use) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
