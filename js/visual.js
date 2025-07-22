@@ -116,10 +116,23 @@ class VisualDisplayApp {
                     </div>
                 </div>
 
-                <div class="actions">
-                    <button id="updateBtn" class="btn btn-primary">🔄 データ更新</button>
-                    <button id="shareBtn" class="btn btn-secondary">📤 シェア</button>
-                    <a href="index.html" class="btn btn-secondary">⚙️ 設定に戻る</a>
+                <div class="visual-actions">
+                    <!-- 主要アクション -->
+                    <div class="action-group primary-group">
+                        <h4 class="action-group-title">📊 進捗管理</h4>
+                        <div class="button-row">
+                            <button id="updateBtn" class="btn btn-primary">🔄 データ更新</button>
+                            <button id="shareBtn" class="btn btn-secondary">📤 シェア</button>
+                        </div>
+                    </div>
+
+                    <!-- ナビゲーション -->
+                    <div class="action-group secondary-group">
+                        <h4 class="action-group-title">🔗 ナビゲーション</h4>
+                        <div class="button-row">
+                            <a href="index.html" class="btn btn-secondary">⚙️ 設定に戻る</a>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;

@@ -260,4 +260,48 @@
   .achievements {
     grid-template-columns: 1fr;
   }
+
+  .visual-actions .action-group {
+    margin-bottom: 20px;
+    padding: 15px;
+  }
+
+  .visual-actions .button-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+/* ビジュアルページ専用アクション */
+.visual-actions {
+  margin-top: 40px;
+}
+
+.visual-actions .action-group {
+  margin-bottom: 25px;
+}
+
+.visual-actions .primary-group {
+  background: linear-gradient(135deg, #e8f4fd 0%, #f0f8ff 100%);
+  border-color: #007bff;
+}
+
+.visual-actions .secondary-group {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-color: #6c757d;
+}
+
+/* レガシーアクション（後方互換性） */
+.actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
+.actions .btn {
+  flex: 1;
+  min-width: 140px;
+  max-width: 200px;
 }

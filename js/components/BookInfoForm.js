@@ -88,18 +88,38 @@ export class BookInfoForm {
                         <input type="number" id="stretchGoal" min="1" placeholder="200">
                     </div>
 
-                    <button type="submit" class="btn btn-primary">設定を保存</button>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary btn-large">💾 設定を保存</button>
+                    </div>
                 </form>
 
-                <div class="actions">
-                    <button type="button" id="showManualBtn" class="btn btn-secondary">✏️ 手動入力</button>
-                    <a href="amazon-review-visual.html" class="btn btn-secondary">📊 ビジュアル表示</a>
-                    <div class="data-management">
-                        <button id="exportBtn" class="btn btn-secondary">📤 データエクスポート</button>
-                        <button id="importBtn" class="btn btn-secondary">📥 データインポート</button>
-                        <input type="file" id="importFile" accept=".json" style="display: none;">
+                <div class="main-actions">
+                    <!-- 主要アクション -->
+                    <div class="action-group primary-group">
+                        <h4 class="action-group-title">📚 書籍管理</h4>
+                        <div class="button-row">
+                            <button type="button" id="showManualBtn" class="btn btn-secondary">✏️ 手動入力</button>
+                            <a href="amazon-review-visual.html" class="btn btn-secondary">📊 ビジュアル表示</a>
+                        </div>
                     </div>
-                    <button id="clearBtn" class="btn btn-warning">🗑️ データクリア</button>
+
+                    <!-- データ管理アクション -->
+                    <div class="action-group secondary-group">
+                        <h4 class="action-group-title">💾 データ管理</h4>
+                        <div class="button-row">
+                            <button id="exportBtn" class="btn btn-secondary">📤 エクスポート</button>
+                            <button id="importBtn" class="btn btn-secondary">📥 インポート</button>
+                            <input type="file" id="importFile" accept=".json" style="display: none;">
+                        </div>
+                    </div>
+
+                    <!-- 危険なアクション -->
+                    <div class="action-group danger-group">
+                        <h4 class="action-group-title">⚠️ システム</h4>
+                        <div class="button-row">
+                            <button id="clearBtn" class="btn btn-warning">🗑️ データクリア</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;

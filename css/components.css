@@ -361,7 +361,80 @@
   font-weight: 500;
 }
 
-/* データ管理セクション */
+/* フォームアクション */
+.form-actions {
+  text-align: center;
+  margin: 30px 0;
+  padding: 20px 0;
+  border-top: 2px solid #e9ecef;
+}
+
+.btn-large {
+  padding: 15px 40px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  min-width: 200px;
+}
+
+/* メインアクション */
+.main-actions {
+  margin-top: 40px;
+}
+
+.action-group {
+  margin-bottom: 30px;
+  padding: 20px;
+  border-radius: 15px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.action-group:hover {
+  border-color: #667eea;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+}
+
+.primary-group {
+  background: linear-gradient(135deg, #f8f9ff 0%, #e8f4fd 100%);
+  border-color: #667eea;
+}
+
+.secondary-group {
+  background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+  border-color: #28a745;
+}
+
+.danger-group {
+  background: linear-gradient(135deg, #fff5f5 0%, #ffe6e6 100%);
+  border-color: #dc3545;
+}
+
+.action-group-title {
+  margin: 0 0 15px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #495057;
+  text-align: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+.button-row {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.button-row .btn {
+  flex: 1;
+  min-width: 140px;
+  max-width: 200px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* データ管理セクション（後方互換性のため残す） */
 .data-management {
   display: flex;
   gap: 10px;
@@ -418,6 +491,12 @@
     padding: 10px 20px;
     font-size: 14px;
   }
+
+  .btn-large {
+    padding: 12px 30px;
+    font-size: 1rem;
+    min-width: 180px;
+  }
   
   .card {
     padding: 20px;
@@ -432,6 +511,26 @@
   
   .header-actions {
     justify-content: center;
+  }
+
+  .action-group {
+    margin-bottom: 20px;
+    padding: 15px;
+  }
+
+  .action-group-title {
+    font-size: 0.9rem;
+  }
+
+  .button-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .button-row .btn {
+    flex: none;
+    min-width: auto;
+    max-width: none;
   }
   
   .preview-item {
@@ -462,5 +561,37 @@
   
   .toast.show {
     transform: translateY(0);
+  }
+}
+
+@media (max-width: 480px) {
+  .form-actions {
+    margin: 20px 0;
+    padding: 15px 0;
+  }
+
+  .btn-large {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    min-width: 150px;
+  }
+
+  .main-actions {
+    margin-top: 30px;
+  }
+
+  .action-group {
+    margin-bottom: 15px;
+    padding: 12px;
+  }
+
+  .action-group-title {
+    font-size: 0.8rem;
+    margin-bottom: 10px;
+  }
+
+  .button-row .btn {
+    padding: 8px 16px;
+    font-size: 0.8rem;
   }
 }
