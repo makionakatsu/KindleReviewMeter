@@ -1,325 +1,86 @@
 /**
- * バリデーションサービス
- *
- * 入力データの検証とサニタイゼーションを行うサービス
+ * 入力値検証サービス
  */
-export class BookValidationService {
-    constructor(config) {
-        Object.defineProperty(this, "config", {
-            enumerable: true,
-            configurable: true,
-            writable: true,
-            value: void 0
-        });
-        this.config = config || this.getDefaultConfig();
-    }
+export class ValidationService {
     /**
-     * デフォルト設定を取得
+     * Amazon URLを検証
      */
-    getDefaultConfig() {
-        return {
-            bookTitle: {
-                minLength: 1,
-                maxLength: 200,
-            },
-            bookAuthor: {
-                minLength: 2,
-                maxLength: 100,
-                invalidTerms: [
-                    'follow', 'more', 'see', 'clothing', 'store', 'shop', 'brand',
-                    'kindle', 'amazon', 'paperback', 'hardcover', 'format',
-                    'page', 'pages', 'price', 'buy', 'purchase', 'cart', 'wishlist',
-                    'review', 'reviews', 'customer', 'rating', 'star', 'stars',
-                    'visit', 'website', 'profile', 'biography', 'bio', 'more info'
-                ],
-            },
-            reviews: {
-                min: 0,
-                max: 1000000,
-            },
-            url: {
-                allowedDomains: ['amazon.co.jp', 'amazon.com'],
-            },
-        };
+    validateAmazonUrl(url) {
+        if (!url || typeof url !== 'string') {
+            return { isValid: false, error: 'URLが入力されていません' };
+        }
+
+        const trimmedUrl = url.trim();
+        if (!trimmedUrl) {
+            return { isValid: false, error: 'URLが入力されていません' };
+        }
+
+        const amazonPattern = /^https?:\/\/(www\.)?(amazon\.(co\.jp|com)|amzn\.to)/;
+        if (!amazonPattern.test(trimmedUrl)) {
+            return { isValid: false, error: 'Amazon URLではありません' };
+        }
+
+        return { isValid: true, url: trimmedUrl };
     }
+
     /**
-     * 書籍データ全体をバリデーション
+     * 目標レビュー数を検証
      */
-    validateBookData(data) {
-        const errors = {};
-        const warnings = [];
-        // URL バリデーション
-        if (data.bookUrl !== undefined) {
-            if (!data.bookUrl.trim()) {
-                errors.bookUrl = 'URLは必須です';
-            }
-            else if (!this.validateUrl(data.bookUrl)) {
-                errors.bookUrl = '有効なAmazonのURLを入力してください';
-            }
+    validateTargetReviews(value) {
+        const num = parseInt(value, 10);
+        
+        if (isNaN(num)) {
+            return { isValid: false, error: '数値を入力してください' };
         }
-        // タイトル バリデーション
-        if (data.bookTitle !== undefined) {
-            const titleValidation = this.validateBookTitle(data.bookTitle);
-            if (!titleValidation.isValid) {
-                errors.bookTitle = titleValidation.error || 'タイトルが無効です';
-            }
+
+        if (num <= 0) {
+            return { isValid: false, error: '1以上の数値を入力してください' };
         }
-        // 著者名 バリデーション
-        if (data.bookAuthor !== undefined) {
-            const authorValidation = this.validateAuthorName(data.bookAuthor);
-            if (!authorValidation) {
-                if (data.bookAuthor.trim()) {
-                    errors.bookAuthor = '著者名が無効です';
-                }
-                // 空の場合は警告のみ
-                else {
-                    warnings.push('著者名が設定されていません');
-                }
-            }
+
+        if (num > 100000) {
+            return { isValid: false, error: '100,000以下の数値を入力してください' };
         }
-        // レビュー数 バリデーション
-        if (data.currentReviews !== undefined) {
-            const reviewValidation = this.validateReviewCount(data.currentReviews);
-            if (!reviewValidation.isValid) {
-                errors.currentReviews = reviewValidation.error || '現在のレビュー数が無効です';
-            }
-        }
-        // 目標レビュー数 バリデーション
-        if (data.targetReviews !== undefined) {
-            const targetValidation = this.validateReviewCount(data.targetReviews, true);
-            if (!targetValidation.isValid) {
-                errors.targetReviews = targetValidation.error || '目標レビュー数が無効です';
-            }
-        }
-        // ストレッチ目標 バリデーション
-        if (data.stretchReviews !== undefined && data.targetReviews !== undefined) {
-            if (data.stretchReviews <= data.targetReviews) {
-                errors.stretchReviews = 'ストレッチ目標は目標レビュー数より大きく設定してください';
-            }
-            else {
-                const stretchValidation = this.validateReviewCount(data.stretchReviews, true);
-                if (!stretchValidation.isValid) {
-                    errors.stretchReviews = stretchValidation.error || 'ストレッチ目標が無効です';
-                }
-            }
-        }
-        // カバー画像URL バリデーション
-        if (data.bookCoverUrl !== undefined && data.bookCoverUrl.trim()) {
-            if (!this.validateImageUrl(data.bookCoverUrl)) {
-                warnings.push('書影URLの形式が正しくない可能性があります');
-            }
-        }
-        return {
-            isValid: Object.keys(errors).length === 0,
-            errors,
-            warnings,
-        };
+
+        return { isValid: true, value: num };
     }
+
     /**
-     * URL バリデーション
-     */
-    validateUrl(url) {
-        try {
-            const urlObj = new URL(url);
-            return this.config.url.allowedDomains.some(domain => urlObj.hostname.includes(domain));
-        }
-        catch {
-            return false;
-        }
-    }
-    /**
-     * 書籍タイトルのバリデーション
+     * 書籍タイトルを検証
      */
     validateBookTitle(title) {
+        if (!title || typeof title !== 'string') {
+            return { isValid: false, error: 'タイトルが取得できませんでした' };
+        }
+
         const trimmedTitle = title.trim();
-        if (trimmedTitle.length < this.config.bookTitle.minLength) {
-            return {
-                isValid: false,
-                error: `タイトルは${this.config.bookTitle.minLength}文字以上で入力してください`,
-            };
+        if (!trimmedTitle) {
+            return { isValid: false, error: 'タイトルが取得できませんでした' };
         }
-        if (trimmedTitle.length > this.config.bookTitle.maxLength) {
-            return {
-                isValid: false,
-                error: `タイトルは${this.config.bookTitle.maxLength}文字以内で入力してください`,
-            };
+
+        if (trimmedTitle.length > 200) {
+            return { isValid: false, error: 'タイトルが長すぎます' };
         }
-        // 疑わしいパターンをチェック
-        const suspiciousPatterns = [
-            /^[\d\s\-_]+$/, // 数字と記号のみ
-            /^[^\w\s\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]+$/, // 文字以外のみ
-        ];
-        if (suspiciousPatterns.some(pattern => pattern.test(trimmedTitle))) {
-            return {
-                isValid: false,
-                error: 'タイトルの形式が正しくありません',
-            };
-        }
-        return { isValid: true };
+
+        return { isValid: true, title: trimmedTitle };
     }
+
     /**
-     * 著者名のバリデーション
+     * 著者名を検証
      */
-    validateAuthorName(author) {
+    validateAuthor(author) {
+        if (!author || typeof author !== 'string') {
+            return { isValid: false, error: '著者名が取得できませんでした' };
+        }
+
         const trimmedAuthor = author.trim();
-        // 空文字列は有効（未設定として扱う）
-        if (trimmedAuthor === '') {
-            return true;
+        if (!trimmedAuthor) {
+            return { isValid: false, error: '著者名が取得できませんでした' };
         }
-        // 長さチェック
-        if (trimmedAuthor.length < this.config.bookAuthor.minLength ||
-            trimmedAuthor.length > this.config.bookAuthor.maxLength) {
-            return false;
+
+        if (trimmedAuthor.length > 100) {
+            return { isValid: false, error: '著者名が長すぎます' };
         }
-        // 無効な用語チェック
-        const lowerAuthor = trimmedAuthor.toLowerCase();
-        if (this.config.bookAuthor.invalidTerms.some(term => lowerAuthor.includes(term.toLowerCase()))) {
-            return false;
-        }
-        // 数字のみや記号のみを除外
-        if (/^\d+$/.test(trimmedAuthor) || /^[^\w\s]*$/.test(trimmedAuthor)) {
-            return false;
-        }
-        return true;
-    }
-    /**
-     * 詳細な著者名バリデーション
-     */
-    validateAuthorNameDetailed(author) {
-        if (!this.validateAuthorName(author)) {
-            const trimmedAuthor = author.trim();
-            if (trimmedAuthor.length < this.config.bookAuthor.minLength) {
-                return {
-                    isValid: false,
-                    error: `著者名は${this.config.bookAuthor.minLength}文字以上で入力してください`,
-                };
-            }
-            if (trimmedAuthor.length > this.config.bookAuthor.maxLength) {
-                return {
-                    isValid: false,
-                    error: `著者名は${this.config.bookAuthor.maxLength}文字以内で入力してください`,
-                };
-            }
-            return {
-                isValid: false,
-                error: '著者名に無効な文字が含まれています',
-            };
-        }
-        return { isValid: true };
-    }
-    /**
-     * レビュー数のバリデーション
-     */
-    validateReviewCount(count, required = false) {
-        if (!Number.isInteger(count)) {
-            return {
-                isValid: false,
-                error: '整数で入力してください',
-            };
-        }
-        if (count < this.config.reviews.min) {
-            return {
-                isValid: false,
-                error: `${this.config.reviews.min}以上の値を入力してください`,
-            };
-        }
-        if (count > this.config.reviews.max) {
-            return {
-                isValid: false,
-                error: `${this.config.reviews.max}以下の値を入力してください`,
-            };
-        }
-        if (required && count === 0) {
-            return {
-                isValid: false,
-                error: '1以上の値を入力してください',
-            };
-        }
-        return { isValid: true };
-    }
-    /**
-     * 画像URLのバリデーション
-     */
-    validateImageUrl(url) {
-        try {
-            const urlObj = new URL(url);
-            // HTTPSまたはHTTPをチェック
-            if (!['http:', 'https:'].includes(urlObj.protocol)) {
-                return false;
-            }
-            // 画像拡張子をチェック
-            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-            const pathname = urlObj.pathname.toLowerCase();
-            return imageExtensions.some(ext => pathname.includes(ext)) ||
-                pathname.includes('image') ||
-                urlObj.hostname.includes('amazon');
-        }
-        catch {
-            return false;
-        }
-    }
-    /**
-     * 入力のサニタイゼーション
-     */
-    sanitizeInput(input) {
-        return input
-            .trim()
-            .replace(/\s+/g, ' ') // 連続する空白を単一スペースに
-            .replace(/[\u0000-\u001F\u007F]/g, '') // 制御文字を除去
-            .replace(/[<>]/g, '') // 危険な文字を除去
-            .substring(0, 1000); // 最大長制限
-    }
-    /**
-     * HTMLタグを除去
-     */
-    stripHtml(input) {
-        return input.replace(/<[^>]*>/g, '').trim();
-    }
-    /**
-     * 数値の正規化
-     */
-    normalizeNumber(input) {
-        if (typeof input === 'number') {
-            return Math.max(0, Math.floor(input));
-        }
-        const cleaned = input.replace(/[^\d]/g, '');
-        const number = parseInt(cleaned, 10);
-        return isNaN(number) ? 0 : Math.max(0, number);
-    }
-    /**
-     * URLの正規化
-     */
-    normalizeUrl(url) {
-        try {
-            const urlObj = new URL(url.trim());
-            // Amazon URLの特別処理
-            if (urlObj.hostname.includes('amazon')) {
-                // 不要なパラメータを除去
-                const allowedParams = ['dp', 'gp', 'product'];
-                const pathname = urlObj.pathname;
-                // 商品IDを抽出
-                const productIdMatch = pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/);
-                if (productIdMatch) {
-                    return `${urlObj.origin}/dp/${productIdMatch[1]}`;
-                }
-            }
-            return urlObj.toString();
-        }
-        catch {
-            return url.trim();
-        }
-    }
-    /**
-     * バリデーション設定を更新
-     */
-    updateConfig(config) {
-        this.config = { ...this.config, ...config };
-    }
-    /**
-     * バリデーション設定を取得
-     */
-    getConfig() {
-        return { ...this.config };
+
+        return { isValid: true, author: trimmedAuthor };
     }
 }
-//# sourceMappingURL=ValidationService.js.map
