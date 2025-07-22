@@ -246,7 +246,14 @@
             showErrorFallback('アプリケーションの読み込みがタイムアウトしました。');
         }, 10000);
 
-        // Load visual application with version parameter
+        // App will be initialized by visual.js script tag below
+        console.log('🚀 Waiting for visual.js to initialize...');
+        // Hide loading after initialization
+        window.addEventListener('app:loaded', () => {
+            console.log('✅ Visual app loaded event received');
+            showToast('アプリケーションが読み込まれました', 'success', 2000);
+            setTimeout(hideLoading, 500);
+        });
         import('./visual.js?v=2.0.1')
             .then(module => {
                 console.log('✅ Visual module loaded successfully v2.0.1');
@@ -329,6 +336,7 @@
         window.showToast = showToast;
     </script>
 
-    <!-- Main visual application script loaded via dynamic import above -->
+    <!-- Main visual application script -->
+    <script type="module" src="visual.js?v=2.0.3"></script>
 </body>
 </html>

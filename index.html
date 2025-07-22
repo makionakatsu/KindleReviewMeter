@@ -151,19 +151,13 @@
             showErrorFallback('アプリケーションの読み込みがタイムアウトしました。ページを再読み込みしてください。');
         }, 10000);
 
-        // Simple script loading approach
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = './main.js?v=2.0.2';
-        script.onload = () => {
-            console.log('✅ Main module loaded successfully v2.0.2');
+        // App will be initialized by main.js script tag below
+        console.log('🚀 Waiting for main.js to initialize...');
+        // Hide loading after initialization
+        window.addEventListener('app:loaded', () => {
+            console.log('✅ App loaded event received');
             setTimeout(hideLoading, 500);
-        };
-        script.onerror = (error) => {
-            console.error('❌ Failed to load main module:', error);
-            showErrorFallback('メインモジュールの読み込みに失敗しました: ' + error.message);
-        };
-        document.head.appendChild(script);
+        });
 
         // Performance monitoring
         window.addEventListener('load', () => {
@@ -187,7 +181,8 @@
         });
     </script>
 
-    <!-- Main application script loaded via dynamic import above -->
+    <!-- Main application script -->
+    <script type="module" src="main.js?v=2.0.3"></script>
 
     <!-- Analytics placeholder (for future use) -->
     <!-- <script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script> -->
