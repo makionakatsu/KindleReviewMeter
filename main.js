@@ -337,9 +337,14 @@ const app = new KindleReviewMeterApp();
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         await app.initialize();
+        console.log('✅ Application initialized successfully');
+        // Notify HTML that app is loaded
+        window.dispatchEvent(new CustomEvent('app:loaded'));
     }
     catch (error) {
         console.error('Failed to initialize app:', error);
+        // Still dispatch event to hide loading screen
+        window.dispatchEvent(new CustomEvent('app:loaded'));
     }
 });
 /**

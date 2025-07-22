@@ -465,9 +465,14 @@ const visualApp = new VisualDisplayApp();
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         await visualApp.initialize();
+        console.log('✅ Visual application initialized successfully');
+        // Notify HTML that app is loaded
+        window.dispatchEvent(new CustomEvent('app:loaded'));
     }
     catch (error) {
         console.error('Failed to initialize visual app:', error);
+        // Still dispatch event to hide loading screen
+        window.dispatchEvent(new CustomEvent('app:loaded'));
     }
 });
 /**

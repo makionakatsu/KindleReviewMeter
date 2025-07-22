@@ -254,24 +254,6 @@
             showToast('アプリケーションが読み込まれました', 'success', 2000);
             setTimeout(hideLoading, 500);
         });
-        import('./visual.js?v=2.0.1')
-            .then(module => {
-                console.log('✅ Visual module loaded successfully v2.0.1');
-                showToast('アプリケーションが読み込まれました', 'success', 2000);
-                setTimeout(hideLoading, 500);
-            })
-            .catch(error => {
-                console.error('❌ Failed to load visual module:', error);
-                console.error('📊 Error details:', {
-                    message: error.message,
-                    stack: error.stack,
-                    name: error.name,
-                    timestamp: new Date().toISOString(),
-                    userAgent: navigator.userAgent,
-                    url: window.location.href
-                });
-                showErrorFallback('ビジュアル表示モジュールの読み込みに失敗しました: ' + error.message);
-            });
 
         // Performance monitoring
         window.addEventListener('load', () => {
