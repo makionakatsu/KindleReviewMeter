@@ -1,71 +1,29 @@
-# 📚 Amazon書籍レビュー数トラッカー
+# Kindle Review Meter (SPA)
 
-Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化するWebアプリケーションです。
+単一ページのWebアプリで、Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化・共有します。
 
-## 🚀 使い方
+## 使い方（MVP）
+- 設定タブ:
+  - Amazon URLを入力（将来の自動取得に備えて保存されます）
+  - 自動取得が使えない場合は「手動入力」を開き、タイトル/著者/レビュー数/画像URLを入力
+  - 目標/ストレッチ目標を設定して「保存」
+  - データのエクスポート/インポート、データクリアが可能
+- 進捗タブ:
+  - 保存済みデータの進捗を表示（%/残り/マイルストーン）
+  - 「シェア」で共有（Web Share/クリップボード）
 
-### 設定ページ (index.html)
-1. Amazon書籍のURLを入力
-2. 「自動取得」ボタンをクリックして書籍情報を取得
-3. 目標レビュー数とストレッチ目標を設定
-4. 「設定を保存」をクリック
+ショートカット:
+- Ctrl+S: 設定=保存 / 進捗=シェア
+- Ctrl+R: 設定=自動取得(後続) / 進捗=更新(後続)
+- F1: ヘルプ
 
-### ビジュアル表示ページ (amazon-review-visual.html)
-- 進捗状況をグラフィカルに表示
-- 「更新」ボタンで最新データを取得
-- 「シェア」ボタンでSNS用画像を生成
+## 要件定義
+- docs/REQUIREMENTS.md を参照
 
-## 📁 プロジェクト構造
+## 開発メモ
+- 本MVPは手動入力＋保存/表示/共有/入出力を提供
+- 自動取得（CORSプロキシ経由）と更新機能は次のマイルストーンで追加予定
 
-```
-📂 KindleReviewMeter/
-├── 📄 index.html              # メイン設定ページ
-├── 📄 amazon-review-visual.html # ビジュアル表示ページ
-├── 📁 css/                     # スタイルシート
-├── 📁 js/                      # JavaScript
-│   ├── main.js                # メインアプリケーション
-│   ├── visual.js              # ビジュアル表示アプリ
-│   ├── components/            # UIコンポーネント
-│   ├── services/              # ビジネスロジック
-│   ├── models/                # データモデル
-│   └── utils/                 # ユーティリティ
-└── 📄 README.md               # このファイル
-```
+## ローカルで開く
+- ブラウザで `index.html` を開く（推奨: `python3 -m http.server 8000` で `http://localhost:8000/`）
 
-## 🌐 デモ
-
-- **設定ページ**: https://makionakatsu.github.io/KindleReviewMeter/
-- **ビジュアル表示**: https://makionakatsu.github.io/KindleReviewMeter/amazon-review-visual.html
-
-## 💡 特徴
-
-- **シンプルなアーキテクチャ**: ビルド不要のピュアJavaScript
-- **モジュラー設計**: ES Modulesによる整理された構造
-- **GitHub Pages対応**: 設定なしで即座にデプロイ可能
-- **レスポンシブ対応**: デスクトップとモバイルに対応
-- **著者名/タイトル編集**: インライン編集機能
-- **手動データ入力**: API失敗時のフォールバック
-- **データ管理**: エクスポート/インポート機能
-- **複数プロキシ対応**: 自動フォールバック機能
-
-## 🔧 GitHub Pagesデプロイ手順
-
-このリポジトリはGitHub Actionsで自動デプロイされます：
-
-1. **リポジトリ設定**:
-   - Settings → Pages → Source を "GitHub Actions" に設定
-   
-2. **自動デプロイ**:
-   - mainブランチにpushすると自動的にデプロイ
-   - `.github/workflows/deploy.yml` でワークフローを管理
-
-3. **手動デプロイ**:
-   ```bash
-   git add .
-   git commit -m "Update application"
-   git push origin main
-   ```
-
----
-
-**Made with ❤️ by Kindle Review Meter Team**

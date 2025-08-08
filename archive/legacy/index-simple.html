@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kindle Review Meter (Simple)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f7f8fb;
+      color: #222;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    
+    .tab {
+      padding: 10px 20px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      text-decoration: none;
+      color: #333;
+      cursor: pointer;
+    }
+    
+    .tab.active {
+      background: #6366f1;
+      color: white;
+      border-color: #6366f1;
+    }
+    
+    .view {
+      display: none;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .view.active {
+      display: block;
+    }
+    
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #ddd;
+      margin-bottom: 20px;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    
+    .btn {
+      background: #6366f1;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    
+    .btn.secondary {
+      background: #6b7280;
+    }
+    
+    .btn.danger {
+      background: #ef4444;
+    }
+    
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📚 Kindle Review Meter</h1>
+    <div class="tabs">
+      <a href="#settings" class="tab active" onclick="showTab('settings')">⚙️ 設定</a>
+      <a href="#progress" class="tab" onclick="showTab('progress')">📊 進捗</a>
+    </div>
+  </div>
+
+  <div id="view-settings" class="view active">
+    <div class="card">
+      <h2>設定</h2>
+      <div class="form-group">
+        <label>Amazon書籍URL</label>
+        <input type="url" id="amazonUrl" placeholder="https://www.amazon.co.jp/dp/...">
+      </div>
+      
+      <div class="form-group">
+        <label>書籍タイトル</label>
+        <input type="text" id="title" placeholder="書籍タイトル">
+      </div>
+      
+      <div class="form-group">
+        <label>著者名</label>
+        <input type="text" id="author" placeholder="著者名">
+      </div>
+      
+      <div class="form-group">
+        <label>現在のレビュー数</label>
+        <input type="number" id="reviewCount" min="0" value="0">
+      </div>
+      
+      <div class="form-group">
+        <label>目標レビュー数</label>
+        <input type="number" id="targetReviews" min="1" placeholder="100">
+      </div>
+      
+      <button class="btn" onclick="saveData()">💾 保存</button>
+      <button class="btn secondary" onclick="clearData()">🗑️ クリア</button>
+    </div>
+  </div>
+
+  <div id="view-progress" class="view">
+    <div class="card">
+      <h2>進捗</h2>
+      <div id="progress-content">
+        <p>設定タブでデータを入力してください。</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Simple tab switching
+    function showTab(tabName) {
+      // Hide all views
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      
+      // Show selected view
+      document.getElementById('view-' + tabName).classList.add('active');
+      event.target.classList.add('active');
+      
+      if (tabName === 'progress') {
+        showProgress();
+      }
+    }
+    
+    // Save data to localStorage
+    function saveData() {
+      const data = {
+        amazonUrl: document.getElementById('amazonUrl').value,
+        title: document.getElementById('title').value,
+        author: document.getElementById('author').value,
+        reviewCount: parseInt(document.getElementById('reviewCount').value) || 0,
+        targetReviews: parseInt(document.getElementById('targetReviews').value) || 0,
+        savedAt: new Date().toISOString()
+      };
+      
+      if (!data.title) {
+        alert('書籍タイトルを入力してください');
+        return;
+      }
+      
+      if (!data.targetReviews || data.targetReviews <= 0) {
+        alert('目標レビュー数を入力してください');
+        return;
+      }
+      
+      localStorage.setItem('amazonReviewTracker', JSON.stringify(data));
+      alert('保存しました！');
+    }
+    
+    // Clear data
+    function clearData() {
+      if (confirm('データを削除しますか？')) {
+        localStorage.removeItem('amazonReviewTracker');
+        document.getElementById('amazonUrl').value = '';
+        document.getElementById('title').value = '';
+        document.getElementById('author').value = '';
+        document.getElementById('reviewCount').value = 0;
+        document.getElementById('targetReviews').value = '';
+        alert('削除しました');
+      }
+    }
+    
+    // Show progress
+    function showProgress() {
+      const dataStr = localStorage.getItem('amazonReviewTracker');
+      if (!dataStr) {
+        document.getElementById('progress-content').innerHTML = '<p>設定タブでデータを入力してください。</p>';
+        return;
+      }
+      
+      const data = JSON.parse(dataStr);
+      const current = data.reviewCount || 0;
+      const target = data.targetReviews || 1;
+      const percentage = Math.min(Math.round((current / target) * 100), 100);
+      const remaining = Math.max(target - current, 0);
+      
+      document.getElementById('progress-content').innerHTML = `
+        <h3>${data.title || 'タイトル未設定'}</h3>
+        <p><strong>著者:</strong> ${data.author || '未設定'}</p>
+        <p><strong>現在:</strong> ${current} レビュー</p>
+        <p><strong>目標:</strong> ${target} レビュー</p>
+        <p><strong>あと:</strong> ${remaining} レビュー</p>
+        <p><strong>達成率:</strong> ${percentage}%</p>
+        <div style="background: #f0f0f0; height: 20px; border-radius: 10px; overflow: hidden; margin: 10px 0;">
+          <div style="background: #6366f1; height: 100%; width: ${percentage}%; transition: width 1s ease;"></div>
+        </div>
+      `;
+    }
+    
+    // Load saved data on page load
+    window.addEventListener('load', function() {
+      const dataStr = localStorage.getItem('amazonReviewTracker');
+      if (dataStr) {
+        const data = JSON.parse(dataStr);
+        document.getElementById('amazonUrl').value = data.amazonUrl || '';
+        document.getElementById('title').value = data.title || '';
+        document.getElementById('author').value = data.author || '';
+        document.getElementById('reviewCount').value = data.reviewCount || 0;
+        document.getElementById('targetReviews').value = data.targetReviews || '';
+      }
+    });
+  </script>
+</body>
+</html>

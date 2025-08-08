@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kindle Review Meter (Stage 2 - Toast System)</title>
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f7f8fb;
+      color: #222;
+      line-height: 1.6;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    .header h1 {
+      margin: 0;
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 20px;
+      background: #f1f5f9;
+      padding: 4px;
+      border-radius: 12px;
+      max-width: 300px;
+      margin: 20px auto;
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 12px 20px;
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      text-decoration: none;
+      color: #64748b;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    
+    .tab.active {
+      background: white;
+      color: #6366f1;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .view {
+      display: none;
+      max-width: 600px;
+      margin: 0 auto;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+    }
+    
+    .view.active {
+      display: block;
+      opacity: 1;
+      transform: translateY(0);
+    }
+    
+    .card {
+      background: white;
+      padding: 24px;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      transition: all 0.2s ease;
+    }
+    
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #374151;
+    }
+    
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    
+    .btn {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-right: 12px;
+      margin-bottom: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    
+    .btn.secondary {
+      background: linear-gradient(135deg, #6b7280, #9ca3af);
+    }
+    
+    .btn.danger {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+    }
+    
+    .progress-display {
+      padding: 20px 0;
+    }
+    
+    .book-display {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 24px;
+      align-items: flex-start;
+    }
+    
+    .book-cover {
+      flex-shrink: 0;
+    }
+    
+    .book-cover img {
+      width: 120px;
+      height: 180px;
+      object-fit: cover;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      transition: all 0.3s ease;
+    }
+    
+    .book-cover img:hover {
+      transform: scale(1.05);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    }
+    
+    .book-cover .no-image {
+      width: 120px;
+      height: 180px;
+      background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      color: #64748b;
+      font-size: 14px;
+      text-align: center;
+    }
+    
+    .book-info {
+      flex: 1;
+    }
+    
+    .book-info h3 {
+      margin: 0 0 8px 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #1f2937;
+      line-height: 1.3;
+    }
+    
+    .book-info .author {
+      margin: 0 0 16px 0;
+      color: #6b7280;
+      font-size: 1rem;
+    }
+    
+    @media (max-width: 640px) {
+      .book-display {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      
+      .book-cover img,
+      .book-cover .no-image {
+        width: 100px;
+        height: 150px;
+      }
+    }
+    
+    .progress-bar {
+      background: #f1f5f9;
+      height: 24px;
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 20px 0;
+      position: relative;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #06d6a0);
+      border-radius: 12px;
+      transition: width 1s ease-out;
+      position: relative;
+    }
+    
+    .progress-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 24px 0;
+    }
+    
+    .stat {
+      background: linear-gradient(135deg, #ffffff, #f8fafc);
+      padding: 16px;
+      border-radius: 12px;
+      text-align: center;
+      border: 1px solid #e2e8f0;
+      transition: all 0.2s ease;
+    }
+    
+    .stat:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    
+    .stat-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 4px;
+    }
+    
+    .stat-label {
+      color: #6b7280;
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+    
+    .hidden {
+      display: none;
+    }
+
+    /* Modern Toast System */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    @media (max-width: 640px) {
+      .toast-container {
+        top: 16px;
+        right: 16px;
+        left: 16px;
+      }
+    }
+
+    .toast {
+      min-width: 320px;
+      max-width: 400px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+      opacity: 0;
+      transform: translateX(400px);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .toast::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: #6366f1;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .toast.removing {
+      opacity: 0;
+      transform: translateX(400px);
+      max-height: 0;
+      margin-bottom: 0;
+    }
+
+    .toast-success::before { background: #10b981; }
+    .toast-warning::before { background: #f59e0b; }
+    .toast-error::before { background: #ef4444; }
+    .toast-info::before { background: #3b82f6; }
+
+    .toast-content {
+      display: flex;
+      align-items: flex-start;
+      padding: 16px;
+      gap: 12px;
+    }
+
+    .toast-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .toast-success .toast-icon {
+      background: rgba(16, 185, 129, 0.1);
+      color: #10b981;
+    }
+
+    .toast-warning .toast-icon {
+      background: rgba(245, 158, 11, 0.1);
+      color: #f59e0b;
+    }
+
+    .toast-error .toast-icon {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+
+    .toast-info .toast-icon {
+      background: rgba(59, 130, 246, 0.1);
+      color: #3b82f6;
+    }
+
+    .toast-body {
+      flex: 1;
+    }
+
+    .toast-title {
+      font-weight: 700;
+      color: #1f2937;
+      font-size: 0.875rem;
+      margin-bottom: 2px;
+    }
+
+    .toast-message {
+      color: #6b7280;
+      font-size: 0.875rem;
+      line-height: 1.4;
+    }
+
+    .toast-close {
+      background: transparent;
+      border: none;
+      color: #9ca3af;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+      font-size: 16px;
+      line-height: 1;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .toast-close:hover {
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    .toast-progress {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 2px;
+      background: #6366f1;
+      width: 0%;
+      animation: progressBar 4s linear forwards;
+    }
+
+    .toast-success .toast-progress { background: #10b981; }
+    .toast-warning .toast-progress { background: #f59e0b; }
+    .toast-error .toast-progress { background: #ef4444; }
+    .toast-info .toast-progress { background: #3b82f6; }
+
+    @keyframes progressBar {
+      from { width: 100%; }
+      to { width: 0%; }
+    }
+
+    @media (max-width: 640px) {
+      .toast {
+        min-width: auto;
+        max-width: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📚 Kindle Review Meter</h1>
+    <div class="tabs">
+      <button class="tab active" data-tab="settings">⚙️ 設定</button>
+      <button class="tab" data-tab="progress">📊 進捗</button>
+    </div>
+  </div>
+
+  <div id="view-settings" class="view active">
+    <div class="card">
+      <h2>設定</h2>
+      
+      <div class="form-group">
+        <label for="amazonUrl">Amazon書籍URL</label>
+        <input type="url" id="amazonUrl" placeholder="https://www.amazon.co.jp/dp/...">
+      </div>
+      
+      <div class="form-group">
+        <label for="title">書籍タイトル</label>
+        <input type="text" id="title" placeholder="書籍タイトル">
+      </div>
+      
+      <div class="form-group">
+        <label for="author">著者名</label>
+        <input type="text" id="author" placeholder="著者名">
+      </div>
+      
+      <div class="form-group">
+        <label for="imageUrl">書影URL（任意）</label>
+        <input type="url" id="imageUrl" placeholder="https://m.media-amazon.com/images/I/...">
+      </div>
+      
+      <div class="form-group">
+        <label for="reviewCount">現在のレビュー数</label>
+        <input type="number" id="reviewCount" min="0" value="0">
+      </div>
+      
+      <div class="form-group">
+        <label for="targetReviews">目標レビュー数</label>
+        <input type="number" id="targetReviews" min="1" placeholder="100">
+      </div>
+      
+      <button class="btn" onclick="app.saveData()">💾 保存</button>
+      <button class="btn secondary" onclick="app.clearData()">🗑️ クリア</button>
+    </div>
+  </div>
+
+  <div id="view-progress" class="view">
+    <div class="card">
+      <h2>進捗</h2>
+      <div id="progress-content">
+        <p>設定タブでデータを入力してください。</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { StorageService } from './js/services/StorageService-simple.js';
+    import { toast } from './js/utils/ToastService-simple.js';
+
+    class App {
+      constructor() {
+        this.storage = new StorageService();
+        this.currentTab = 'settings';
+        this.init();
+      }
+
+      init() {
+        this.bindEvents();
+        this.loadData();
+        
+        // Welcome message
+        setTimeout(() => {
+          toast.info('Kindle Review Meter へようこそ！', {
+            title: 'ようこそ',
+            duration: 5000
+          });
+        }, 500);
+      }
+
+      bindEvents() {
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+          tab.addEventListener('click', (e) => {
+            this.switchTab(e.target.dataset.tab);
+          });
+        });
+      }
+
+      switchTab(tabName) {
+        // Update tab states
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        
+        // Activate selected tab and view
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        
+        setTimeout(() => {
+          document.getElementById(`view-${tabName}`).classList.add('active');
+        }, 50);
+        
+        this.currentTab = tabName;
+        
+        if (tabName === 'progress') {
+          this.showProgress();
+        }
+      }
+
+      saveData() {
+        const data = {
+          amazonUrl: document.getElementById('amazonUrl').value.trim(),
+          title: document.getElementById('title').value.trim(),
+          author: document.getElementById('author').value.trim(),
+          imageUrl: document.getElementById('imageUrl').value.trim(),
+          reviewCount: parseInt(document.getElementById('reviewCount').value) || 0,
+          targetReviews: parseInt(document.getElementById('targetReviews').value) || 0,
+          savedAt: new Date().toISOString()
+        };
+
+        if (!data.title) {
+          toast.error('書籍タイトルを入力してください', {
+            title: '入力エラー'
+          });
+          return;
+        }
+
+        if (!data.targetReviews || data.targetReviews <= 0) {
+          toast.error('目標レビュー数を入力してください', {
+            title: '入力エラー'
+          });
+          return;
+        }
+
+        if (this.storage.save(data)) {
+          toast.success(`「${data.title}」の設定を保存しました`, {
+            title: '保存完了',
+            duration: 4000
+          });
+        } else {
+          toast.error('保存に失敗しました', {
+            title: '保存エラー'
+          });
+        }
+      }
+
+      clearData() {
+        if (confirm('データを削除しますか？')) {
+          if (this.storage.clear()) {
+            document.getElementById('amazonUrl').value = '';
+            document.getElementById('title').value = '';
+            document.getElementById('author').value = '';
+            document.getElementById('imageUrl').value = '';
+            document.getElementById('reviewCount').value = '0';
+            document.getElementById('targetReviews').value = '';
+            
+            toast.success('データを削除しました', {
+              title: '削除完了'
+            });
+          } else {
+            toast.error('削除に失敗しました', {
+              title: '削除エラー'
+            });
+          }
+        }
+      }
+
+      showProgress() {
+        const data = this.storage.load();
+        const content = document.getElementById('progress-content');
+        
+        if (!data) {
+          content.innerHTML = '<p>設定タブでデータを入力してください。</p>';
+          return;
+        }
+
+        const current = data.reviewCount || 0;
+        const target = data.targetReviews || 1;
+        const percentage = Math.min(Math.round((current / target) * 100), 100);
+        const remaining = Math.max(target - current, 0);
+
+        const milestone = percentage >= 100 ? '🎉 目標達成！' : 
+                         percentage >= 80 ? '🔥 もうすぐ達成！' :
+                         percentage >= 50 ? '📈 順調です' : '💪 がんばりましょう';
+
+        // Create the progress display structure
+        content.innerHTML = `
+          <div class="progress-display">
+            <div class="book-display">
+              <div class="book-cover" id="book-cover">
+              </div>
+              <div class="book-info">
+                <h3>${data.title || 'タイトル未設定'}</h3>
+                <p class="author"><strong>著者:</strong> ${data.author || '未設定'}</p>
+                <p><strong>目標:</strong> ${target} レビュー</p>
+              </div>
+            </div>
+            
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: ${percentage}%"></div>
+              <div class="progress-text">${percentage}%</div>
+            </div>
+            
+            <div class="stats">
+              <div class="stat">
+                <div class="stat-value">${current}</div>
+                <div class="stat-label">現在</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">${target}</div>
+                <div class="stat-label">目標</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value">${remaining}</div>
+                <div class="stat-label">あと</div>
+              </div>
+            </div>
+            
+            <div style="text-align: center;">
+              <p style="font-size: 1.2rem; margin-top: 20px;">${milestone}</p>
+            </div>
+          </div>
+        `;
+
+        // Handle book cover separately to avoid HTML escaping issues
+        const bookCoverContainer = content.querySelector('#book-cover');
+        if (data.imageUrl && data.imageUrl.trim()) {
+          const img = document.createElement('img');
+          img.src = data.imageUrl.trim();
+          img.alt = data.title || '書籍';
+          
+          // Handle image load error
+          img.onerror = () => {
+            bookCoverContainer.innerHTML = `
+              <div class="no-image">
+                <div style="font-size: 24px; margin-bottom: 8px;">📚</div>
+                <div>画像読み込みエラー</div>
+              </div>
+            `;
+          };
+          
+          bookCoverContainer.appendChild(img);
+        } else {
+          // No image URL provided
+          bookCoverContainer.innerHTML = `
+            <div class="no-image">
+              <div style="font-size: 24px; margin-bottom: 8px;">📚</div>
+              <div>画像なし</div>
+            </div>
+          `;
+        }
+
+        // Show progress update toast
+        if (percentage > 0) {
+          toast.info(`進捗: ${percentage}% (${current}/${target})`, {
+            title: '進捗確認',
+            duration: 3000
+          });
+        }
+      }
+
+      loadData() {
+        const data = this.storage.load();
+        if (data) {
+          document.getElementById('amazonUrl').value = data.amazonUrl || '';
+          document.getElementById('title').value = data.title || '';
+          document.getElementById('author').value = data.author || '';
+          document.getElementById('imageUrl').value = data.imageUrl || '';
+          document.getElementById('reviewCount').value = data.reviewCount || 0;
+          document.getElementById('targetReviews').value = data.targetReviews || '';
+        }
+      }
+    }
+
+    // Create global app instance
+    window.app = new App();
+  </script>
+</body>
+</html>
