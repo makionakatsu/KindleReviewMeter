@@ -4,21 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kindle Review Meter (Complete Edition)</title>
+  <!-- Cache buster: 2025-08-08-17:48 - Force reload -->
   <style>
     /* Modern CSS Variables */
     :root {
       /* Modern Color Palette */
-      --bg-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --bg-primary: linear-gradient(135deg, #0ea5e9 0%, #22d3ee 100%);
       --bg-secondary: #fafbfc;
       --fg-primary: #1a202c;
       --fg-secondary: #4a5568;
       --fg-muted: #718096;
       
       /* Brand Colors */
-      --primary: linear-gradient(135deg, #6366f1, #8b5cf6);
-      --primary-solid: #6366f1;
-      --accent: linear-gradient(135deg, #06d6a0, #34d399);
-      --accent-solid: #06d6a0;
+      --primary: linear-gradient(135deg, #3b82f6, #06b6d4);
+      --primary-solid: #3b82f6;
+      --accent: linear-gradient(135deg, #f43f5e, #fb7185);
+      --accent-solid: #f43f5e;
       --warning: #fbbf24;
       --danger: #ef4444;
       --success: #10b981;
@@ -403,20 +404,41 @@
       }
     }
     
-    /* Progress Display */
-    .progress-display {
-      padding: var(--space-xl) 0;
-    }
-    
-    .book-display {
+    /* Progress Display - 3:4 Vertical Layout */
+    .progress-display.vertical {
       display: flex;
-      gap: var(--space-xl);
-      margin-bottom: var(--space-2xl);
-      align-items: flex-start;
-      background: rgba(255, 255, 255, 0.05);
-      padding: var(--space-xl);
+      flex-direction: column;
+      width: 420px; /* 3:4 ratio base - 420px width */
+      height: 560px; /* 3:4 ratio base - 560px height (420*4/3) */
+      margin: 0 auto;
+      padding: var(--space-lg);
+      background: 
+        rgba(255, 255, 255, 0.05),
+        radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.05) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(34, 211, 238, 0.05) 0%, transparent 50%);
       border-radius: var(--radius-xl);
       backdrop-filter: blur(10px);
+      gap: var(--space-sm);
+      position: relative;
+      overflow: visible;
+    }
+
+    .progress-display.vertical::before {
+      content: '';
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 12px;
+      height: 12px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.2), transparent);
+      border-radius: 50%;
+    }
+    
+    /* Book Cover Section - Top Center */
+    .book-cover-section {
+      display: flex;
+      justify-content: center;
+      margin-bottom: var(--space-md);
     }
     
     .book-cover {
@@ -424,23 +446,24 @@
     }
     
     .book-cover img {
-      width: 140px;
-      height: 210px;
+      width: 120px;
+      height: 180px;
       object-fit: cover;
       border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-xl);
+      box-shadow: var(--shadow-xl), 0 0 20px rgba(139, 92, 246, 0.1);
       transition: all var(--transition-normal);
       border: 3px solid rgba(255, 255, 255, 0.2);
+      position: relative;
     }
     
     .book-cover img:hover {
-      transform: scale(1.05) rotateY(5deg);
-      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+      transform: scale(1.02) rotateY(2deg);
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25), 0 0 30px rgba(139, 92, 246, 0.2);
     }
     
     .book-cover .no-image {
-      width: 140px;
-      height: 210px;
+      width: 120px;
+      height: 180px;
       background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
       border: 2px dashed rgba(255, 255, 255, 0.3);
       border-radius: var(--radius-lg);
@@ -449,9 +472,125 @@
       justify-content: center;
       flex-direction: column;
       color: rgba(255, 255, 255, 0.7);
-      font-size: 14px;
+      font-size: 12px;
       text-align: center;
       backdrop-filter: blur(10px);
+    }
+
+    /* Book Meta - Small Title and Author */
+    .book-meta {
+      text-align: center;
+      margin-bottom: var(--space-xs);
+      width: 100%;
+      max-width: 380px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .book-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #1a202c;
+      margin: 0 0 var(--space-xs) 0;
+      line-height: 1.3;
+      max-width: 340px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
+      white-space: normal;
+      text-align: center;
+      padding: 0 10px;
+    }
+
+    .book-author {
+      font-size: 0.8rem;
+      color: #4a5568;
+      margin: 0;
+      font-weight: 400;
+      max-width: 340px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      text-align: center;
+      padding: 0 10px;
+    }
+
+    /* Current Reviews Highlight - Main Focus */
+    .current-reviews-highlight {
+      text-align: center;
+      margin: var(--space-md) 0 0 0;
+      padding: var(--space-md) 0;
+      position: relative;
+    }
+
+
+    .current-number {
+      font-size: 3.5rem; /* 少し大きく */
+      font-weight: 800;
+      background: linear-gradient(135deg, #3b82f6, #06b6d4, #10b981);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow:
+        0 2px 8px rgba(14, 165, 233, 0.28),
+        0 0 18px rgba(14, 165, 233, 0.22); /* 後光感を強化 */
+      line-height: 1;
+      margin-bottom: var(--space-sm);
+      position: relative;
+      z-index: 1;
+      filter: drop-shadow(0 0 18px rgba(14, 165, 233, 0.25));
+    }
+
+    .current-label {
+      font-size: 0.85rem;
+      color: #4a5568;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* Progress Section */
+    .progress-section {
+      margin-top: 0;
+    }
+
+    .progress-stats {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-md);
+      margin-top: var(--space-md);
+    }
+
+    .target-info, .remaining-info {
+      flex: 1;
+      text-align: center;
+      padding: var(--space-sm) var(--space-md);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08));
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: var(--radius-lg);
+      backdrop-filter: blur(10px);
+      font-size: 0.8rem;
+      color: #374151;
+      font-weight: 500;
+      transition: all var(--transition-fast);
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-md), 0 0 12px rgba(139, 92, 246, 0.15);
+    }
+
+    .target-info::before, .remaining-info::before {
+      content: '';
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      width: 4px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.5);
+      border-radius: 50%;
+    }
+
+    .target-info:hover, .remaining-info:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lg), 0 0 16px rgba(139, 92, 246, 0.2);
     }
     
     .book-info {
@@ -488,43 +627,38 @@
     
     .progress-fill {
       height: 100%;
-      background: linear-gradient(135deg, #06d6a0, #34d399) !important;
+      background: linear-gradient(135deg, #3b82f6, #06b6d4, #10b981) !important;
       border-radius: var(--radius-2xl);
       transition: width var(--transition-slow) ease-out;
       position: relative;
       min-width: 2px;
-      box-shadow: 0 2px 8px rgba(6, 214, 160, 0.3);
+      box-shadow: 0 2px 8px rgba(14, 165, 233, 0.35), 0 0 16px rgba(14, 165, 233, 0.2);
+      overflow: hidden;
     }
 
-    .progress-fill.with-stripes {
-      background-image: linear-gradient(
-        45deg,
-        rgba(255, 255, 255, 0.2) 25%,
-        transparent 25%,
-        transparent 50%,
-        rgba(255, 255, 255, 0.2) 50%,
-        rgba(255, 255, 255, 0.2) 75%,
-        transparent 75%,
-        transparent
-      );
-      background-size: 40px 40px;
-      animation: progressStripes 2s linear infinite;
+    .progress-fill::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      right: 8px;
+      width: 20px;
+      height: 20px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.8), transparent);
+      border-radius: 50%;
+      opacity: 0.7;
     }
-    
-    @keyframes progressStripes {
-      0% { background-position: 0 0; }
-      100% { background-position: 40px 0; }
-    }
+
+    /* stripes removed for simpler, clean look */
     
     .progress-text {
       position: absolute;
       left: 50%;
       top: 50%;
       transform: translate(-50%, -50%);
-      color: white;
+      color: #1a202c; /* 視認性向上のため濃色 */
       font-weight: 800;
       font-size: 1rem;
-      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
       z-index: 2;
     }
     
@@ -664,10 +798,30 @@
         padding: var(--space-xl);
       }
       
-      .book-display {
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
+      .progress-display.vertical {
+        width: 350px;
+        height: 467px; /* 350*4/3 */
+        padding: var(--space-md);
+      }
+
+      .book-title {
+        font-size: 0.9rem;
+        max-width: 320px;
+      }
+
+      .book-author {
+        font-size: 0.75rem;
+        max-width: 320px;
+      }
+      
+      .book-cover img,
+      .book-cover .no-image {
+        width: 100px;
+        height: 150px;
+      }
+      
+      .current-number {
+        font-size: 2.5rem;
       }
       
       .book-cover img,
@@ -885,6 +1039,7 @@
         <div class="btn-group">
           <button class="btn primary" onclick="app.saveData()">💾 保存</button>
           <button class="btn secondary" onclick="app.clearData()">🗑️ クリア</button>
+          <button class="btn primary" onclick="app.exportProgressImage()">🖼️ 画像シェア</button>
         </div>
       </div>
     </div>
@@ -898,7 +1053,6 @@
         
         <div class="btn-group" id="progress-actions" style="display: none;">
           <button class="btn secondary" onclick="app.updateReviewCount()">🔄 レビュー数更新</button>
-          <button class="btn primary" onclick="app.exportProgressImage()">🖼️ 画像シェア</button>
         </div>
       </div>
     </div>
@@ -1423,13 +1577,7 @@
           return;
         }
 
-        if (!data.targetReviews || data.targetReviews <= 0) {
-          this.animateInputError('targetReviews');
-          this.toast.error('目標レビュー数を入力してください', {
-            title: '入力エラー'
-          });
-          return;
-        }
+        // 目標レビュー数は任意。未入力や0以下は保存し、進捗表示では非表示にします。
 
         if (this.storage.save(data)) {
           this.animateSuccessFlash();
@@ -1476,10 +1624,12 @@
           return;
         }
 
-        const current = data.reviewCount || 0;
-        const target = data.targetReviews || 1;
-        const percentage = Math.min(Math.round((current / target) * 100), 100);
-        const remaining = Math.max(target - current, 0);
+        const current = Number(data.reviewCount) || 0;
+        const targetRaw = Number(data.targetReviews);
+        const hasTarget = Number.isFinite(targetRaw) && targetRaw > 0;
+        const target = hasTarget ? targetRaw : 0;
+        const percentage = hasTarget ? Math.min(Math.round((current / target) * 100), 100) : 0;
+        const remaining = hasTarget ? Math.max(target - current, 0) : 0;
 
         console.log('Progress data:', { current, target, percentage, remaining });
 
@@ -1487,37 +1637,41 @@
                          percentage >= 80 ? '🔥 もうすぐ達成！' :
                          percentage >= 50 ? '📈 順調です' : '💪 がんばりましょう';
 
+        const statsHtml = hasTarget ? `
+              <div class=\"progress-stats\">
+                <span class=\"target-info\">目標: ${target} レビュー</span>
+                <span class=\"remaining-info\">あと ${remaining} レビュー</span>
+              </div>
+            ` : '';
+
+        const progressSectionHtml = hasTarget ? `
+            <div class="progress-section">
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: ${Math.max(percentage, 2)}%"></div>
+                <div class="progress-text">${percentage}%</div>
+              </div>
+              ${statsHtml}
+            </div>
+          ` : '';
+
         content.innerHTML = `
-          <div class="progress-display">
-            <div class="book-display">
+          <div class="progress-display vertical">
+            <div class="book-cover-section">
               <div class="book-cover" id="book-cover">
               </div>
-              <div class="book-info">
-                <h3>${data.title || 'タイトル未設定'}</h3>
-                <p class="author"><strong>著者:</strong> ${data.author || '未設定'}</p>
-                <p class="target"><strong>目標:</strong> ${target} レビュー</p>
-              </div>
             </div>
             
-            <div class="progress-bar">
-              <div class="progress-fill with-stripes" style="width: ${Math.max(percentage, 2)}%"></div>
-              <div class="progress-text">${percentage}%</div>
+            <div class="book-meta">
+              <h4 class="book-title">${data.title || 'タイトル未設定'}</h4>
+              <p class="book-author">${data.author || '著者未設定'}</p>
             </div>
             
-            <div class="stats">
-              <div class="stat">
-                <div class="stat-value">${current}</div>
-                <div class="stat-label">現在</div>
-              </div>
-              <div class="stat">
-                <div class="stat-value">${target}</div>
-                <div class="stat-label">目標</div>
-              </div>
-              <div class="stat">
-                <div class="stat-value">${remaining}</div>
-                <div class="stat-label">あと</div>
-              </div>
+            <div class="current-reviews-highlight">
+              <div class="current-number">${current}</div>
+              <div class="current-label">現在のレビュー数</div>
             </div>
+            
+            ${progressSectionHtml}
             
             <div class="milestone">${milestone}</div>
           </div>
@@ -1553,7 +1707,7 @@
           actionsDiv.style.display = 'flex';
         }
 
-        if (percentage > 0) {
+        if (hasTarget && percentage > 0) {
           this.toast.info(`進捗: ${percentage}% (${current}/${target})`, {
             title: '進捗確認',
             duration: 3000
@@ -1659,7 +1813,7 @@
         }
       }
 
-      async exportProgressImage() {
+      async exportProgressImageNew() {
         const data = this.storage.load();
         if (!data) {
           this.toast.warning('エクスポートするデータがありません', {
@@ -1668,10 +1822,12 @@
           return;
         }
 
-        const current = data.reviewCount || 0;
-        const target = data.targetReviews || 1;
-        const percentage = Math.min(Math.round((current / target) * 100), 100);
-        const remaining = Math.max(target - current, 0);
+        const current = Number(data.reviewCount) || 0;
+        const targetRaw = Number(data.targetReviews);
+        const hasTarget = Number.isFinite(targetRaw) && targetRaw > 0;
+        const target = hasTarget ? targetRaw : 0;
+        const percentage = hasTarget ? Math.min(Math.round((current / target) * 100), 100) : 0;
+        const remaining = hasTarget ? Math.max(target - current, 0) : 0;
 
         try {
           this.toast.info('X投稿用の画像を生成中...', {
@@ -1682,63 +1838,65 @@
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           
-          // 3:4 ratio (vertical) for X/Twitter - 600x800px
-          canvas.width = 600;
-          canvas.height = 800;
+          // 3:4 ratio (vertical) for X/Twitter - 420x560px
+          canvas.width = 420;
+          canvas.height = 560;
 
-          // Background gradient (same as web app)
+          // Background gradient (SNS-friendly blue→cyan)
           const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-          gradient.addColorStop(0, '#667eea');
-          gradient.addColorStop(1, '#764ba2');
+          gradient.addColorStop(0, '#0ea5e9');
+          gradient.addColorStop(1, '#22d3ee');
           ctx.fillStyle = gradient;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           // Add background pattern (same as web app)
-          const patternGradient = ctx.createRadialGradient(150, 150, 0, 150, 150, 200);
-          patternGradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
+          const patternGradient = ctx.createRadialGradient(canvas.width * 0.2, canvas.height * 0.2, 0, canvas.width * 0.2, canvas.height * 0.2, 150);
+          patternGradient.addColorStop(0, 'rgba(14, 165, 233, 0.05)');
           patternGradient.addColorStop(1, 'transparent');
           ctx.fillStyle = patternGradient;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          const patternGradient2 = ctx.createRadialGradient(450, 600, 0, 450, 600, 200);
-          patternGradient2.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
+          const patternGradient2 = ctx.createRadialGradient(canvas.width * 0.8, canvas.height * 0.8, 0, canvas.width * 0.8, canvas.height * 0.8, 150);
+          patternGradient2.addColorStop(0, 'rgba(34, 211, 238, 0.05)');
           patternGradient2.addColorStop(1, 'transparent');
           ctx.fillStyle = patternGradient2;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          // Main card container with glassmorphism effect
-          const cardX = 30;
-          const cardY = 60;
-          const cardWidth = canvas.width - 60;
-          const cardHeight = canvas.height - 120;
+          // Main container (same as progress display)
+          const cardX = 15;
+          const cardY = 15;
+          const cardWidth = canvas.width - 30;
+          const cardHeight = canvas.height - 30;
           
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+          // Main card background (white, rounded, subtle shadow)
+          ctx.save();
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.12)';
+          ctx.shadowBlur = 20;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 8;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+          this.roundRect(ctx, cardX, cardY, cardWidth, cardHeight, 24);
+          ctx.fill();
+          ctx.restore();
+          // Border similar to UI (--border)
           ctx.strokeStyle = 'rgba(226, 232, 240, 0.8)';
           ctx.lineWidth = 1;
-          this.roundRect(ctx, cardX, cardY, cardWidth, cardHeight, 32);
-          ctx.fill();
           ctx.stroke();
 
-          // Add subtle top accent line
-          const accentGradient = ctx.createLinearGradient(cardX, cardY, cardX + cardWidth, cardY);
-          accentGradient.addColorStop(0, '#6366f1');
-          accentGradient.addColorStop(1, '#8b5cf6');
-          ctx.fillStyle = accentGradient;
-          this.roundRect(ctx, cardX, cardY, cardWidth, 4, 2);
+          // Add small decorative dot (same as web app)
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+          ctx.beginPath();
+          ctx.arc(cardX + cardWidth - 20, cardY + 20, 6, 0, 2 * Math.PI);
           ctx.fill();
 
-          // Book display section background
-          const bookSectionY = 120;
-          const bookSectionHeight = 200;
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-          this.roundRect(ctx, cardX + 20, bookSectionY, cardWidth - 40, bookSectionHeight, 24);
-          ctx.fill();
+          // Content positioning
+          const contentStartY = cardY + 40;
 
-          // Book cover (left side)
-          const coverX = cardX + 50;
-          const coverY = bookSectionY + 30;
-          const coverWidth = 105;
-          const coverHeight = 140;
+          // Book cover (top center) - enlarged using saved space
+          const coverX = (canvas.width - 150) / 2; // Center horizontally
+          const coverY = contentStartY;
+          const coverWidth = 150;
+          const coverHeight = 225;
 
           // Try to load and draw book cover image
           if (data.imageUrl && data.imageUrl.trim()) {
@@ -1752,106 +1910,138 @@
             this.drawBookPlaceholder(ctx, coverX, coverY, coverWidth, coverHeight);
           }
 
-          // Book info (right side)
-          const infoX = coverX + coverWidth + 30;
-          const infoY = coverY;
-
-          // Small title and author
+          // Book meta (below cover, centered, small)
+          const metaY = coverY + coverHeight + 20;
+          ctx.textAlign = 'center';
+          
+          // Small title with text wrapping
           ctx.fillStyle = '#1a202c';
-          ctx.font = 'bold 22px Inter, system-ui';
-          ctx.textAlign = 'left';
+          ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.textAlign = 'center';
           const title = data.title || 'タイトル未設定';
-          const truncatedTitle = title.length > 20 ? title.substring(0, 20) + '...' : title;
-          this.wrapText(ctx, truncatedTitle, infoX, infoY + 25, 250, 28);
-
-          ctx.font = '18px Inter, system-ui';
+          console.log('Drawing title with wrapping:', title, 'at position:', canvas.width / 2, metaY);
+          const titleLastY = this.wrapText(ctx, title, canvas.width / 2, metaY, 340, 16);
+          
+          // Small author
+          ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
           ctx.fillStyle = '#4a5568';
           const author = data.author || '著者未設定';
-          const truncatedAuthor = author.length > 15 ? author.substring(0, 15) + '...' : author;
-          ctx.fillText(`著者: ${truncatedAuthor}`, infoX, infoY + 75);
+          const authorY = titleLastY + 21; // タイトル行数に連動
+          console.log('Drawing author:', author, 'at position:', canvas.width / 2, authorY);
+          const authorLastY = this.wrapText(ctx, author, canvas.width / 2, authorY, 340, 14);
 
-          ctx.fillText(`目標: ${target} レビュー`, infoX, infoY + 105);
-
-          // Large current review count (prominent)
-          ctx.font = 'bold 80px Inter, system-ui';
+          // Current review count (prominent) - with subtle glow
+          const currentY = authorLastY + 36; // タイトル・著者の高さに応じて配置
+          
+          ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, sans-serif';
           ctx.textAlign = 'center';
-          const currentGradient = ctx.createLinearGradient(0, 400, 0, 500);
-          currentGradient.addColorStop(0, '#6366f1');
-          currentGradient.addColorStop(1, '#8b5cf6');
+          const currentGradient = ctx.createLinearGradient(0, currentY, 0, currentY + 56);
+          currentGradient.addColorStop(0, '#3b82f6');
+          currentGradient.addColorStop(1, '#06b6d4');
           ctx.fillStyle = currentGradient;
-          ctx.fillText(current.toString(), canvas.width / 2, 430);
+          console.log('Drawing current reviews:', current.toString(), 'at position:', canvas.width / 2, currentY);
+          // Glow
+          ctx.save();
+          ctx.textBaseline = 'top';
+          ctx.shadowColor = 'rgba(139, 92, 246, 0.45)';
+          ctx.shadowBlur = 18;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+          ctx.fillText(current.toString(), canvas.width / 2, currentY);
+          ctx.restore();
+          // Main text on top for crisp edges
+          ctx.save();
+          ctx.textBaseline = 'top';
+          ctx.fillText(current.toString(), canvas.width / 2, currentY);
+          ctx.restore();
 
           // "現在のレビュー数" label
-          ctx.font = 'bold 20px Inter, system-ui';
-          ctx.fillStyle = '#1a202c';
-          ctx.fillText('現在のレビュー数', canvas.width / 2, 460);
+          ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.fillStyle = '#4a5568';
+          console.log('Drawing current label at position:', canvas.width / 2, currentY + 56 + 8);
+          ctx.fillText('現在のレビュー数', canvas.width / 2, currentY + 56 + 8);
 
-          // Progress bar (prominent)
-          const progressBarY = 500;
-          const progressBarWidth = cardWidth - 80;
-          const progressBarHeight = 32;
-          const progressBarX = (canvas.width - progressBarWidth) / 2;
+          // Progress bar and stats only when target is set
+          if (hasTarget) {
+            // Progress bar (prominent)
+            const progressBarY = currentY + 56 + 28;
+            const progressBarWidth = cardWidth - 60;
+            const progressBarHeight = 24;
+            const progressBarX = (canvas.width - progressBarWidth) / 2;
 
-          // Progress bar background
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-          ctx.lineWidth = 1;
-          this.roundRect(ctx, progressBarX, progressBarY, progressBarWidth, progressBarHeight, 16);
-          ctx.fill();
-          ctx.stroke();
-
-          // Progress bar fill with stripes
-          if (percentage > 0) {
-            const fillWidth = Math.max((progressBarWidth * percentage) / 100, 10);
-            const progressGradient = ctx.createLinearGradient(0, progressBarY, 0, progressBarY + progressBarHeight);
-            progressGradient.addColorStop(0, '#06d6a0');
-            progressGradient.addColorStop(1, '#34d399');
-            ctx.fillStyle = progressGradient;
-            this.roundRect(ctx, progressBarX, progressBarY, fillWidth, progressBarHeight, 16);
+            // Progress bar background
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1;
+            this.roundRect(ctx, progressBarX, progressBarY, progressBarWidth, progressBarHeight, 16);
             ctx.fill();
+            ctx.stroke();
 
-            // Add stripes effect
-            ctx.globalAlpha = 0.2;
-            for (let i = 0; i < fillWidth; i += 20) {
-              ctx.fillStyle = '#ffffff';
-              ctx.fillRect(progressBarX + i, progressBarY, 10, progressBarHeight);
+            // Progress bar fill (match UI gradient)
+            if (percentage > 0) {
+              const fillWidth = Math.max((progressBarWidth * percentage) / 100, 10);
+              const progressGradient = ctx.createLinearGradient(progressBarX, progressBarY, progressBarX + progressBarWidth, progressBarY + progressBarHeight);
+              progressGradient.addColorStop(0.0, '#3b82f6');
+              progressGradient.addColorStop(0.6, '#06b6d4');
+              progressGradient.addColorStop(1.0, '#10b981');
+              ctx.fillStyle = progressGradient;
+              this.roundRect(ctx, progressBarX, progressBarY, fillWidth, progressBarHeight, 16);
+              ctx.fill();
             }
-            ctx.globalAlpha = 1.0;
+
+            // Progress percentage (improved visibility)
+            ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.fillStyle = '#1a202c';
+            ctx.textAlign = 'center';
+            console.log('Drawing progress percentage:', `${percentage}%`, 'at position:', canvas.width / 2, progressBarY + 17);
+            ctx.fillText(`${percentage}%`, canvas.width / 2, progressBarY + 17);
+
+            // Stats section - only if target specified
+            const statsY = progressBarY + 25;
+            const cardWidth1 = (cardWidth - 80) / 2;
+            const cardHeight1 = 28;
+            const gap = 10;
+
+            // Target card (emphasized border and fill)
+            const targetCardX = cardX + 30;
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+            ctx.shadowBlur = 12;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 4;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            this.roundRect(ctx, targetCardX, statsY, cardWidth1, cardHeight1, 8);
+            ctx.fill();
+            ctx.restore();
+            ctx.strokeStyle = 'rgba(226, 232, 240, 1)';
+            ctx.lineWidth = 1;
+            this.roundRect(ctx, targetCardX, statsY, cardWidth1, cardHeight1, 8);
+            ctx.stroke();
+            ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.fillStyle = '#1f2937';
+            ctx.textAlign = 'center';
+            ctx.fillText(`目標: ${target} レビュー`, targetCardX + cardWidth1/2, statsY + cardHeight1/2 + 3);
+
+            // Remaining card (emphasized)
+            const remainingCardX = targetCardX + cardWidth1 + gap;
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+            ctx.shadowBlur = 12;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 4;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            this.roundRect(ctx, remainingCardX, statsY, cardWidth1, cardHeight1, 8);
+            ctx.fill();
+            ctx.restore();
+            ctx.strokeStyle = 'rgba(226, 232, 240, 1)';
+            ctx.lineWidth = 1;
+            this.roundRect(ctx, remainingCardX, statsY, cardWidth1, cardHeight1, 8);
+            ctx.stroke();
+            ctx.fillStyle = '#1f2937';
+            ctx.fillText(`あと ${remaining} レビュー`, remainingCardX + cardWidth1/2, statsY + cardHeight1/2 + 3);
           }
 
-          // Progress percentage
-          ctx.font = 'bold 16px Inter, system-ui';
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.fillText(`${percentage}%`, canvas.width / 2, progressBarY + 21);
-
-          // Stats section
-          const statsY = 580;
-          const statWidth = (cardWidth - 80) / 3;
-          
-          // Current stat
-          this.drawStat(ctx, cardX + 40, statsY, statWidth, current.toString(), '現在');
-          
-          // Target stat
-          this.drawStat(ctx, cardX + 40 + statWidth, statsY, statWidth, target.toString(), '目標');
-          
-          // Remaining stat
-          this.drawStat(ctx, cardX + 40 + statWidth * 2, statsY, statWidth, remaining.toString(), 'あと');
-
-          // Milestone
-          const milestone = percentage >= 100 ? '🎉 目標達成！' : 
-                          percentage >= 80 ? '🔥 もうすぐ達成！' :
-                          percentage >= 50 ? '📈 順調です' : '💪 がんばりましょう';
-          
-          ctx.font = 'bold 22px Inter, system-ui';
-          ctx.fillStyle = '#1a202c';
-          ctx.textAlign = 'center';
-          ctx.fillText(milestone, canvas.width / 2, 700);
-
-          // Branding at bottom
-          ctx.font = '14px Inter, system-ui';
-          ctx.fillStyle = 'rgba(26, 32, 44, 0.7)';
-          ctx.fillText('#KindleReviewMeter #読書記録', canvas.width / 2, 730);
+          // (Removed) milestone and branding to maximize content space
 
           // Convert to blob and download
           canvas.toBlob((blob) => {
@@ -1880,35 +2070,41 @@
         }
       }
 
+      // 古い関数を完全に削除して新しい関数を追加
+      async exportProgressImage() {
+        console.log('NEW EXPORT FUNCTION CALLED!');
+        return this.exportProgressImageNew();
+      }
+
       async drawBookCoverOnCanvas(ctx, imageUrl, x, y, width, height) {
         return new Promise((resolve, reject) => {
           const img = new Image();
           img.crossOrigin = 'anonymous';
           img.onload = () => {
-            // Draw shadow
+            // Save state before clipping/shadow
+            ctx.save();
+
+            // Draw shadow + clipped image
             ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
             ctx.shadowBlur = 15;
             ctx.shadowOffsetX = 0;
             ctx.shadowOffsetY = 8;
-            
+
             this.roundRect(ctx, x, y, width, height, 16);
             ctx.clip();
             ctx.drawImage(img, x, y, width, height);
-            
-            // Reset shadow and clipping
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetX = 0;
-            ctx.shadowOffsetY = 0;
+
+            // Restore to clear clip/shadow
             ctx.restore();
+
+            // Draw border on a clean state
             ctx.save();
-            
-            // Add border
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
             ctx.lineWidth = 3;
             this.roundRect(ctx, x, y, width, height, 16);
             ctx.stroke();
-            
+            ctx.restore();
+
             resolve();
           };
           img.onerror = reject;
@@ -1955,58 +2151,26 @@
         ctx.fillText('画像なし', x + width / 2, y + height / 2 + 35);
       }
 
-      drawStat(ctx, x, y, width, value, label) {
-        const height = 70;
-        
-        // Stat background
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
-        ctx.strokeStyle = 'rgba(226, 232, 240, 0.8)';
-        ctx.lineWidth = 1;
-        this.roundRect(ctx, x + 5, y, width - 10, height, 24);
-        ctx.fill();
-        ctx.stroke();
-
-        // Top accent line
-        const accentGradient = ctx.createLinearGradient(x, y, x + width, y);
-        accentGradient.addColorStop(0, '#06d6a0');
-        accentGradient.addColorStop(1, '#34d399');
-        ctx.fillStyle = accentGradient;
-        this.roundRect(ctx, x + 5, y, width - 10, 3, 2);
-        ctx.fill();
-
-        // Value
-        ctx.font = 'bold 28px Inter, system-ui';
-        const valueGradient = ctx.createLinearGradient(0, y + 20, 0, y + 50);
-        valueGradient.addColorStop(0, '#6366f1');
-        valueGradient.addColorStop(1, '#8b5cf6');
-        ctx.fillStyle = valueGradient;
-        ctx.textAlign = 'center';
-        ctx.fillText(value, x + width / 2, y + 35);
-
-        // Label
-        ctx.font = '600 12px Inter, system-ui';
-        ctx.fillStyle = '#718096';
-        ctx.fillText(label.toUpperCase(), x + width / 2, y + 55);
-      }
 
       wrapText(ctx, text, x, y, maxWidth, lineHeight) {
-        const words = text.split(' ');
+        // Support languages without spaces (e.g., Japanese)
+        const hasSpace = text.includes(' ');
+        const tokens = hasSpace ? text.split(' ') : Array.from(text);
         let line = '';
-        
-        for (let n = 0; n < words.length; n++) {
-          const testLine = line + words[n] + ' ';
-          const metrics = ctx.measureText(testLine);
-          const testWidth = metrics.width;
-          
-          if (testWidth > maxWidth && n > 0) {
+        for (let i = 0; i < tokens.length; i++) {
+          const sep = hasSpace ? ' ' : '';
+          const testLine = line + tokens[i] + sep;
+          const testWidth = ctx.measureText(testLine).width;
+          if (testWidth > maxWidth && line) {
             ctx.fillText(line, x, y);
-            line = words[n] + ' ';
+            line = tokens[i] + sep;
             y += lineHeight;
           } else {
             line = testLine;
           }
         }
-        ctx.fillText(line, x, y);
+        if (line) ctx.fillText(line, x, y);
+        return y; // return baseline of last drawn line
       }
 
       // Helper function to draw rounded rectangles
