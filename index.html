@@ -493,13 +493,13 @@
       color: #1a202c;
       margin: 0 0 var(--space-xs) 0;
       line-height: 1.3;
-      max-width: 240px; /* tighten to avoid rim */
+      max-width: 220px; /* tighten to avoid rim */
       word-wrap: break-word;
       overflow-wrap: anywhere; /* allow earlier wrapping for long CJK */
       hyphens: auto;
       white-space: normal;
       text-align: center;
-      padding: 0 16px;
+      padding: 0 32px; /* doubled inner padding */
       margin-left: auto;
       margin-right: auto;
     }
@@ -509,11 +509,11 @@
       color: #4a5568;
       margin: 0;
       font-weight: 400;
-      max-width: 240px; /* sync with title width */
+      max-width: 220px; /* sync with title width */
       word-wrap: break-word;
       overflow-wrap: anywhere;
       text-align: center;
-      padding: 0 16px;
+      padding: 0 32px; /* doubled inner padding */
       margin-left: auto;
       margin-right: auto;
     }
@@ -810,20 +810,20 @@
 
       .book-title {
         font-size: 0.9rem;
-        max-width: 220px;
+        max-width: 200px;
         margin-left: auto;
         margin-right: auto;
         overflow-wrap: anywhere;
-        padding: 0 16px;
+        padding: 0 32px; /* doubled on mobile too */
       }
 
       .book-author {
         font-size: 0.75rem;
-        max-width: 220px;
+        max-width: 200px;
         margin-left: auto;
         margin-right: auto;
         overflow-wrap: anywhere;
-        padding: 0 16px;
+        padding: 0 32px; /* doubled on mobile too */
       }
       
       .book-cover img,
@@ -1839,22 +1839,56 @@
           canvas.width = 420;
           canvas.height = 560;
 
-          // Background gradient (SNS-friendly blue→cyan)
-          const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-          gradient.addColorStop(0, '#0ea5e9');
-          gradient.addColorStop(1, '#22d3ee');
-          ctx.fillStyle = gradient;
+          // Beautiful 3-color radial gradient background
+          // Create multiple radial gradients for organic, random-looking effect
+          
+          // Base gradient (diagonal) - softer color palette
+          const baseGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+          baseGradient.addColorStop(0, '#67e8f9'); // 水色 (cyan-300)
+          baseGradient.addColorStop(0.5, '#f9a8d4'); // ピンク (pink-300)
+          baseGradient.addColorStop(1, '#a7f3d0'); // 薄い黄緑 (emerald-200)
+          ctx.fillStyle = baseGradient;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Overlay radial gradients for depth and randomness
+          ctx.globalCompositeOperation = 'overlay';
+          
+          // First radial overlay (top-left area) - 水色中心
+          const radial1 = ctx.createRadialGradient(canvas.width * 0.3, canvas.height * 0.2, 0, canvas.width * 0.3, canvas.height * 0.2, canvas.width * 0.8);
+          radial1.addColorStop(0, 'rgba(103, 232, 249, 0.4)'); // 水色
+          radial1.addColorStop(0.6, 'rgba(167, 243, 208, 0.3)'); // 薄い黄緑
+          radial1.addColorStop(1, 'transparent');
+          ctx.fillStyle = radial1;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Second radial overlay (bottom-right area) - ピンク中心
+          const radial2 = ctx.createRadialGradient(canvas.width * 0.7, canvas.height * 0.8, 0, canvas.width * 0.7, canvas.height * 0.8, canvas.width * 0.6);
+          radial2.addColorStop(0, 'rgba(249, 168, 212, 0.5)'); // ピンク
+          radial2.addColorStop(0.5, 'rgba(103, 232, 249, 0.2)'); // 水色
+          radial2.addColorStop(1, 'transparent');
+          ctx.fillStyle = radial2;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Third radial overlay (center area) - 薄い黄緑中心
+          const radial3 = ctx.createRadialGradient(canvas.width * 0.5, canvas.height * 0.4, 0, canvas.width * 0.5, canvas.height * 0.4, canvas.width * 0.4);
+          radial3.addColorStop(0, 'rgba(167, 243, 208, 0.4)'); // 薄い黄緑
+          radial3.addColorStop(0.8, 'rgba(249, 168, 212, 0.2)'); // ピンク
+          radial3.addColorStop(1, 'transparent');
+          ctx.fillStyle = radial3;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Reset composite operation for normal drawing
+          ctx.globalCompositeOperation = 'source-over';
 
-          // Add background pattern (same as web app)
-          const patternGradient = ctx.createRadialGradient(canvas.width * 0.2, canvas.height * 0.2, 0, canvas.width * 0.2, canvas.height * 0.2, 150);
-          patternGradient.addColorStop(0, 'rgba(14, 165, 233, 0.05)');
+          // Add subtle background pattern that complements the new softer gradient
+          const patternGradient = ctx.createRadialGradient(canvas.width * 0.15, canvas.height * 0.15, 0, canvas.width * 0.15, canvas.height * 0.15, 120);
+          patternGradient.addColorStop(0, 'rgba(103, 232, 249, 0.08)'); // 水色パターン
           patternGradient.addColorStop(1, 'transparent');
           ctx.fillStyle = patternGradient;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          const patternGradient2 = ctx.createRadialGradient(canvas.width * 0.8, canvas.height * 0.8, 0, canvas.width * 0.8, canvas.height * 0.8, 150);
-          patternGradient2.addColorStop(0, 'rgba(34, 211, 238, 0.05)');
+          const patternGradient2 = ctx.createRadialGradient(canvas.width * 0.85, canvas.height * 0.85, 0, canvas.width * 0.85, canvas.height * 0.85, 100);
+          patternGradient2.addColorStop(0, 'rgba(167, 243, 208, 0.06)'); // 薄い黄緑パターン
           patternGradient2.addColorStop(1, 'transparent');
           ctx.fillStyle = patternGradient2;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1889,11 +1923,11 @@
           // Content positioning
           const contentStartY = cardY + 40;
 
-          // Book cover (top center) - enlarged using saved space
-          const coverX = (canvas.width - 150) / 2; // Center horizontally
+          // Book cover (top center) - slightly smaller to give more space to text
+          const coverX = (canvas.width - 130) / 2; // Center horizontally
           const coverY = contentStartY;
-          const coverWidth = 150;
-          const coverHeight = 225;
+          const coverWidth = 130;
+          const coverHeight = 195;
 
           // Try to load and draw book cover image
           if (data.imageUrl && data.imageUrl.trim()) {
@@ -1907,32 +1941,43 @@
             this.drawBookPlaceholder(ctx, coverX, coverY, coverWidth, coverHeight);
           }
 
-          // Book meta (below cover, centered, small)
+          // Book meta (below cover)
           const metaY = coverY + coverHeight + 20;
+          const safePad = 40; // increased inner padding for better text space
+          const leftBound = cardX + safePad;
+          const rightBound = cardX + cardWidth - safePad;
           ctx.textAlign = 'center';
+
+          // Clip text and UI content to an inner safe area of the white card
+          ctx.save();
+          this.roundRect(ctx, leftBound, cardY + safePad, cardWidth - safePad * 2, cardHeight - safePad * 2, 16);
+          ctx.clip();
           
-          // Small title with text wrapping
+          // Small title with centered wrapping within [leftBound, rightBound]
           ctx.fillStyle = '#1a202c';
-          ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
-          ctx.textAlign = 'center';
           const title = data.title || 'タイトル未設定';
-          console.log('Drawing title with wrapping:', title, 'at position:', canvas.width / 2, metaY);
-          const titleLastY = this.wrapText(ctx, title, canvas.width / 2, metaY, 240, 16);
+          // Dynamic font size based on title length - slightly larger
+          const fontSize = title.length > 25 ? 12 : title.length > 20 ? 13 : 15;
+          ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+          const centerX = (leftBound + rightBound) / 2;
+          const availableWidth = rightBound - leftBound;
+          console.log('Drawing title:', title, 'Available width:', availableWidth, 'Font size:', fontSize);
+          const titleLastY = this.wrapTextBoundedCenterImproved(ctx, title, centerX, metaY, leftBound, rightBound, 17);
           
-          // Small author
+          // Small author (centered, bounded)
           ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
           ctx.fillStyle = '#4a5568';
           const author = data.author || '著者未設定';
           const authorY = titleLastY + 21; // タイトル行数に連動
-          console.log('Drawing author:', author, 'at position:', canvas.width / 2, authorY);
-          const authorLastY = this.wrapText(ctx, author, canvas.width / 2, authorY, 240, 14);
+          console.log('Drawing author centered bounded:', author, 'bounds:', leftBound, rightBound, 'at y:', authorY);
+          const authorLastY = this.wrapTextBoundedCenterImproved(ctx, author, centerX, authorY, leftBound, rightBound, 14);
 
           // Current review count (prominent) - with subtle glow
           const currentY = authorLastY + 36; // タイトル・著者の高さに応じて配置
           
           ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, sans-serif';
-          ctx.textAlign = 'center';
           const currentGradient = ctx.createLinearGradient(0, currentY, 0, currentY + 56);
+          ctx.textAlign = 'center';
           currentGradient.addColorStop(0, '#3b82f6');
           currentGradient.addColorStop(1, '#06b6d4');
           ctx.fillStyle = currentGradient;
@@ -1966,23 +2011,33 @@
             const progressBarHeight = 24;
             const progressBarX = (canvas.width - progressBarWidth) / 2;
 
-            // Progress bar background
+            // Progress bar background with rounded ends
             ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.lineWidth = 1;
-            this.roundRect(ctx, progressBarX, progressBarY, progressBarWidth, progressBarHeight, 16);
+            const borderRadius = progressBarHeight / 2; // Full rounded ends
+            this.roundRect(ctx, progressBarX, progressBarY, progressBarWidth, progressBarHeight, borderRadius);
             ctx.fill();
             ctx.stroke();
 
-            // Progress bar fill (match UI gradient)
+            // Progress bar fill (match UI gradient) with properly rounded ends
             if (percentage > 0) {
-              const fillWidth = Math.max((progressBarWidth * percentage) / 100, 10);
+              const fillWidth = Math.max((progressBarWidth * percentage) / 100, borderRadius * 2);
               const progressGradient = ctx.createLinearGradient(progressBarX, progressBarY, progressBarX + progressBarWidth, progressBarY + progressBarHeight);
               progressGradient.addColorStop(0.0, '#3b82f6');
               progressGradient.addColorStop(0.6, '#06b6d4');
               progressGradient.addColorStop(1.0, '#10b981');
               ctx.fillStyle = progressGradient;
-              this.roundRect(ctx, progressBarX, progressBarY, fillWidth, progressBarHeight, 16);
+              
+              // Draw progress fill with rounded ends
+              // For 100%, use full width. For others, ensure minimum width for proper rounding
+              if (percentage >= 100) {
+                // Full width with both ends rounded
+                this.roundRect(ctx, progressBarX, progressBarY, progressBarWidth, progressBarHeight, borderRadius);
+              } else {
+                // Partial width but with both ends rounded for visual consistency
+                this.roundRect(ctx, progressBarX, progressBarY, fillWidth, progressBarHeight, borderRadius);
+              }
               ctx.fill();
             }
 
@@ -1993,8 +2048,8 @@
             console.log('Drawing progress percentage:', `${percentage}%`, 'at position:', canvas.width / 2, progressBarY + 17);
             ctx.fillText(`${percentage}%`, canvas.width / 2, progressBarY + 17);
 
-            // Stats section - only if target specified
-            const statsY = progressBarY + 25;
+            // Stats section - only if target specified (add more spacing)
+            const statsY = progressBarY + 40;
             const cardWidth1 = (cardWidth - 80) / 2;
             const cardHeight1 = 28;
             const gap = 10;
@@ -2039,6 +2094,9 @@
           }
 
           // (Removed) milestone and branding to maximize content space
+
+          // Restore to remove clip (if any content later needs to overflow)
+          ctx.restore();
 
           // Convert to blob and download
           canvas.toBlob((blob) => {
@@ -2168,6 +2226,132 @@
         }
         if (line) ctx.fillText(line, x, y);
         return y; // return baseline of last drawn line
+      }
+
+      // New: left-aligned bounded wrapping between [left, right]
+      wrapTextBounded(ctx, text, left, top, right, lineHeight) {
+        const maxWidth = Math.max(0, right - left);
+        const originalAlign = ctx.textAlign;
+        ctx.textAlign = 'left';
+        const hasSpace = text.includes(' ');
+        const tokens = hasSpace ? text.split(' ') : Array.from(text);
+        let line = '';
+        let y = top;
+        for (let i = 0; i < tokens.length; i++) {
+          const sep = hasSpace ? ' ' : '';
+          const test = line + tokens[i] + sep;
+          const w = ctx.measureText(test).width;
+          if (w > maxWidth && line) {
+            ctx.fillText(line, left, y);
+            line = tokens[i] + sep;
+            y += lineHeight;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, left, y);
+        ctx.textAlign = originalAlign;
+        return y;
+      }
+
+      // New: centered text wrapping within [left, right]
+      wrapTextBoundedCenter(ctx, text, centerX, top, left, right, lineHeight) {
+        const maxWidth = Math.max(0, right - left);
+        const originalAlign = ctx.textAlign;
+        ctx.textAlign = 'center';
+        const hasSpace = text.includes(' ');
+        const tokens = hasSpace ? text.split(' ') : Array.from(text);
+        const lines = [];
+        let line = '';
+        for (let i = 0; i < tokens.length; i++) {
+          const sep = hasSpace ? ' ' : '';
+          const test = line + tokens[i] + sep;
+          const w = ctx.measureText(test).width;
+          if (w > maxWidth && line) {
+            lines.push(line.trimEnd());
+            line = tokens[i] + sep;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line.trimEnd());
+        let y = top;
+        for (const l of lines) {
+          ctx.fillText(l, centerX, y);
+          y += lineHeight;
+        }
+        ctx.textAlign = originalAlign;
+        return y - lineHeight; // return last line baseline
+      }
+
+      // Improved: better Japanese text wrapping with character-level breaking
+      wrapTextBoundedCenterImproved(ctx, text, centerX, top, left, right, lineHeight) {
+        const maxWidth = Math.max(0, right - left) * 0.75; // Use 75% to force more line breaks
+        const originalAlign = ctx.textAlign;
+        ctx.textAlign = 'center';
+        
+        console.log('wrapTextBoundedCenterImproved:', text, 'Available space:', (right - left), 'maxWidth:', maxWidth);
+        
+        const lines = [];
+        let line = '';
+        
+        // Character-level breaking with smart break points
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i];
+          const testLine = line + char;
+          const testWidth = ctx.measureText(testLine).width;
+          
+          console.log(`Testing char "${char}": line="${line}" -> testLine="${testLine}", width=${testWidth}, max=${maxWidth}`);
+          
+          // Check if we need to break
+          if (testWidth > maxWidth && line.length > 0) {
+            // Try to find a better break point in the current line
+            const breakChars = ['」', '）', '、', '。', ' ', '/', '(', '（'];
+            let bestBreakPos = -1;
+            
+            // Look for good break points from the end of the line
+            for (let j = line.length - 1; j >= Math.max(0, line.length - 5); j--) {
+              if (breakChars.includes(line[j])) {
+                bestBreakPos = j + 1;
+                break;
+              }
+            }
+            
+            if (bestBreakPos > 0 && bestBreakPos < line.length) {
+              // Break at the good position
+              const beforeBreak = line.substring(0, bestBreakPos);
+              const afterBreak = line.substring(bestBreakPos);
+              console.log(`Smart breaking: "${beforeBreak}" | "${afterBreak}"`);
+              lines.push(beforeBreak);
+              line = afterBreak + char;
+            } else {
+              // No good break point, just break here
+              console.log(`Breaking line: "${line}" (width: ${ctx.measureText(line).width})`);
+              lines.push(line);
+              line = char;
+            }
+          } else {
+            line = testLine;
+          }
+        }
+        
+        // Add the last line if it exists
+        if (line) {
+          console.log(`Final line: "${line}" (width: ${ctx.measureText(line).width})`);
+          lines.push(line);
+        }
+        
+        console.log('Generated lines:', lines);
+        
+        let y = top;
+        for (const l of lines) {
+          console.log('Drawing line:', l, 'at:', centerX, y);
+          ctx.fillText(l, centerX, y);
+          y += lineHeight;
+        }
+        
+        ctx.textAlign = originalAlign;
+        return y - lineHeight; // return last line baseline
       }
 
       // Helper function to draw rounded rectangles
