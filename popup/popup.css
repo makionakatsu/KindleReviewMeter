@@ -81,6 +81,30 @@ body {
   overflow-x: hidden;
 }
 
+/* Image generator page overrides to ensure full canvas is visible */
+body.image-generator {
+  width: auto;
+  max-width: none;
+  max-height: none;
+  overflow-x: auto; /* allow horizontal if needed */
+}
+
+body.image-generator .main-container {
+  padding: var(--space-md);
+}
+
+body.image-generator .card {
+  overflow: visible; /* avoid clipping canvas shadow/edges */
+}
+
+body.image-generator #preview canvas {
+  display: block;
+  margin: 0 auto;
+  width: 420px; /* render at native width */
+  max-width: 100%;
+  height: auto;
+}
+
 /* Background Pattern */
 body::before {
   content: '';

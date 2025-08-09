@@ -193,6 +193,7 @@ class App {
   }
 
   async init() {
+    console.log('App initializing...');
     this.bindEvents();
     await this.loadData();
     await this.checkPendingUrl();
@@ -204,6 +205,33 @@ class App {
         duration: 4000
       });
     }, 500);
+    
+    console.log('App initialized successfully');
+  }
+
+  // Debug method to check current state
+  async debugCurrentState() {
+    console.log('=== DEBUG: Current State ===');
+    const data = await this.storage.load();
+    console.log('Storage data:', data);
+    
+    // Check form values
+    const formData = {
+      amazonUrl: document.getElementById('amazonUrl')?.value,
+      title: document.getElementById('title')?.value,
+      author: document.getElementById('author')?.value,
+      imageUrl: document.getElementById('imageUrl')?.value,
+      reviewCount: document.getElementById('reviewCount')?.value,
+      targetReviews: document.getElementById('targetReviews')?.value
+    };
+    console.log('Form data:', formData);
+    
+    // Check if export button exists
+    const exportBtn = document.getElementById('exportBtn');
+    console.log('Export button exists:', !!exportBtn);
+    console.log('Export button:', exportBtn);
+    
+    return { storageData: data, formData, hasExportBtn: !!exportBtn };
   }
 
   async checkPendingUrl() {
@@ -225,19 +253,39 @@ class App {
   bindEvents() {
     // Amazon fetch button
     const fetchBtn = document.getElementById('fetchAmazonBtn');
-    fetchBtn.addEventListener('click', () => this.fetchAmazonData());
+    if (fetchBtn) {
+      fetchBtn.addEventListener('click', () => this.fetchAmazonData());
+      console.log('Fetch button event bound');
+    } else {
+      console.error('Fetch button not found');
+    }
 
     // Save button
     const saveBtn = document.getElementById('saveBtn');
-    saveBtn.addEventListener('click', () => this.saveData());
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => this.saveData());
+      console.log('Save button event bound');
+    } else {
+      console.error('Save button not found');
+    }
 
     // Clear button
     const clearBtn = document.getElementById('clearBtn');
-    clearBtn.addEventListener('click', () => this.clearData());
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => this.clearData());
+      console.log('Clear button event bound');
+    } else {
+      console.error('Clear button not found');
+    }
 
     // Export button
     const exportBtn = document.getElementById('exportBtn');
-    exportBtn.addEventListener('click', () => this.exportProgressImage());
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => this.exportProgressImage());
+      console.log('Export button event bound');
+    } else {
+      console.error('Export button not found');
+    }
   }
 
   async fetchAmazonData() {
@@ -253,15 +301,25 @@ class App {
       return;
     }
 
-    const urlValidation = this.isValidAmazonUrl(url);
-    if (!urlValidation) {
+    // URL正規化を試行
+    const normalizedUrl = this.normalizeAmazonUrl(url);
+    if (!normalizedUrl) {
       this.toast.error('有効なAmazon書籍URLを入力してください。\n例: https://www.amazon.co.jp/dp/XXXXXXXXXX', {
         title: 'URL形式エラー',
         duration: 6000
       });
       this.animateInputError('amazonUrl');
-      console.log('URL validation failed for:', url);
+      console.log('URL normalization failed for:', url);
       return;
+    }
+
+    // 正規化されたURLを表示
+    if (normalizedUrl !== url) {
+      urlInput.value = normalizedUrl;
+      this.toast.info('URLを正規化しました', {
+        title: '情報',
+        duration: 3000
+      });
     }
 
     fetchBtn.classList.add('loading');
@@ -277,7 +335,7 @@ class App {
       if (typeof chrome !== 'undefined' && chrome.runtime) {
         const response = await chrome.runtime.sendMessage({
           action: 'fetchAmazonData',
-          url: url
+          url: normalizedUrl
         });
 
         if (response && response.success && response.data) {
@@ -302,6 +360,93 @@ class App {
     } finally {
       fetchBtn.classList.remove('loading');
       fetchBtn.disabled = false;
+    }
+  }
+
+  normalizeAmazonUrl(url) {
+    try {
+      console.log('Attempting to normalize URL:', url, 'Type:', typeof url, 'Length:', url?.length);
+      
+      // Input validation
+      if (!url || typeof url !== 'string' || url.trim().length === 0) {
+        console.error('Invalid URL input:', url);
+        return null;
+      }
+      
+      const trimmedUrl = url.trim();
+      
+      // Add protocol if missing
+      let fullUrl = trimmedUrl;
+      if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+        fullUrl = 'https://' + trimmedUrl;
+        console.log('Added https protocol:', fullUrl);
+      }
+      
+      const urlObj = new URL(fullUrl);
+      
+      // Amazon hostname validation
+      const amazonHosts = [
+        'amazon.co.jp', 'amazon.com', 'amazon.ca', 'amazon.co.uk',
+        'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es',
+        'www.amazon.co.jp', 'www.amazon.com', 'www.amazon.ca', 'www.amazon.co.uk',
+        'www.amazon.de', 'www.amazon.fr', 'www.amazon.it', 'www.amazon.es'
+      ];
+      
+      const isAmazonHost = amazonHosts.some(host => 
+        urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
+      );
+      
+      if (!isAmazonHost) {
+        console.log('Invalid Amazon host:', urlObj.hostname);
+        return null;
+      }
+      
+      // Extract ASIN from various URL patterns
+      const asinPatterns = [
+        /\/dp\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,           // /dp/XXXXXXXXXX
+        /\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,      // /product/XXXXXXXXXX
+        /\/gp\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,  // /gp/product/XXXXXXXXXX
+        /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i, // /exec/obidos/ASIN/XXXXXXXXXX
+        /\/o\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i       // /o/ASIN/XXXXXXXXXX
+      ];
+      
+      let asin = null;
+      for (const pattern of asinPatterns) {
+        const match = fullUrl.match(pattern);
+        if (match) {
+          asin = match[1];
+          console.log('Found ASIN:', asin, 'with pattern:', pattern.source);
+          break;
+        }
+      }
+      
+      if (!asin) {
+        console.log('No valid ASIN found in URL:', fullUrl);
+        return null;
+      }
+      
+      // Construct clean Amazon URL
+      const cleanUrl = `https://${urlObj.hostname}/dp/${asin}`;
+      
+      console.log('URL normalization successful:', {
+        original: url,
+        processed: fullUrl,
+        normalized: cleanUrl,
+        asin: asin,
+        hostname: urlObj.hostname
+      });
+      
+      return cleanUrl;
+      
+    } catch (error) {
+      console.error('URL normalization error:', error);
+      console.error('Failed URL details:', {
+        input: url,
+        type: typeof url,
+        length: url?.length,
+        charCodes: url ? Array.from(url).map(c => c.charCodeAt(0)).slice(0, 20) : null
+      });
+      return null;
     }
   }
 
@@ -460,7 +605,10 @@ class App {
   }
 
   async loadData() {
+    console.log('Loading data...');
     const data = await this.storage.load();
+    console.log('Loaded data:', data);
+    
     if (data) {
       document.getElementById('amazonUrl').value = data.amazonUrl || '';
       document.getElementById('title').value = data.title || '';
@@ -468,6 +616,9 @@ class App {
       document.getElementById('imageUrl').value = data.imageUrl || '';
       document.getElementById('reviewCount').value = data.reviewCount || 0;
       document.getElementById('targetReviews').value = data.targetReviews || '';
+      console.log('Data populated to form fields');
+    } else {
+      console.log('No data found in storage');
     }
   }
 
@@ -508,7 +659,11 @@ class App {
   }
 
   async exportProgressImage() {
+    console.log('Export button clicked');
+    
     const data = await this.storage.load();
+    console.log('Loaded data for export:', data);
+    
     if (!data) {
       this.toast.warning('エクスポートするデータがありません', {
         title: 'エクスポート失敗'
@@ -519,6 +674,8 @@ class App {
     // Send message to background script for image generation
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       try {
+        console.log('Sending export message to background script');
+        
         this.toast.info('X投稿用の画像を生成中...', {
           title: '画像生成中',
           duration: 3000
@@ -529,10 +686,12 @@ class App {
           data: data
         });
 
+        console.log('Background script response:', response);
+
         if (response && response.success) {
-          this.toast.success('画像の生成が完了しました', {
-            title: '生成完了',
-            duration: 4000
+          this.toast.success('画像生成タブを開きました！ダウンロードしてください', {
+            title: '生成開始',
+            duration: 6000
           });
         } else {
           throw new Error(response?.error || '画像生成に失敗しました');
@@ -545,6 +704,7 @@ class App {
         });
       }
     } else {
+      console.error('Chrome runtime not available');
       this.toast.warning('Chrome拡張機能コンテキストが必要です', {
         title: '機能制限'
       });
@@ -554,5 +714,17 @@ class App {
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM loaded, creating App instance');
   window.app = new App();
+  
+  // Add global debug function
+  window.debugApp = () => {
+    if (window.app) {
+      return window.app.debugCurrentState();
+    } else {
+      console.error('App instance not found');
+    }
+  };
+  
+  console.log('App instance created. Use debugApp() in console for debugging');
 });

@@ -7,14 +7,18 @@
   "permissions": [
     "storage",
     "activeTab",
-    "contextMenus"
+    "contextMenus",
+    "tabs"
   ],
   
   "host_permissions": [
     "https://*.amazon.co.jp/*",
     "https://*.amazon.com/*",
     "https://api.allorigins.win/*",
-    "https://corsproxy.io/*"
+    "https://corsproxy.io/*",
+    "https://cors-anywhere.herokuapp.com/*",
+    "https://thingproxy.freeboard.io/*",
+    "https://api.codetabs.com/*"
   ],
   
   "action": {
