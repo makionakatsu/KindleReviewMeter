@@ -638,43 +638,8 @@ async function handleImageExport(data) {
 
     console.log('Created image generation tab:', imageTab.id);
 
-    // Method 3: Send message after tab loads (original method)
-    const sendDataToTab = async () => {
-      try {
-        const response = await chrome.tabs.sendMessage(imageTab.id, {
-          action: 'generateImage',
-          data: data
-        });
-        console.log('Successfully sent data to image generation tab, response:', response);
-      } catch (error) {
-        console.error('Failed to send data to tab:', error);
-        // Try again after a longer delay
-        setTimeout(async () => {
-          try {
-            await chrome.tabs.sendMessage(imageTab.id, {
-              action: 'generateImage',  
-              data: data
-            });
-            console.log('Retry successful');
-          } catch (retryError) {
-            console.error('Retry also failed:', retryError);
-          }
-        }, 3000);
-      }
-    };
-
-    // Wait for tab to load completely
-    chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
-      if (tabId === imageTab.id && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        console.log('Tab loading complete, sending data');
-        setTimeout(sendDataToTab, 500); // Small delay after complete
-      }
-    });
-
-    // Fallback: send after fixed delay
-    setTimeout(sendDataToTab, 2000);
-
+    // No need to send messages to the tab.
+    // Image page reads data from query param and/or chrome.storage.local ('pendingImageData').
     return { success: true, tabId: imageTab.id };
   } catch (error) {
     console.error('Image export failed:', error);
