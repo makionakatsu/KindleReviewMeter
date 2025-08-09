@@ -253,11 +253,14 @@ class App {
       return;
     }
 
-    if (!this.isValidAmazonUrl(url)) {
-      this.toast.error('有効なAmazon書籍URLを入力してください', {
-        title: 'URL形式エラー'
+    const urlValidation = this.isValidAmazonUrl(url);
+    if (!urlValidation) {
+      this.toast.error('有効なAmazon書籍URLを入力してください。\n例: https://www.amazon.co.jp/dp/XXXXXXXXXX', {
+        title: 'URL形式エラー',
+        duration: 6000
       });
       this.animateInputError('amazonUrl');
+      console.log('URL validation failed for:', url);
       return;
     }
 
@@ -305,9 +308,63 @@ class App {
   isValidAmazonUrl(url) {
     try {
       const urlObj = new URL(url);
-      return urlObj.hostname.includes('amazon') && 
-             (url.includes('/dp/') || url.includes('/product/') || url.includes('/gp/product/'));
-    } catch {
+      
+      // Amazon hostname patterns
+      const amazonHosts = [
+        'amazon.co.jp',
+        'amazon.com', 
+        'amazon.ca',
+        'amazon.co.uk',
+        'amazon.de',
+        'amazon.fr',
+        'amazon.it',
+        'amazon.es',
+        'www.amazon.co.jp',
+        'www.amazon.com',
+        'www.amazon.ca',
+        'www.amazon.co.uk',
+        'www.amazon.de',
+        'www.amazon.fr',
+        'www.amazon.it',
+        'www.amazon.es'
+      ];
+      
+      const isAmazonHost = amazonHosts.some(host => 
+        urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
+      );
+      
+      if (!isAmazonHost) {
+        console.log('Invalid Amazon host:', urlObj.hostname);
+        return false;
+      }
+      
+      // Amazon product URL patterns
+      const productPatterns = [
+        '/dp/',           // Digital Product
+        '/product/',      // Product
+        '/gp/product/',   // Generic Product
+        '/exec/obidos/',  // Old format
+        '/o/ASIN/'        // Old ASIN format
+      ];
+      
+      const hasProductPattern = productPatterns.some(pattern => url.includes(pattern));
+      
+      // ASIN pattern check (10 character alphanumeric)
+      const asinMatch = url.match(/\/(?:dp|product|ASIN|gp\/product)\/([A-Z0-9]{10})(?:\/|$|\?|#)/i);
+      
+      console.log('URL validation:', {
+        url,
+        hostname: urlObj.hostname,
+        isAmazonHost,
+        hasProductPattern,
+        asinMatch: !!asinMatch,
+        asin: asinMatch ? asinMatch[1] : null
+      });
+      
+      return hasProductPattern || asinMatch;
+      
+    } catch (error) {
+      console.error('URL validation error:', error);
       return false;
     }
   }
