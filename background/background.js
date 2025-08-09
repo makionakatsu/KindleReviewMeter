@@ -4,9 +4,6 @@
  */
 
 // Service Worker event listeners
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('Kindle Review Meter extension installed');
-});
 
 // Message handling from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -272,30 +269,30 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     console.log('Kindle Review Meter installed');
     
-    // Open options page or show welcome
-    chrome.tabs.create({
-      url: 'popup/popup.html'
-    });
+    // Create context menu for Amazon links
+    if (chrome.contextMenus) {
+      try {
+        chrome.contextMenus.create({
+          id: 'kindle-review-meter',
+          title: 'Kindle Review Meter で分析',
+          contexts: ['link'],
+          targetUrlPatterns: ['*://*.amazon.co.jp/dp/*', '*://*.amazon.co.jp/gp/product/*']
+        });
+      } catch (error) {
+        console.error('Context menu creation failed:', error);
+      }
+    }
   } else if (details.reason === 'update') {
     console.log('Kindle Review Meter updated to', chrome.runtime.getManifest().version);
   }
 });
 
-/**
- * Context menu integration (optional)
- */
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'kindle-review-meter',
-    title: 'Kindle Review Meter で分析',
-    contexts: ['link'],
-    targetUrlPatterns: ['*://*.amazon.co.jp/dp/*', '*://*.amazon.co.jp/gp/product/*']
+// Context menu click handler
+if (chrome.contextMenus && chrome.contextMenus.onClicked) {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === 'kindle-review-meter') {
+      // Context menus don't directly open popups, but we can store the URL
+      chrome.storage.local.set({ 'pendingUrl': info.linkUrl });
+    }
   });
-});
-
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'kindle-review-meter') {
-    // Open popup with the Amazon URL pre-filled
-    chrome.action.openPopup();
-  }
-});
+}

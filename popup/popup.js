@@ -195,6 +195,7 @@ class App {
   async init() {
     this.bindEvents();
     await this.loadData();
+    await this.checkPendingUrl();
     
     // Welcome message
     setTimeout(() => {
@@ -203,6 +204,22 @@ class App {
         duration: 4000
       });
     }, 500);
+  }
+
+  async checkPendingUrl() {
+    // Check if there's a pending URL from context menu
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      try {
+        const result = await chrome.storage.local.get(['pendingUrl']);
+        if (result.pendingUrl) {
+          document.getElementById('amazonUrl').value = result.pendingUrl;
+          // Clear the pending URL
+          await chrome.storage.local.remove(['pendingUrl']);
+        }
+      } catch (error) {
+        console.error('Failed to check pending URL:', error);
+      }
+    }
   }
 
   bindEvents() {
