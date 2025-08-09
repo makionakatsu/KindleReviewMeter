@@ -1059,12 +1059,41 @@
   <div class="toast-container" id="toast-container"></div>
 
   <script>
-    // Storage Service (Inline)
+    /**
+     * StorageService - ブラウザのLocalStorageを使用したデータ永続化サービス
+     * 
+     * 責任範囲:
+     * - アプリケーションデータのLocalStorageへの保存・読み込み・削除
+     * - JSON形式でのデータシリアライゼーション・デシリアライゼーション
+     * - ストレージ操作時のエラーハンドリング
+     * 
+     * 主要機能:
+     * - 書籍情報（タイトル、著者、画像URL、レビュー数、目標値等）の永続化
+     * - クロスセッションでのデータ保持
+     * - 安全なエラー処理による堅牢性確保
+     */
     class StorageService {
+      /**
+       * StorageServiceのコンストラクタ
+       * @param {string} key - LocalStorageで使用するキー名（デフォルト: 'kindleReviewMeter'）
+       */
       constructor(key = 'kindleReviewMeter') {
         this.storageKey = key;
       }
 
+      /**
+       * データをLocalStorageに保存
+       * オブジェクトをJSON文字列に変換して保存し、エラー時は安全に失敗
+       * 
+       * @param {Object} data - 保存するデータオブジェクト
+       * @param {string} data.title - 書籍タイトル
+       * @param {string} data.author - 著者名
+       * @param {string} data.imageUrl - 書影のURL
+       * @param {number} data.reviewCount - 現在のレビュー数
+       * @param {number} data.targetReviews - 目標レビュー数
+       * @param {string} data.amazonUrl - Amazon商品ページURL
+       * @returns {boolean} 保存成功時はtrue、失敗時はfalse
+       */
       save(data) {
         try {
           localStorage.setItem(this.storageKey, JSON.stringify(data));
@@ -1075,6 +1104,12 @@
         }
       }
 
+      /**
+       * LocalStorageからデータを読み込み
+       * JSON文字列をオブジェクトに変換して返却、エラー時はnullを返却
+       * 
+       * @returns {Object|null} 保存されているデータオブジェクト、未保存またはエラー時はnull
+       */
       load() {
         try {
           const data = localStorage.getItem(this.storageKey);
@@ -1085,6 +1120,12 @@
         }
       }
 
+      /**
+       * LocalStorageからデータを削除
+       * 保存されている全ての書籍情報をクリア
+       * 
+       * @returns {boolean} 削除成功時はtrue、失敗時はfalse
+       */
       clear() {
         try {
           localStorage.removeItem(this.storageKey);
@@ -1096,18 +1137,51 @@
       }
     }
 
-    // Toast Service (Inline)
+    /**
+     * ToastService - ユーザー通知システム
+     * 
+     * 責任範囲:
+     * - 一時的な通知メッセージの表示・管理・削除
+     * - 通知タイプ別（成功/エラー/警告/情報）の視覚的差別化
+     * - アニメーション付きの表示・非表示制御
+     * 
+     * 主要機能:
+     * - 右上隅での通知表示（成功、エラー、警告、情報）
+     * - 自動消滅（設定可能な時間）と手動クローズ
+     * - 複数通知の積み重ね表示
+     * - アクセシビリティ対応（ARIA ラベル等）
+     */
     class ToastService {
+      /**
+       * ToastServiceのコンストラクタ
+       * 通知コンテナの参照と通知配列を初期化
+       */
       constructor() {
         this.container = null;
         this.toasts = [];
         this.init();
       }
 
+      /**
+       * 通知システムの初期化
+       * DOM要素の参照を取得し、通知表示の準備を行う
+       */
       init() {
         this.container = document.getElementById('toast-container');
       }
 
+      /**
+       * 通知を表示するメイン関数
+       * 指定された内容とオプションに基づいて通知を生成・表示
+       * 
+       * @param {string} message - 表示するメッセージ内容
+       * @param {string} type - 通知タイプ（'success'|'error'|'warning'|'info'）
+       * @param {Object} options - 表示オプション
+       * @param {string} options.title - 通知のタイトル（省略時は型に応じた既定値）
+       * @param {number} options.duration - 自動消滅までの時間（ミリ秒、0で無効）
+       * @param {boolean} options.closable - 手動クローズボタンの表示有無
+       * @returns {HTMLElement} 作成された通知要素
+       */
       show(message, type = 'info', options = {}) {
         const {
           title = this.getDefaultTitle(type),
@@ -1120,10 +1194,12 @@
         
         this.toasts.push(toast);
         
+        // アニメーション表示を次のフレームで実行
         requestAnimationFrame(() => {
           toast.classList.add('show');
         });
 
+        // 自動消滅の設定
         if (duration > 0) {
           setTimeout(() => {
             this.dismiss(toast);
@@ -1133,6 +1209,16 @@
         return toast;
       }
 
+      /**
+       * 通知要素のDOM構造を作成
+       * アイコン、タイトル、メッセージ、クローズボタンを含む完全な通知要素を生成
+       * 
+       * @param {string} message - メッセージ内容
+       * @param {string} type - 通知タイプ
+       * @param {string} title - タイトル
+       * @param {boolean} closable - クローズボタンの表示有無
+       * @returns {HTMLElement} 作成された通知DOM要素
+       */
       createToast(message, type, title, closable) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
@@ -1150,6 +1236,7 @@
           </div>
         `;
 
+        // クローズボタンのイベントリスナー設定
         if (closable) {
           const closeBtn = toast.querySelector('.toast-close');
           closeBtn.addEventListener('click', () => this.dismiss(toast));
@@ -1158,16 +1245,25 @@
         return toast;
       }
 
+      /**
+       * 通知を削除する
+       * アニメーション付きで通知を非表示にし、DOM から完全に削除
+       * 
+       * @param {HTMLElement} toast - 削除対象の通知要素
+       */
       dismiss(toast) {
         if (!toast || !toast.parentNode) return;
 
+        // 管理配列から削除
         const index = this.toasts.indexOf(toast);
         if (index > -1) {
           this.toasts.splice(index, 1);
         }
 
+        // 削除アニメーション開始
         toast.classList.add('removing');
         
+        // アニメーション完了後にDOM から削除
         setTimeout(() => {
           if (toast.parentNode) {
             toast.parentNode.removeChild(toast);
@@ -1175,6 +1271,11 @@
         }, 300);
       }
 
+      /**
+       * 通知タイプに応じたデフォルトタイトルを取得
+       * @param {string} type - 通知タイプ
+       * @returns {string} デフォルトタイトル
+       */
       getDefaultTitle(type) {
         const titles = {
           success: '成功',
@@ -1185,6 +1286,11 @@
         return titles[type] || '通知';
       }
 
+      /**
+       * 通知タイプに応じたアイコンを取得
+       * @param {string} type - 通知タイプ
+       * @returns {string} 対応するアイコン文字
+       */
       getIcon(type) {
         const icons = {
           success: '✓',
@@ -1195,25 +1301,69 @@
         return icons[type] || 'ℹ';
       }
 
+      /**
+       * 成功通知の表示ショートカット
+       * @param {string} message - メッセージ内容
+       * @param {Object} options - 表示オプション
+       * @returns {HTMLElement} 作成された通知要素
+       */
       success(message, options = {}) {
         return this.show(message, 'success', options);
       }
 
+      /**
+       * エラー通知の表示ショートカット
+       * @param {string} message - メッセージ内容
+       * @param {Object} options - 表示オプション
+       * @returns {HTMLElement} 作成された通知要素
+       */
       error(message, options = {}) {
         return this.show(message, 'error', options);
       }
 
+      /**
+       * 警告通知の表示ショートカット
+       * @param {string} message - メッセージ内容
+       * @param {Object} options - 表示オプション
+       * @returns {HTMLElement} 作成された通知要素
+       */
       warning(message, options = {}) {
         return this.show(message, 'warning', options);
       }
 
+      /**
+       * 情報通知の表示ショートカット
+       * @param {string} message - メッセージ内容
+       * @param {Object} options - 表示オプション
+       * @returns {HTMLElement} 作成された通知要素
+       */
       info(message, options = {}) {
         return this.show(message, 'info', options);
       }
     }
 
-    // Main App Class
+    /**
+     * App - Kindle Review Meterのメインアプリケーションクラス
+     * 
+     * 責任範囲:
+     * - アプリケーション全体の初期化と制御
+     * - Amazon書籍データの取得・処理・表示
+     * - 画像エクスポート機能（Canvas描画）
+     * - UI管理（タブ切り替え、フォーム操作、進捗表示）
+     * - データ永続化とToast通知の統合
+     * 
+     * 主要機能:
+     * - Amazon商品ページから書籍情報を自動取得
+     * - レビュー進捗の視覚化（プログレスバー、統計表示）
+     * - X/Twitter投稿用の画像生成・ダウンロード
+     * - 複数のCORSプロキシを使った堅牢なデータ取得
+     * - 日本語テキストに対応した改行処理
+     */
     class App {
+      /**
+       * Appクラスのコンストラクタ
+       * 必要なサービス（Storage, Toast）を初期化し、アプリケーションを起動
+       */
       constructor() {
         this.storage = new StorageService();
         this.toast = new ToastService();
@@ -1221,10 +1371,15 @@
         this.init();
       }
 
+      /**
+       * アプリケーションの初期化
+       * イベントバインド、データ読み込み、ウェルカムメッセージの表示を行う
+       */
       init() {
         this.bindEvents();
         this.loadData();
         
+        // ウェルカムメッセージを遅延表示
         setTimeout(() => {
           this.toast.info('完全版Kindle Review Meter へようこそ！', {
             title: 'ようこそ',
@@ -1233,6 +1388,10 @@
         }, 800);
       }
 
+      /**
+       * DOM要素へのイベントリスナーの設定
+       * タブ切り替えなどのUI操作イベントを登録
+       */
       bindEvents() {
         document.querySelectorAll('.tab').forEach(tab => {
           tab.addEventListener('click', (e) => {
@@ -1241,28 +1400,43 @@
         });
       }
 
+      /**
+       * タブの切り替え処理
+       * アクティブなタブとビューを切り替え、必要に応じて進捗表示を更新
+       * 
+       * @param {string} tabName - 切り替え先のタブ名（'settings' | 'progress'）
+       */
       switchTab(tabName) {
+        // 全てのタブとビューからactiveクラスを削除
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         
+        // 指定されたタブをアクティブに設定
         document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
         
+        // アニメーション効果のため、ビューの表示を遅延
         setTimeout(() => {
           document.getElementById(`view-${tabName}`).classList.add('active');
         }, 100);
         
         this.currentTab = tabName;
         
+        // 進捗タブの場合は進捗表示を更新
         if (tabName === 'progress') {
           this.showProgress();
         }
       }
 
+      /**
+       * Amazon商品ページから書籍データを取得するメイン関数
+       * URL検証、データ取得、UI更新、エラーハンドリングを統合的に処理
+       */
       async fetchAmazonData() {
         const urlInput = document.getElementById('amazonUrl');
         const fetchBtn = event?.target;
         const url = urlInput.value.trim();
 
+        // URL入力の検証
         if (!url) {
           this.toast.warning('Amazon URLを入力してください', {
             title: '入力が必要です'
@@ -1279,6 +1453,7 @@
           return;
         }
 
+        // UI状態の更新（ローディング開始）
         if (fetchBtn) {
           fetchBtn.classList.add('loading');
           fetchBtn.disabled = true;
@@ -1318,6 +1493,13 @@
         }
       }
 
+      /**
+       * Amazon URLの妥当性を検証
+       * URL形式の検証とAmazon商品ページパスの確認を実行
+       * 
+       * @param {string} url - 検証するURL文字列
+       * @returns {boolean} 有効なAmazon URLの場合true
+       */
       isValidAmazonUrl(url) {
         try {
           const urlObj = new URL(url);
@@ -1328,6 +1510,13 @@
         }
       }
 
+      /**
+       * Amazon商品ページから書籍データをスクレイピング
+       * 複数のCORSプロキシを順次試行し、最も信頼性の高いデータ取得を実現
+       * 
+       * @param {string} url - Amazon商品ページのURL
+       * @returns {Promise<Object|null>} 取得した書籍データオブジェクト、失敗時はnull
+       */
       async scrapeAmazonData(url) {
         try {
           // Multiple CORS proxy attempts for reliability
@@ -1387,6 +1576,15 @@
         }
       }
 
+      /**
+       * Amazon商品ページのHTMLからメタデータを解析・抽出
+       * タイトル、著者、画像URL、レビュー数を複数のセレクタで堅牢に取得
+       * 
+       * @param {string} html - Amazon商品ページのHTML文字列
+       * @param {string} url - 元のAmazon商品ページURL（メタデータとして記録）
+       * @returns {Object} 抽出した書籍データ
+       * @throws {Error} データ抽出に失敗した場合
+       */
       parseAmazonHTML(html, url) {
         try {
           // Create a DOM parser to extract data
@@ -1491,6 +1689,13 @@
         }
       }
 
+      /**
+       * 拡張Amazon データ抽出（フォールバック機能）
+       * スクレイピング失敗時にASIN抽出とヒューリスティック推定で最低限のデータを取得
+       * 
+       * @param {string} url - Amazon商品ページのURL
+       * @returns {Promise<Object|null>} 推定した書籍データ、失敗時はnull
+       */
       async enhancedAmazonExtraction(url) {
         // Extract ASIN for potential API calls
         const asinMatch = url.match(/\/(?:dp|product)\/([A-Z0-9]{10})(?:\/|$|\?)/);
@@ -1520,6 +1725,16 @@
         throw new Error('Unable to extract book data automatically. Please enter manually.');
       }
 
+      /**
+       * 取得した書籍データをフォーム要素に自動入力
+       * アニメーション効果付きで各フィールドに順次データを設定し、視覚的フィードバックを提供
+       * 
+       * @param {Object} bookData - Amazon から取得した書籍データ
+       * @param {string} bookData.title - 書籍タイトル
+       * @param {string} bookData.author - 著者名
+       * @param {string} bookData.imageUrl - 書影URL
+       * @param {number} bookData.currentReviews - 現在のレビュー数
+       */
       populateBookData(bookData) {
         const fields = [
           { id: 'title', value: bookData.title },
@@ -1549,6 +1764,10 @@
         }, fields.length * 200 + 300);
       }
 
+      /**
+       * ユーザー入力データの保存
+       * フォームデータを検証し、LocalStorageに保存、成功/失敗の通知を表示
+       */
       saveData() {
         const saveBtn = event?.target;
         if (saveBtn) {
@@ -1589,6 +1808,10 @@
         }
       }
 
+      /**
+       * 保存されたデータの削除
+       * ユーザー確認後、LocalStorageとフォーム要素をクリア
+       */
       async clearData() {
         const confirmed = confirm('データを削除しますか？');
 
@@ -1612,6 +1835,10 @@
         }
       }
 
+      /**
+       * 進捗表示画面の描画
+       * 保存されたデータから進捗バー、統計情報、マイルストーンメッセージを生成・表示
+       */
       showProgress() {
         const data = this.storage.load();
         const content = document.getElementById('progress-content');
@@ -1712,6 +1939,10 @@
         }
       }
 
+      /**
+       * レビュー数の更新（現在はデモ用模擬処理）
+       * 将来的にはAmazon APIからリアルタイムデータを取得する想定
+       */
       async updateReviewCount() {
         const data = this.storage.load();
         if (!data || !data.amazonUrl) {
@@ -1762,6 +1993,10 @@
 
 
 
+      /**
+       * LocalStorageからデータを読み込み、フォーム要素に設定
+       * アプリ起動時のデータ復元処理
+       */
       loadData() {
         const data = this.storage.load();
         if (data) {
@@ -1774,6 +2009,12 @@
         }
       }
 
+      /**
+       * 入力エラー時のアニメーション効果
+       * 指定した入力フィールドにエラーカラーとアニメーションを適用
+       * 
+       * @param {string} inputId - アニメーションさせる入力要素のID
+       */
       animateInputError(inputId) {
         const input = document.getElementById(inputId);
         if (input) {
@@ -1786,6 +2027,10 @@
         }
       }
 
+      /**
+       * 成功時のフラッシュアニメーション効果
+       * カード全体に緑色のグラデーションフラッシュを表示
+       */
       animateSuccessFlash() {
         const card = document.querySelector('.card');
         if (card) {
@@ -1810,6 +2055,10 @@
         }
       }
 
+      /**
+       * 進捗情報をX/Twitter用の3:4比率画像としてエクスポート
+       * Canvas APIを使用してグラデーション背景、書影、テキスト、進捗バーを描画
+       */
       async exportProgressImageNew() {
         const data = this.storage.load();
         if (!data) {
@@ -2023,22 +2272,47 @@
             // Progress bar fill (match UI gradient) with properly rounded ends
             if (percentage > 0) {
               const fillWidth = Math.max((progressBarWidth * percentage) / 100, borderRadius * 2);
-              const progressGradient = ctx.createLinearGradient(progressBarX, progressBarY, progressBarX + progressBarWidth, progressBarY + progressBarHeight);
-              progressGradient.addColorStop(0.0, '#3b82f6');
-              progressGradient.addColorStop(0.6, '#06b6d4');
-              progressGradient.addColorStop(1.0, '#10b981');
-              ctx.fillStyle = progressGradient;
               
-              // Draw progress fill with rounded ends
-              // For 100%, use full width. For others, ensure minimum width for proper rounding
+              // テスト用：グラデーションの代わりに単色を使用
+              ctx.fillStyle = '#3b82f6'; // 単色ブルーでテスト
+              
+              // const progressGradient = ctx.createLinearGradient(progressBarX, progressBarY, progressBarX + progressBarWidth, progressBarY + progressBarHeight);
+              // progressGradient.addColorStop(0.0, '#3b82f6');
+              // progressGradient.addColorStop(0.6, '#06b6d4');
+              // progressGradient.addColorStop(1.0, '#10b981');
+              // ctx.fillStyle = progressGradient;
+              
+              console.log('Drawing progress:', { percentage, fillWidth, borderRadius, progressBarWidth, progressBarHeight });
+              
+              // 完全に丸角の進捗バーを描画 - 最適化版
               if (percentage >= 100) {
-                // Full width with both ends rounded
+                // 100%の場合：roundRect関数を使用
                 this.roundRect(ctx, progressBarX, progressBarY, progressBarWidth, progressBarHeight, borderRadius);
+                ctx.fill();
               } else {
-                // Partial width but with both ends rounded for visual consistency
-                this.roundRect(ctx, progressBarX, progressBarY, fillWidth, progressBarHeight, borderRadius);
+                // 100%未満：左端丸角確保 + 右端クリッピング
+                ctx.save();
+                
+                // 左端の丸みを確実に含むようクリッピング領域を調整
+                // 左端は少し左に、右端は進捗位置まで
+                const clipX = progressBarX - 1; // 左端の丸みを完全に含める
+                const clipWidth = fillWidth + 1; // 右端まで正確に
+                
+                ctx.beginPath();
+                ctx.rect(clipX, progressBarY, clipWidth, progressBarHeight);
+                ctx.clip();
+                
+                // 丸角矩形を描画（両端の丸角が確実に見える）
+                this.roundRect(ctx, progressBarX, progressBarY, Math.max(fillWidth, borderRadius * 2), progressBarHeight, borderRadius);
+                ctx.fill();
+                
+                console.log('Clipping adjustment - clipX:', clipX, 'clipWidth:', clipWidth, 'original fillWidth:', fillWidth);
+                
+                ctx.restore();
+                
+                // デバッグログ
+                console.log('Clipped rounded progress - fillWidth:', fillWidth, 'borderRadius:', borderRadius);
               }
-              ctx.fill();
             }
 
             // Progress percentage (improved visibility)
@@ -2167,6 +2441,16 @@
         });
       }
 
+      /**
+       * 書影用プレースホルダーの描画
+       * 書影が存在しない場合のデフォルト表示（シャドウ、グラデーション、アイコン）
+       * 
+       * @param {CanvasRenderingContext2D} ctx - Canvas描画コンテキスト
+       * @param {number} x - 描画開始X座標
+       * @param {number} y - 描画開始Y座標  
+       * @param {number} width - プレースホルダーの幅
+       * @param {number} height - プレースホルダーの高さ
+       */
       drawBookPlaceholder(ctx, x, y, width, height) {
         // Shadow
         ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -2207,6 +2491,18 @@
       }
 
 
+      /**
+       * テキスト自動折り返し機能（シンプル版）
+       * 指定幅でテキストを折り返し、日本語（スペースなし）に対応
+       * 
+       * @param {CanvasRenderingContext2D} ctx - Canvas描画コンテキスト
+       * @param {string} text - 折り返しするテキスト
+       * @param {number} x - 描画開始X座標
+       * @param {number} y - 描画開始Y座標
+       * @param {number} maxWidth - 最大幅
+       * @param {number} lineHeight - 行間
+       * @returns {number} 最後に描画した行のY座標
+       */
       wrapText(ctx, text, x, y, maxWidth, lineHeight) {
         // Support languages without spaces (e.g., Japanese)
         const hasSpace = text.includes(' ');
@@ -2228,7 +2524,18 @@
         return y; // return baseline of last drawn line
       }
 
-      // New: left-aligned bounded wrapping between [left, right]
+      /**
+       * 左寄せテキスト折り返し（境界指定版）
+       * 指定した左右の範囲内でテキストを左寄せで折り返し
+       * 
+       * @param {CanvasRenderingContext2D} ctx - Canvas描画コンテキスト
+       * @param {string} text - 折り返しするテキスト
+       * @param {number} left - 左端位置
+       * @param {number} top - 上端位置
+       * @param {number} right - 右端位置
+       * @param {number} lineHeight - 行間
+       * @returns {number} 最後に描画した行のY座標
+       */
       wrapTextBounded(ctx, text, left, top, right, lineHeight) {
         const maxWidth = Math.max(0, right - left);
         const originalAlign = ctx.textAlign;
@@ -2254,7 +2561,19 @@
         return y;
       }
 
-      // New: centered text wrapping within [left, right]
+      /**
+       * 中央寄せテキスト折り返し（境界指定版）
+       * 指定した左右の範囲内でテキストを中央寄せで折り返し
+       * 
+       * @param {CanvasRenderingContext2D} ctx - Canvas描画コンテキスト
+       * @param {string} text - 折り返しするテキスト  
+       * @param {number} centerX - 中心X座標
+       * @param {number} top - 上端位置
+       * @param {number} left - 左端位置
+       * @param {number} right - 右端位置
+       * @param {number} lineHeight - 行間
+       * @returns {number} 最後の行のベースライン
+       */
       wrapTextBoundedCenter(ctx, text, centerX, top, left, right, lineHeight) {
         const maxWidth = Math.max(0, right - left);
         const originalAlign = ctx.textAlign;
@@ -2284,7 +2603,19 @@
         return y - lineHeight; // return last line baseline
       }
 
-      // Improved: better Japanese text wrapping with character-level breaking
+      /**
+       * 進化版中央寄せテキスト折り返し
+       * 日本語テキストに特化し、文字レベルでの適切な折り返しを実現
+       * 
+       * @param {CanvasRenderingContext2D} ctx - Canvas描画コンテキスト
+       * @param {string} text - 折り返しするテキスト
+       * @param {number} centerX - 中心X座標
+       * @param {number} top - 上端位置
+       * @param {number} left - 左端位置
+       * @param {number} right - 右端位置
+       * @param {number} lineHeight - 行間
+       * @returns {number} 最後の行のベースライン
+       */
       wrapTextBoundedCenterImproved(ctx, text, centerX, top, left, right, lineHeight) {
         const maxWidth = Math.max(0, right - left) * 0.75; // Use 75% to force more line breaks
         const originalAlign = ctx.textAlign;
@@ -2354,18 +2685,28 @@
         return y - lineHeight; // return last line baseline
       }
 
-      // Helper function to draw rounded rectangles
+      /**
+       * 角丸四角形描画のヘルパー関数
+       * arcTo API を使用して、適切な半径調整と滑らかな角丸を実現
+       * 
+       * @param {CanvasRenderingContext2D} ctx - Canvas描画コンテキスト
+       * @param {number} x - 描画開始X座標
+       * @param {number} y - 描画開始Y座標
+       * @param {number} width - 四角形の幅
+       * @param {number} height - 四角形の高さ
+       * @param {number} radius - 角の半径
+       */
       roundRect(ctx, x, y, width, height, radius) {
+        // 半径が大きすぎる場合の調整
+        const maxRadius = Math.min(width / 2, height / 2);
+        const r = Math.min(radius, maxRadius);
+        
         ctx.beginPath();
-        ctx.moveTo(x + radius, y);
-        ctx.lineTo(x + width - radius, y);
-        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-        ctx.lineTo(x + width, y + height - radius);
-        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-        ctx.lineTo(x + radius, y + height);
-        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-        ctx.lineTo(x, y + radius);
-        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + width, y, x + width, y + height, r);
+        ctx.arcTo(x + width, y + height, x, y + height, r);
+        ctx.arcTo(x, y + height, x, y, r);
+        ctx.arcTo(x, y, x + width, y, r);
         ctx.closePath();
       }
     }
