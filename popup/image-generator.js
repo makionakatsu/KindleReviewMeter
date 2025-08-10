@@ -38,29 +38,44 @@
   function wrapTextBoundedCenter(ctx, text, centerX, top, left, right, lineHeight) {
     const maxWidth = Math.max(0, right - left);
     const originalAlign = ctx.textAlign;
+    const originalBaseline = ctx.textBaseline;
     ctx.textAlign = 'center';
-    const hasSpace = text.includes(' ');
-    const tokens = hasSpace ? text.split(' ') : Array.from(text);
+    ctx.textBaseline = 'alphabetic';
+
+    // Grapheme segmentation for robust wrapping (handles Japanese and emoji)
+    let graphemes;
+    try {
+      const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+      graphemes = Array.from(seg.segment(text), s => s.segment);
+    } catch {
+      graphemes = Array.from(text);
+    }
+
+    const isWs = (ch) => ch === ' ' || ch === '\u3000' || /\s/.test(ch);
     const lines = [];
     let line = '';
-    for (let i = 0; i < tokens.length; i++) {
-      const sep = hasSpace ? ' ' : '';
-      const test = line + tokens[i] + sep;
+    for (let i = 0; i < graphemes.length; i++) {
+      const ch = graphemes[i];
+      // Collapse leading whitespace of a new line
+      const glyph = (isWs(ch) && line.length === 0) ? '' : ch;
+      const test = line + glyph;
       const w = ctx.measureText(test).width;
       if (w > maxWidth && line) {
-        lines.push(line.trimEnd());
-        line = tokens[i] + sep;
+        lines.push(line.replace(/\s+$/,'').replace(/^\s+/,''));
+        line = isWs(ch) ? '' : ch; // start next line without leading space
       } else {
         line = test;
       }
     }
-    if (line) lines.push(line.trimEnd());
+    if (line) lines.push(line.replace(/\s+$/,'').replace(/^\s+/,''));
+
     let y = top;
     for (const l of lines) {
       ctx.fillText(l, centerX, y);
       y += lineHeight;
     }
     ctx.textAlign = originalAlign;
+    ctx.textBaseline = originalBaseline;
     return y - lineHeight;
   }
 
@@ -178,11 +193,17 @@
 
       // Title / Author (centered and bounded)
       const centerX = (left + right)/2;
-      let y = coverY + coverH + 20;
+      const titleTop = coverY + coverH + 20;
       ctx.fillStyle = '#1a202c'; ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
-      y = wrapTextBoundedCenter(ctx, d.title || 'タイトル未設定', centerX, y, left, right, 16) + 21;
+      const titleLast = wrapTextBoundedCenter(ctx, d.title || 'タイトル未設定', centerX, titleTop, left, right, 16);
+      const titleLines = Math.max(1, Math.floor((titleLast - titleTop) / 16) + 1);
+      const authorTop = titleLast + 21;
       ctx.fillStyle = '#4a5568'; ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
-      y = wrapTextBoundedCenter(ctx, d.author || '著者未設定', centerX, y, left, right, 14) + 36;
+      const authorLast = wrapTextBoundedCenter(ctx, d.author || '著者未設定', centerX, authorTop, left, right, 14);
+      const authorLines = Math.max(1, Math.floor((authorLast - authorTop) / 14) + 1);
+      let y = authorLast + 36;
+      // Evidence logs
+      console.log('[ImageGen] wrap metrics:', { titleLines, authorLines, titleTop, titleLast, authorTop, authorLast, yStartForNumber: y });
 
       // Current number (centered)
       ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -206,20 +227,50 @@
           pg.addColorStop(0.0,'#3b82f6'); pg.addColorStop(0.6,'#06b6d4'); pg.addColorStop(1.0,'#10b981');
           ctx.fillStyle = pg; roundRect(ctx, barX, barY, fillW, barH, 16); ctx.fill();
         }
-        ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif'; ctx.fillStyle = '#1a202c'; ctx.textAlign = 'center';
-        ctx.fillText(`${percentage}%`, canvas.width/2, barY + 17);
+        // Center percentage text vertically and horizontally on the bar
+        ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#1a202c';
+        ctx.textAlign = 'center';
+        const percentX = barX + barW / 2;
+        ctx.save();
+        const prevBaseline = ctx.textBaseline;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${percentage}%`, percentX, barY + barH / 2);
+        ctx.textBaseline = prevBaseline;
+        ctx.restore();
 
-        // Stats cards
-        const statsY = barY + 25; const cardW1 = (cardW - 80)/2; const cardH1 = 28; const gap = 10; const leftX = cardX + 30; const rightX = leftX + cardW1 + gap;
+        // Stats cards (ensure spacing below the bar)
+        const statsY = barY + barH + 16; const cardW1 = (cardW - 80)/2; const cardH1 = 28; const gap = 10; const leftX = cardX + 30; const rightX = leftX + cardW1 + gap;
         ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.08)'; ctx.shadowBlur = 12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 4; ctx.fillStyle = 'rgba(255,255,255,0.95)';
         roundRect(ctx, leftX, statsY, cardW1, cardH1, 8); ctx.fill(); ctx.restore();
         ctx.strokeStyle = 'rgba(226,232,240,1)'; ctx.lineWidth = 1; roundRect(ctx, leftX, statsY, cardW1, cardH1, 8); ctx.stroke();
-        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif'; ctx.fillStyle = '#1f2937'; ctx.textAlign = 'center'; ctx.fillText(`目標: ${target} レビュー`, leftX + cardW1/2, statsY + cardH1/2 + 3);
+        // Center text vertically and horizontally in the stats card
+        ctx.save();
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#1f2937';
+        ctx.textAlign = 'center';
+        const prevBaselineStatsLeft = ctx.textBaseline;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`目標: ${target} レビュー`, leftX + cardW1/2, statsY + cardH1/2);
+        ctx.textBaseline = prevBaselineStatsLeft;
+        ctx.restore();
 
         ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.08)'; ctx.shadowBlur = 12; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 4; ctx.fillStyle = 'rgba(255,255,255,0.95)';
         roundRect(ctx, rightX, statsY, cardW1, cardH1, 8); ctx.fill(); ctx.restore();
         ctx.strokeStyle = 'rgba(226,232,240,1)'; ctx.lineWidth = 1; roundRect(ctx, rightX, statsY, cardW1, cardH1, 8); ctx.stroke();
-        ctx.fillStyle = '#1f2937'; ctx.fillText(`あと ${remaining} レビュー`, rightX + cardW1/2, statsY + cardH1/2 + 3);
+        // Center text vertically and horizontally in the stats card
+        ctx.save();
+        ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#1f2937';
+        ctx.textAlign = 'center';
+        const prevBaselineStatsRight = ctx.textBaseline;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`あと ${remaining} レビュー`, rightX + cardW1/2, statsY + cardH1/2);
+        ctx.textBaseline = prevBaselineStatsRight;
+        ctx.restore();
+        // Evidence: assert no overlap
+        const overlap = statsY < (barY + barH);
+        console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap });
       }
 
       // Direct download without preview
