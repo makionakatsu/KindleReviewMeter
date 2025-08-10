@@ -1,11 +1,36 @@
 /**
  * Background Script (Service Worker) for Kindle Review Meter Chrome Extension
- * Handles Amazon data fetching and image generation with host permissions
+ * 
+ * Architecture Overview:
+ * This service worker acts as the central coordinator for the Chrome extension,
+ * handling cross-origin requests, data processing, and inter-tab communication.
+ * 
+ * Key Responsibilities:
+ * - Amazon Data Fetching: Scrape book information from Amazon pages via CORS proxies
+ * - Image Generation: Coordinate progress image creation for social media sharing
+ * - X/Twitter Integration: Manage cross-tab image attachment for tweet composition
+ * - Extension Lifecycle: Handle installation, updates, and context menu creation
+ * 
+ * Service Architecture:
+ * 1. Amazon Scraping Service: Multi-proxy fallback system for reliable data extraction
+ * 2. Image Generation Service: Tab-based image creation with data passing
+ * 3. Social Media Service: Cross-tab communication for automatic image attachment
+ * 4. Context Menu Service: Right-click integration for Amazon links
+ * 
+ * Communication Flow:
+ * Popup → Background → Content Scripts → Background → Popup
  */
 
-// Service Worker event listeners
+// ============================================================================
+// MESSAGE ROUTING SYSTEM
+// ============================================================================
 
-// Message handling from popup
+/**
+ * Central Message Router
+ * 
+ * Handles all communication between popup, content scripts, and background.
+ * Routes messages to appropriate service handlers based on action type.
+ */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'fetchAmazonData') {
     handleAmazonDataFetch(request.url)
@@ -87,8 +112,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 });
 
+// ============================================================================
+// AMAZON SCRAPING SERVICE
+// ============================================================================
+
 /**
- * Amazon data fetching with multiple CORS proxy attempts
+ * Amazon Data Fetching Service
+ * 
+ * Responsibilities:
+ * - Extract book information from Amazon product pages
+ * - Handle CORS restrictions via multiple proxy attempts
+ * - Parse HTML content to extract title, author, image, and review count
+ * - Provide fallback mechanisms for reliable data extraction
+ * 
+ * Architecture:
+ * - Multi-proxy system with automatic failover
+ * - Enhanced HTML parsing with regex-based selectors
+ * - URL normalization and validation
+ * - Comprehensive error handling and logging
  */
 async function handleAmazonDataFetch(url) {
   // Normalize URL first
@@ -178,7 +219,9 @@ async function handleAmazonDataFetch(url) {
       throw new Error('All proxies failed');
     }
     
-    return parseAmazonHTML(htmlContent, normalizedUrl);
+    const bookData = parseAmazonHTML(htmlContent, normalizedUrl);
+    bookData.normalizedUrl = normalizedUrl;
+    return bookData;
     
   } catch (error) {
     console.error('Amazon scraping failed:', error);
@@ -680,8 +723,24 @@ function isValidAmazonUrl(url) {
   }
 }
 
+// ============================================================================
+// IMAGE GENERATION SERVICE
+// ============================================================================
+
 /**
- * Handle image export - Chrome extension with multiple data delivery methods
+ * Image Export Service
+ * 
+ * Responsibilities:
+ * - Create progress visualization images for social media sharing
+ * - Manage tab-based image generation process
+ * - Handle data transfer between popup and image generator
+ * - Coordinate with social media sharing workflows
+ * 
+ * Process:
+ * 1. Receive image generation request from popup
+ * 2. Store data in Chrome storage for image generator access
+ * 3. Create image generation tab with encoded data
+ * 4. Return success status to popup
  */
 async function handleImageExport(data) {
   try {
@@ -712,9 +771,33 @@ async function handleImageExport(data) {
   }
 }
 
+// ============================================================================
+// SOCIAL MEDIA INTEGRATION SERVICE
+// ============================================================================
+
 /**
- * Handle X share with image - generates image first, then opens X tweet page
+ * X (Twitter) Share with Image Service
+ * 
+ * Responsibilities:
+ * - Coordinate image generation and X tweet composition
+ * - Manage cross-tab communication for image attachment
+ * - Handle automatic image transfer to X compose interface
+ * - Provide fallback mechanisms for manual image attachment
+ * 
+ * Architecture:
+ * - Dual-tab system (X compose + image generation)
+ * - Direct data URL transfer bypassing clipboard restrictions
+ * - Content script injection for robust image attachment
+ * - Retry mechanism with multiple attachment methods
+ * 
+ * Process Flow:
+ * 1. Create X compose tab with tweet text
+ * 2. Generate image in background tab
+ * 3. Transfer image data to X tab via content script
+ * 4. Attempt automatic image attachment
+ * 5. Cleanup temporary resources
  */
+
 // Global variable to track pending X share requests
 let pendingXShare = null;
 
@@ -861,8 +944,18 @@ async function handleShareToXWithImage(data, tweetUrl) {
   }
 }
 
+// ============================================================================
+// EXTENSION LIFECYCLE MANAGEMENT
+// ============================================================================
+
 /**
- * Handle installation and updates
+ * Extension Installation and Update Handler
+ * 
+ * Responsibilities:
+ * - Initialize extension on first install
+ * - Handle extension updates and migrations
+ * - Create context menu items for Amazon links
+ * - Set up right-click integration workflows
  */
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {

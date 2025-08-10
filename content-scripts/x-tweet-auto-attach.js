@@ -1,10 +1,34 @@
 /**
  * Content Script for X (Twitter) Tweet Intent Auto Image Attachment
- * Automatically attaches image from clipboard when X tweet compose page loads
+ * 
+ * Architecture Overview:
+ * This content script runs on X/Twitter compose pages and handles automatic
+ * image attachment for Kindle Review Meter generated progress images.
+ * 
+ * Key Responsibilities:
+ * - Detect and interact with X/Twitter's compose interface elements
+ * - Receive image data from background script via message passing
+ * - Attempt multiple image attachment strategies for maximum compatibility
+ * - Provide fallback UI when automatic attachment fails
+ * - Prevent duplicate attachment attempts and manage state
+ * 
+ * Attachment Strategy (5-tier fallback system):
+ * 1. Direct file input assignment after clicking attachment button
+ * 2. Enhanced drag-and-drop simulation on multiple drop zones
+ * 3. Paste event simulation with proper targeting and focus
+ * 4. Hidden file input creation and propagation
+ * 5. User-friendly fallback overlay with manual instructions
+ * 
+ * Communication Flow:
+ * Background Script → Content Script → X/Twitter Interface → User
  */
 
 (function() {
   'use strict';
+  
+  // ============================================================================
+  // STATE MANAGEMENT
+  // ============================================================================
   
   // Prevent multiple attachment attempts
   let attachmentInProgress = false;
@@ -12,17 +36,23 @@
 
   console.log('KindleReviewMeter: X tweet auto-attach script loaded');
 
-  // Detect if this compose/intent is initiated by our extension text (used only to gate clipboard fallback)
-  const urlParams = new URLSearchParams(window.location.search);
-  const tweetText = urlParams.get('text');
-  const isKRM = !!(tweetText && tweetText.includes('#KindleReviewMeter'));
-  if (isKRM) {
-    console.log('KindleReviewMeter tweet detected (clipboard fallback enabled)');
-  } else {
-    console.log('Non-KRM tweet or missing text param (clipboard fallback disabled)');
-  }
+  // ============================================================================
+  // INITIALIZATION
+  // ============================================================================
 
-  // Wait for page to be fully loaded
+  // ============================================================================
+  // DOM ELEMENT DISCOVERY SERVICE
+  // ============================================================================
+  
+  /**
+   * X/Twitter Interface Element Discovery
+   * 
+   * Responsibilities:
+   * - Locate file input elements for direct file assignment
+   * - Find composer interface elements for drag-drop and paste operations
+   * - Handle dynamic content loading and element changes
+   * - Provide comprehensive selector coverage for UI variations
+   */
   function waitForElements() {
     return new Promise((resolve) => {
       const checkForElements = () => {
@@ -80,131 +110,9 @@
     });
   }
 
-  // Function to paste image from clipboard
-  async function pasteImageFromClipboard(fileInput) {
-    try {
-      // Check if clipboard contains image
-      const clipboardItems = await navigator.clipboard.read();
-      
-      for (const clipboardItem of clipboardItems) {
-        for (const type of clipboardItem.types) {
-          if (type.startsWith('image/')) {
-            console.log('Found image in clipboard:', type);
-            
-            const blob = await clipboardItem.getType(type);
-            
-            // Create a File object from the blob
-            const file = new File([blob], 'kindle-review-image.png', { type: 'image/png' });
-            
-            // Create a DataTransfer object and add the file
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(file);
-            
-            // Set the files on the input element
-            fileInput.files = dataTransfer.files;
-            
-            // Trigger change event to notify X/Twitter of the file upload
-            const changeEvent = new Event('change', { bubbles: true });
-            fileInput.dispatchEvent(changeEvent);
-            
-            console.log('Image successfully attached to tweet');
-            return true;
-          }
-        }
-      }
-      
-      console.log('No image found in clipboard');
-      return false;
-    } catch (error) {
-      console.error('Failed to paste image from clipboard:', error);
-      return false;
-    }
-  }
-
-  // Alternative method: simulate drag and drop
-  async function simulateDragDrop(composerTextbox) {
-    try {
-      const clipboardItems = await navigator.clipboard.read();
-      
-      for (const clipboardItem of clipboardItems) {
-        for (const type of clipboardItem.types) {
-          if (type.startsWith('image/')) {
-            const blob = await clipboardItem.getType(type);
-            const file = new File([blob], 'kindle-review-image.png', { type: 'image/png' });
-            
-            // Create drag and drop events
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(file);
-            
-            const dragEnterEvent = new DragEvent('dragenter', {
-              bubbles: true,
-              dataTransfer: dataTransfer
-            });
-            
-            const dragOverEvent = new DragEvent('dragover', {
-              bubbles: true,
-              dataTransfer: dataTransfer
-            });
-            
-            const dropEvent = new DragEvent('drop', {
-              bubbles: true,
-              dataTransfer: dataTransfer
-            });
-            
-            // Dispatch the events
-            composerTextbox.dispatchEvent(dragEnterEvent);
-            composerTextbox.dispatchEvent(dragOverEvent);
-            composerTextbox.dispatchEvent(dropEvent);
-            
-            console.log('Image drag-drop simulation completed');
-            return true;
-          }
-        }
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Failed to simulate drag and drop:', error);
-      return false;
-    }
-  }
-
-  // Alternative method: simulate paste event
-  async function simulatePaste(composerTextbox) {
-    try {
-      const clipboardItems = await navigator.clipboard.read();
-      
-      for (const clipboardItem of clipboardItems) {
-        for (const type of clipboardItem.types) {
-          if (type.startsWith('image/')) {
-            const blob = await clipboardItem.getType(type);
-            
-            const clipboardData = {
-              items: [{
-                type: type,
-                getAsFile: () => new File([blob], 'kindle-review-image.png', { type: 'image/png' })
-              }]
-            };
-            
-            const pasteEvent = new ClipboardEvent('paste', {
-              bubbles: true,
-              clipboardData: clipboardData
-            });
-            
-            composerTextbox.dispatchEvent(pasteEvent);
-            
-            console.log('Paste event simulation completed');
-            return true;
-          }
-        }
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Failed to simulate paste:', error);
-      return false;
-    }
-  }
+  // ============================================================================
+  // UTILITY FUNCTIONS
+  // ============================================================================
 
   // Convert dataURL to File
   function dataUrlToFile(dataUrl, filename = 'kindle-review-image.png') {
@@ -219,7 +127,16 @@
     return new File([u8arr], filename, { type: mime });
   }
 
-  // Function to find and click the attachment button to reveal file input
+  // ============================================================================
+  // MODERN DATA URL-BASED ATTACHMENT SYSTEM
+  // ============================================================================
+  
+  /**
+   * Attachment Button Discovery and Activation
+   * 
+   * Locates and clicks X/Twitter's media attachment button to reveal
+   * the file input element for direct file assignment.
+   */
   async function findAndClickAttachmentButton() {
     const attachButtonSelectors = [
       '[data-testid="attachments"]',
@@ -245,6 +162,22 @@
     return false;
   }
 
+  /**
+   * Primary Image Attachment Handler
+   * 
+   * Responsibilities:
+   * - Coordinate the 5-tier attachment strategy
+   * - Manage attachment state to prevent duplicates
+   * - Convert data URL to File objects for DOM manipulation
+   * - Provide comprehensive error handling and fallback
+   * 
+   * Strategy Implementation:
+   * 1. Button activation → Direct file input
+   * 2. Multi-zone drag-and-drop simulation
+   * 3. Enhanced paste event targeting
+   * 4. Hidden file input propagation
+   * 5. User-friendly fallback overlay
+   */
   async function attachViaDataUrl(dataUrl) {
     try {
       console.log('attachViaDataUrl called with dataUrl length:', dataUrl?.length);
@@ -425,6 +358,25 @@
     }
   }
 
+  // ============================================================================
+  // FALLBACK UI SYSTEM
+  // ============================================================================
+  
+  /**
+   * User-Friendly Fallback Interface
+   * 
+   * Responsibilities:
+   * - Provide manual attachment options when automatic methods fail
+   * - Display clear instructions for drag-and-drop attachment
+   * - Offer image download and new tab opening functionality
+   * - Maintain consistent branding and user experience
+   * 
+   * Features:
+   * - Beautiful gradient design matching extension theme
+   * - Auto-dismissal with manual close option
+   * - Duplicate overlay prevention
+   * - Accessibility considerations
+   */
   function showFallbackOverlay(dataUrl) {
     // Remove any existing overlay first
     const existingOverlay = document.querySelector('#krm-fallback-overlay');
@@ -476,57 +428,41 @@
     }, 20000);
   }
 
-  // Main execution (legacy clipboard-based auto-attach)
-  async function main() {
+  // ============================================================================
+  // MAIN EXECUTION AND MESSAGE HANDLING
+  // ============================================================================
+  
+  /**
+   * Initialization Function
+   * 
+   * Sets up the content script and notifies background that the page is ready
+   * to receive image attachment requests.
+   */
+  async function init() {
     try {
       console.log('Waiting for X/Twitter interface elements...');
-      const { fileInput, composerTextbox } = await waitForElements();
+      await waitForElements();
+      
       // Notify background that tweet page is ready to receive image
       if (chrome?.runtime?.sendMessage) {
         chrome.runtime.sendMessage({ action: 'xTweetPageReady' }, ()=>{});
       }
       
-      console.log('Elements found, attempting image attachment...');
-      
-      // Give X/Twitter a moment to fully initialize
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Clipboard-based fallback is only attempted for our tweets
-      let success = false;
-      if (isKRM) {
-        // Method 1: Direct file input
-        if (fileInput && !success) {
-          console.log('Trying method 1: direct file input');
-          success = await pasteImageFromClipboard(fileInput);
-        }
-        // Method 2: Drag and drop simulation
-        if (composerTextbox && !success) {
-          console.log('Trying method 2: drag and drop simulation');
-          success = await simulateDragDrop(composerTextbox);
-        }
-        // Method 3: Paste event simulation
-        if (composerTextbox && !success) {
-          console.log('Trying method 3: paste event simulation');
-          success = await simulatePaste(composerTextbox);
-        }
-      }
-      
-      if (success) {
-        console.log('✅ Image attachment via clipboard path successful!');
-      } else {
-        console.log('❌ Clipboard-based methods failed (will wait for direct handoff)');
-        // Do not show clipboard guidance; direct handoff will attempt next.
-      }
-      
+      console.log('Content script initialized and ready for image attachment');
     } catch (error) {
-      console.error('Error in main execution (clipboard path):', error);
-      // Do not notify; direct handoff may still arrive.
+      console.error('Error in content script initialization:', error);
     }
   }
 
-  // Removed clipboard guidance UI.
-
-  // Listen for direct image handoff from background
+  /**
+   * Background Script Communication Handler
+   * 
+   * Responsibilities:
+   * - Handle ping requests for content script availability checking
+   * - Process direct image attachment requests from background script
+   * - Provide response confirmation for attachment success/failure
+   * - Maintain communication channel reliability
+   */
   if (chrome?.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log('Content script received message:', request.action);
@@ -551,7 +487,7 @@
     });
   }
 
-  // Run the main function (clipboard path remains as a fallback)
-  main();
+  // Initialize the content script
+  init();
 
 })();

@@ -1,10 +1,28 @@
 /**
  * Chrome Extension Popup Script for Kindle Review Meter
  * Optimized for Manifest V3 and Content Security Policy compliance
+ * 
+ * This file contains the main popup logic for the Chrome extension, handling:
+ * - User interface interactions
+ * - Amazon book data fetching and processing
+ * - Data storage and retrieval
+ * - Image generation for social media sharing
+ * - X (Twitter) posting integration
  */
 
 /**
- * StorageService - Chrome Extension Storage Service using chrome.storage API
+ * StorageService - Chrome Extension Storage Service
+ * 
+ * Responsibilities:
+ * - Manage persistent storage of book data using Chrome Storage API
+ * - Provide fallback to localStorage for testing environments
+ * - Handle storage errors gracefully
+ * - Ensure data consistency across extension components
+ * 
+ * Key Features:
+ * - Cross-platform storage abstraction
+ * - Error handling with detailed logging
+ * - Support for both Chrome extension and web contexts
  */
 class StorageService {
   constructor(key = 'kindleReviewMeter') {
@@ -62,7 +80,20 @@ class StorageService {
 }
 
 /**
- * ToastService - User notification system for popup
+ * ToastService - User Notification System
+ * 
+ * Responsibilities:
+ * - Display contextual notifications to users
+ * - Manage toast lifecycle (creation, display, dismissal)
+ * - Provide consistent UI feedback across the application
+ * - Handle different notification types (success, error, warning, info)
+ * 
+ * Key Features:
+ * - Customizable appearance and duration
+ * - Auto-dismissal with configurable timing
+ * - Manual dismissal via close button
+ * - Animation support for smooth user experience
+ * - Queue management for multiple notifications
  */
 class ToastService {
   constructor() {
@@ -183,7 +214,29 @@ class ToastService {
 }
 
 /**
- * App - Main application class for Chrome Extension popup
+ * App - Main Application Controller
+ * 
+ * Responsibilities:
+ * - Orchestrate all popup functionality and user interactions
+ * - Manage application lifecycle (initialization, data loading, cleanup)
+ * - Coordinate between StorageService and ToastService
+ * - Handle Amazon book data fetching and processing
+ * - Manage image generation and social media sharing workflows
+ * - Process user input validation and form management
+ * 
+ * Key Features:
+ * - Amazon URL normalization and validation
+ * - Automatic and manual data saving
+ * - Progress image generation for social media
+ * - X (Twitter) integration with automatic image attachment
+ * - Comprehensive error handling and user feedback
+ * - Visual feedback with animations and transitions
+ * 
+ * Data Flow:
+ * 1. User inputs Amazon URL → fetchAmazonData() → populateBookData() → auto-save
+ * 2. User clicks save → saveData() → StorageService persistence
+ * 3. User clicks export → exportProgressImage() → Background script → Image generation
+ * 4. User clicks X share → shareToX() → Background script → Image + Tweet creation
  */
 class App {
   constructor() {
@@ -297,6 +350,19 @@ class App {
     }
   }
 
+  /**
+   * Amazon Book Data Fetching
+   * 
+   * Fetches book information from Amazon product pages via background script.
+   * Includes URL validation, normalization, and automatic data saving.
+   * 
+   * Process:
+   * 1. Validate and normalize Amazon URL
+   * 2. Send fetch request to background script
+   * 3. Populate UI with retrieved data
+   * 4. Auto-save data to storage
+   * 5. Provide user feedback
+   */
   async fetchAmazonData() {
     const urlInput = document.getElementById('amazonUrl');
     const fetchBtn = document.getElementById('fetchAmazonBtn');
@@ -310,25 +376,14 @@ class App {
       return;
     }
 
-    // URL正規化を試行
-    const normalizedUrl = this.normalizeAmazonUrl(url);
-    if (!normalizedUrl) {
+    // Basic URL validation (detailed validation and normalization done in background)
+    if (!url.includes('amazon')) {
       this.toast.error('有効なAmazon書籍URLを入力してください。\n例: https://www.amazon.co.jp/dp/XXXXXXXXXX', {
         title: 'URL形式エラー',
         duration: 6000
       });
       this.animateInputError('amazonUrl');
-      console.log('URL normalization failed for:', url);
       return;
-    }
-
-    // 正規化されたURLを表示
-    if (normalizedUrl !== url) {
-      urlInput.value = normalizedUrl;
-      this.toast.info('URLを正規化しました', {
-        title: '情報',
-        duration: 3000
-      });
     }
 
     fetchBtn.classList.add('loading');
@@ -344,11 +399,20 @@ class App {
       if (typeof chrome !== 'undefined' && chrome.runtime) {
         const response = await chrome.runtime.sendMessage({
           action: 'fetchAmazonData',
-          url: normalizedUrl
+          url: url
         });
 
         if (response && response.success && response.data) {
           this.populateBookData(response.data);
+          
+          // Show normalized URL if different from input
+          if (response.data.normalizedUrl && response.data.normalizedUrl !== url) {
+            urlInput.value = response.data.normalizedUrl;
+            this.toast.info('URLを正規化しました', {
+              title: '情報',
+              duration: 3000
+            });
+          }
           
           // 自動取得完了後に自動保存
           await this.saveData();
@@ -376,156 +440,7 @@ class App {
     }
   }
 
-  normalizeAmazonUrl(url) {
-    try {
-      console.log('Attempting to normalize URL:', url, 'Type:', typeof url, 'Length:', url?.length);
-      
-      // Input validation
-      if (!url || typeof url !== 'string' || url.trim().length === 0) {
-        console.error('Invalid URL input:', url);
-        return null;
-      }
-      
-      const trimmedUrl = url.trim();
-      
-      // Add protocol if missing
-      let fullUrl = trimmedUrl;
-      if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-        fullUrl = 'https://' + trimmedUrl;
-        console.log('Added https protocol:', fullUrl);
-      }
-      
-      const urlObj = new URL(fullUrl);
-      
-      // Amazon hostname validation
-      const amazonHosts = [
-        'amazon.co.jp', 'amazon.com', 'amazon.ca', 'amazon.co.uk',
-        'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es',
-        'www.amazon.co.jp', 'www.amazon.com', 'www.amazon.ca', 'www.amazon.co.uk',
-        'www.amazon.de', 'www.amazon.fr', 'www.amazon.it', 'www.amazon.es'
-      ];
-      
-      const isAmazonHost = amazonHosts.some(host => 
-        urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
-      );
-      
-      if (!isAmazonHost) {
-        console.log('Invalid Amazon host:', urlObj.hostname);
-        return null;
-      }
-      
-      // Extract ASIN from various URL patterns
-      const asinPatterns = [
-        /\/dp\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,           // /dp/XXXXXXXXXX
-        /\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,      // /product/XXXXXXXXXX
-        /\/gp\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,  // /gp/product/XXXXXXXXXX
-        /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i, // /exec/obidos/ASIN/XXXXXXXXXX
-        /\/o\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i       // /o/ASIN/XXXXXXXXXX
-      ];
-      
-      let asin = null;
-      for (const pattern of asinPatterns) {
-        const match = fullUrl.match(pattern);
-        if (match) {
-          asin = match[1];
-          console.log('Found ASIN:', asin, 'with pattern:', pattern.source);
-          break;
-        }
-      }
-      
-      if (!asin) {
-        console.log('No valid ASIN found in URL:', fullUrl);
-        return null;
-      }
-      
-      // Construct clean Amazon URL
-      const cleanUrl = `https://${urlObj.hostname}/dp/${asin}`;
-      
-      console.log('URL normalization successful:', {
-        original: url,
-        processed: fullUrl,
-        normalized: cleanUrl,
-        asin: asin,
-        hostname: urlObj.hostname
-      });
-      
-      return cleanUrl;
-      
-    } catch (error) {
-      console.error('URL normalization error:', error);
-      console.error('Failed URL details:', {
-        input: url,
-        type: typeof url,
-        length: url?.length,
-        charCodes: url ? Array.from(url).map(c => c.charCodeAt(0)).slice(0, 20) : null
-      });
-      return null;
-    }
-  }
 
-  isValidAmazonUrl(url) {
-    try {
-      const urlObj = new URL(url);
-      
-      // Amazon hostname patterns
-      const amazonHosts = [
-        'amazon.co.jp',
-        'amazon.com', 
-        'amazon.ca',
-        'amazon.co.uk',
-        'amazon.de',
-        'amazon.fr',
-        'amazon.it',
-        'amazon.es',
-        'www.amazon.co.jp',
-        'www.amazon.com',
-        'www.amazon.ca',
-        'www.amazon.co.uk',
-        'www.amazon.de',
-        'www.amazon.fr',
-        'www.amazon.it',
-        'www.amazon.es'
-      ];
-      
-      const isAmazonHost = amazonHosts.some(host => 
-        urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
-      );
-      
-      if (!isAmazonHost) {
-        console.log('Invalid Amazon host:', urlObj.hostname);
-        return false;
-      }
-      
-      // Amazon product URL patterns
-      const productPatterns = [
-        '/dp/',           // Digital Product
-        '/product/',      // Product
-        '/gp/product/',   // Generic Product
-        '/exec/obidos/',  // Old format
-        '/o/ASIN/'        // Old ASIN format
-      ];
-      
-      const hasProductPattern = productPatterns.some(pattern => url.includes(pattern));
-      
-      // ASIN pattern check (10 character alphanumeric)
-      const asinMatch = url.match(/\/(?:dp|product|ASIN|gp\/product)\/([A-Z0-9]{10})(?:\/|$|\?|#)/i);
-      
-      console.log('URL validation:', {
-        url,
-        hostname: urlObj.hostname,
-        isAmazonHost,
-        hasProductPattern,
-        asinMatch: !!asinMatch,
-        asin: asinMatch ? asinMatch[1] : null
-      });
-      
-      return hasProductPattern || asinMatch;
-      
-    } catch (error) {
-      console.error('URL validation error:', error);
-      return false;
-    }
-  }
 
   populateBookData(bookData) {
     const fields = [
@@ -724,6 +639,19 @@ class App {
     }
   }
 
+  /**
+   * X (Twitter) Sharing Integration
+   * 
+   * Handles sharing book review progress to X with automatically generated image.
+   * Generates contextual tweet text based on target review settings.
+   * 
+   * Process:
+   * 1. Validate stored data
+   * 2. Generate appropriate tweet text (with/without target)
+   * 3. Construct X compose URL
+   * 4. Trigger background image generation and X tab creation
+   * 5. Handle cross-tab image attachment via content script
+   */
   async shareToX() {
     console.log('Share to X button clicked');
     

@@ -1,9 +1,48 @@
-// Image generator page script (MV3 CSP-compliant: no inline scripts)
+/**
+ * Image Generator Service for Kindle Review Meter
+ * 
+ * Architecture Overview:
+ * This script runs in a dedicated tab to generate progress visualization images
+ * for social media sharing. It operates in two modes: normal (user-facing) and
+ * quick (background) mode for automated X/Twitter integration.
+ * 
+ * Key Responsibilities:
+ * - Generate beautiful progress visualization images using Canvas API
+ * - Handle data input from multiple sources (URL params, Chrome storage)
+ * - Manage different operational modes (normal, quick, silent)
+ * - Provide download functionality and clipboard integration
+ * - Coordinate with background script for cross-tab image transfer
+ * 
+ * Technical Features:
+ * - Canvas-based image rendering with custom drawing functions
+ * - Dynamic layout calculation for text wrapping and positioning
+ * - Cross-origin image loading with fallback placeholders
+ * - Multiple clipboard API methods with comprehensive error handling
+ * - Blob and DataURL conversion for various output formats
+ * 
+ * Operational Modes:
+ * - Normal: User-facing interface with preview and manual controls
+ * - Quick: Background generation for automatic social media integration
+ * - Silent: Headless generation with minimal UI interaction
+ */
 
 (function(){
+  // ============================================================================
+  // DATA LOADING AND INITIALIZATION
+  // ============================================================================
+  
   const qs = new URLSearchParams(location.search);
   let data = null;
 
+  /**
+   * Multi-Source Data Loading System
+   * 
+   * Responsibilities:
+   * - Load book data from URL parameters (primary)
+   * - Fallback to Chrome storage for data retrieval
+   * - Handle data parsing and error recovery
+   * - Support multiple data input methods
+   */
   async function loadData() {
     try {
       if (qs.has('data')) {
@@ -21,6 +60,26 @@
     return data;
   }
 
+  // ============================================================================
+  // CANVAS DRAWING UTILITIES
+  // ============================================================================
+  
+  /**
+   * Canvas Drawing Helper Functions
+   * 
+   * These utility functions provide enhanced drawing capabilities for the Canvas API,
+   * including rounded rectangles, text wrapping, and image handling.
+   */
+  
+  /**
+   * Draw rounded rectangle path
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate  
+   * @param {number} w - Width
+   * @param {number} h - Height
+   * @param {number} r - Border radius
+   */
   function roundRect(ctx, x, y, w, h, r){
     ctx.beginPath();
     ctx.moveTo(x+r, y);
@@ -134,6 +193,27 @@
     });
   }
 
+  // ============================================================================
+  // MAIN IMAGE GENERATION ENGINE
+  // ============================================================================
+  
+  /**
+   * Primary Image Generation Function
+   * 
+   * Responsibilities:
+   * - Orchestrate the complete image generation process
+   * - Handle different operational modes (normal, quick, silent)
+   * - Coordinate canvas rendering, book cover loading, and text layout
+   * - Manage output formats (download, clipboard, data URL transfer)
+   * - Provide comprehensive error handling and fallback options
+   * 
+   * Process Flow:
+   * 1. Data validation and preprocessing
+   * 2. Canvas setup and background rendering
+   * 3. Book cover loading (with fallback)
+   * 4. Text layout and progress visualization
+   * 5. Output handling based on operational mode
+   */
   async function generateImage(d) {
     const status = document.getElementById('status');
     const preview = document.getElementById('preview');
@@ -311,45 +391,6 @@
               console.warn('Modern clipboard API failed:', error);
             }
             
-            // Method 2: Canvas copy to clipboard (alternative approach)
-            if (!success) {
-              try {
-                // Create a temporary canvas and try to copy it
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                const img = new Image();
-                
-                await new Promise((resolve, reject) => {
-                  img.onload = () => {
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                    
-                    // Try to copy canvas
-                    canvas.toBlob(async (canvasBlob) => {
-                      try {
-                        await navigator.clipboard.write([
-                          new ClipboardItem({
-                            'image/png': canvasBlob
-                          })
-                        ]);
-                        resolve();
-                      } catch (e) {
-                        reject(e);
-                      }
-                    }, 'image/png');
-                  };
-                  img.onerror = reject;
-                  img.src = URL.createObjectURL(blob);
-                });
-                
-                success = true;
-                console.log('Clipboard copy succeeded with canvas method');
-              } catch (error) {
-                lastError = error;
-                console.warn('Canvas clipboard method failed:', error);
-              }
-            }
             
             if (success) {
               copyBtn.textContent = 'コピー完了！';
