@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>共有画像生成 - Kindle Review Meter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="image-generator">
+  <div class="header">
+    <div class="header-content">
+      <h1>🖼️ 共有画像生成</h1>
+    </div>
+  </div>
+
+  <div class="main-container">
+    <div class="card" style="text-align:center">
+      <p id="status">画像を生成しています...</p>
+      <div id="preview"></div>
+      <div class="btn-group" style="justify-content:center;margin-top:16px">
+        <a id="downloadLink" class="btn primary" download="kindle-review-progress.png" style="display:none">⬇️ ダウンロード</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="image-generator.js"></script>
+</body>
+</html>
