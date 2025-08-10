@@ -563,24 +563,40 @@ function parseAmazonHTML(html, url) {
         .trim();
     }
     
-    // Simple and fast pattern matcher (restored from working version)
+    // Enhanced pattern matcher with detailed debugging for author extraction
     function findBySelector(html, selectorPatterns, contentType = 'general') {
       for (let i = 0; i < selectorPatterns.length; i++) {
         const pattern = selectorPatterns[i];
         const match = html.match(pattern);
         
         if (match && match[1]) {
-          let content = extractTextContent(match[1])
+          const rawContent = match[1];
+          let content = extractTextContent(rawContent)
             .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
             .trim();
           
-          // Special cleaning for author names
+          // Debug logging for author extraction
           if (contentType === 'author') {
+            console.log(`🔍 Author pattern ${i + 1} matched:`, {
+              patternSource: pattern.source.substring(0, 100) + '...',
+              rawMatch: rawContent.substring(0, 100),
+              extractedText: content.substring(0, 100),
+              textLength: content.length
+            });
+            
+            const originalContent = content;
             content = cleanAuthorName(content);
+            
+            console.log(`🧹 Author cleaning result:`, {
+              before: originalContent,
+              after: content,
+              isValid: !!content && content.length >= 2
+            });
             
             // Skip if it's clearly not an author name
             if (!content || content.length < 2 || 
-                /^(follow|フォロー|amazon|kindle|book|title|error|not found|see all|すべて見る)$/i.test(content)) {
+                /^(follow|フォロー|amazon|kindle|book|title|error|not found|see all|すべて見る|をフォロー)$/i.test(content)) {
+              console.log(`❌ Skipping invalid author content: "${content}"`);
               continue;
             }
           }
@@ -588,16 +604,39 @@ function parseAmazonHTML(html, url) {
           // Quick validation
           if (content.length >= 2 && content.length <= 300 && 
               !/^(amazon|kindle|book|title|error|not found)$/i.test(content)) {
+            if (contentType === 'author') {
+              console.log(`✅ Selected author: "${content}"`);
+            }
             return content;
           }
         }
       }
+      
+      if (contentType === 'author') {
+        console.log('❌ No valid author found with any pattern');
+      }
+      
       return null;
     }
     
-    // Enhanced author name cleaning function
+    // Enhanced author name cleaning function with Japanese follow pattern handling
     function cleanAuthorName(authorText) {
       if (!authorText) return '';
+      
+      console.log(`🧹 Cleaning author text: "${authorText}"`);
+      
+      // Handle Japanese "をフォロー" patterns - extract author name before "をフォロー"
+      if (authorText.includes('をフォロー')) {
+        console.log('📝 Found "をフォロー" pattern, extracting author name');
+        const beforeFollow = authorText.split('をフォロー')[0].trim();
+        if (beforeFollow && beforeFollow.length > 1) {
+          console.log(`📝 Extracted before "をフォロー": "${beforeFollow}"`);
+          authorText = beforeFollow;
+        } else {
+          console.log('❌ No valid author name found before "をフォロー"');
+          return '';
+        }
+      }
       
       let cleaned = authorText
         // Remove common prefixes/suffixes
@@ -607,11 +646,15 @@ function parseAmazonHTML(html, url) {
         .replace(/\s*\|\s*.*$/, '') // Remove anything after pipe
         .replace(/\s+/g, ' ') // Normalize spaces
         .replace(/^["''""]|["''""]$/g, '') // Remove quotes
+        // Remove any remaining follow-related suffixes
+        .replace(/\s*(をフォロー|をフォロー中|フォロー|follow|following)\s*$/i, '')
         .trim();
+      
+      console.log(`🧹 After basic cleaning: "${cleaned}"`);
       
       // Additional filtering for common false positives
       const invalidPatterns = [
-        /^(follow|フォロー|see all|すべて見る|more|もっと見る|visit|amazon|kindle)$/i,
+        /^(follow|フォロー|をフォロー|see all|すべて見る|more|もっと見る|visit|amazon|kindle)$/i,
         /^[0-9\s\+\-\(\)]+$/, // Only numbers and symbols
         /^[a-z]{1,3}$/i, // Very short single words like "by", "to", etc.
         /^(see|click|read|view|visit|follow|buy|shop)(\s|$)/i // Action verbs
@@ -619,10 +662,12 @@ function parseAmazonHTML(html, url) {
       
       for (const pattern of invalidPatterns) {
         if (pattern.test(cleaned)) {
+          console.log(`❌ Rejected by invalid pattern: ${pattern}`);
           return ''; // Return empty string to indicate invalid author name
         }
       }
       
+      console.log(`✅ Final cleaned author: "${cleaned}"`);
       return cleaned;
     }
     
