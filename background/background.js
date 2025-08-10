@@ -563,64 +563,43 @@ function parseAmazonHTML(html, url) {
         .trim();
     }
     
-    // Enhanced pattern matcher supporting global flags and multiple matches
-    function findBySelector(html, selectorPatterns, maxTries = 3, contentType = 'general') {
-      for (let i = 0; i < Math.min(selectorPatterns.length, maxTries); i++) {
+    // Simple and fast pattern matcher (restored from working version)
+    function findBySelector(html, selectorPatterns, contentType = 'general') {
+      for (let i = 0; i < selectorPatterns.length; i++) {
         const pattern = selectorPatterns[i];
+        const match = html.match(pattern);
         
-        // Handle global patterns differently
-        if (pattern.global) {
-          // For global patterns, use matchAll to get all matches
-          const matches = Array.from(html.matchAll(pattern));
+        if (match && match[1]) {
+          let content = extractTextContent(match[1])
+            .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
+            .trim();
           
-          for (const match of matches) {
-            if (match && match[1]) {
-              let content = extractTextContent(match[1])
-                .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
-                .trim();
-              
-              // Special cleaning for author names
-              if (contentType === 'author') {
-                content = cleanAuthorName(content);
-              }
-              
-              // Quick validation - optimized boolean logic
-              if (content.length >= 2 && content.length <= 300 && 
-                  !/^(amazon|kindle|book|title|error|not found)$/i.test(content)) {
-                return content;
-              }
+          // Special cleaning for author names
+          if (contentType === 'author') {
+            content = cleanAuthorName(content);
+            
+            // Skip if it's clearly not an author name
+            if (!content || content.length < 2 || 
+                /^(follow|フォロー|amazon|kindle|book|title|error|not found|see all|すべて見る)$/i.test(content)) {
+              continue;
             }
           }
-        } else {
-          // For non-global patterns, use regular match
-          const match = html.match(pattern);
           
-          if (match && match[1]) {
-            let content = extractTextContent(match[1])
-              .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
-              .trim();
-            
-            // Special cleaning for author names
-            if (contentType === 'author') {
-              content = cleanAuthorName(content);
-            }
-            
-            // Quick validation - optimized boolean logic
-            if (content.length >= 2 && content.length <= 300 && 
-                !/^(amazon|kindle|book|title|error|not found)$/i.test(content)) {
-              return content;
-            }
+          // Quick validation
+          if (content.length >= 2 && content.length <= 300 && 
+              !/^(amazon|kindle|book|title|error|not found)$/i.test(content)) {
+            return content;
           }
         }
       }
       return null;
     }
     
-    // Author name cleaning function
+    // Enhanced author name cleaning function
     function cleanAuthorName(authorText) {
       if (!authorText) return '';
       
-      return authorText
+      let cleaned = authorText
         // Remove common prefixes/suffixes
         .replace(/^(by\s+|著者[：:]?\s*|作者[：:]?\s*|著[：:]?\s*)/i, '')
         .replace(/(\s*\(.*?\)\s*|\s*【.*?】\s*)$/, '') // Remove parenthetical info
@@ -629,6 +608,22 @@ function parseAmazonHTML(html, url) {
         .replace(/\s+/g, ' ') // Normalize spaces
         .replace(/^["''""]|["''""]$/g, '') // Remove quotes
         .trim();
+      
+      // Additional filtering for common false positives
+      const invalidPatterns = [
+        /^(follow|フォロー|see all|すべて見る|more|もっと見る|visit|amazon|kindle)$/i,
+        /^[0-9\s\+\-\(\)]+$/, // Only numbers and symbols
+        /^[a-z]{1,3}$/i, // Very short single words like "by", "to", etc.
+        /^(see|click|read|view|visit|follow|buy|shop)(\s|$)/i // Action verbs
+      ];
+      
+      for (const pattern of invalidPatterns) {
+        if (pattern.test(cleaned)) {
+          return ''; // Return empty string to indicate invalid author name
+        }
+      }
+      
+      return cleaned;
     }
     
     // Extract title - prioritized patterns for speed
@@ -642,30 +637,34 @@ function parseAmazonHTML(html, url) {
     
     const title = findBySelector(html, titlePatterns, 3); // Limit to first 3 attempts
     
-    // Extract author - restored to working patterns with global flags
+    // Extract author - simplified and fast patterns (no global flags for speed)
     const authorPatterns = [
-      // .author .contributorNameID (most reliable pattern from working version)
-      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/gi,
-      // .author a
-      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/gi,
-      // .by-author a
-      /<[^>]*class="[^"]*by-author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/gi,
-      // [data-automation-id="byline"] a
-      /<[^>]*data-automation-id="byline"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/gi,
-      // .a-size-base+ .a-size-base .a-link-normal (adjacent sibling selector approximation)
-      /<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-link-normal[^"]*"[^>]*>([^<]+)<\/[^>]*>/gi
+      // Most reliable: contributorNameID - this should catch most cases
+      /<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i,
+      
+      // [data-automation-id="byline"] a - reliable for many Amazon pages
+      /<[^>]*data-automation-id="byline"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      
+      // .author .contributorNameID - full path pattern
+      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i,
+      
+      // .by-author a - common pattern
+      /<[^>]*class="[^"]*by-author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      
+      // .author a - general author link
+      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i
     ];
     
-    let author = findBySelector(html, authorPatterns, 10, 'author'); // Try all patterns
+    let author = findBySelector(html, authorPatterns, 'author');
     
     // Additional author extraction for Japanese pages (if first attempt failed)
     if (!author) {
       const japaneseAuthorPatterns = [
-        /著[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/gi,
-        /作[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/gi,
-        /著[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/gi
+        /著[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i,
+        /作[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i,
+        /著[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i
       ];
-      author = findBySelector(html, japaneseAuthorPatterns, 10, 'author');
+      author = findBySelector(html, japaneseAuthorPatterns, 'author');
     }
     
     // Extract image URL - optimized patterns
