@@ -20,6 +20,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Keep message channel open for async response
   }
+
+  if (request.action === 'shareToXWithImage') {
+    handleShareToXWithImage(request.data, request.tweetUrl)
+      .then(() => sendResponse({ success: true }))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep message channel open for async response
+  }
+
+  // Receive generated image (as data URL) from image-generator tab in quickMode
+  if (request.action === 'imageGenerated') {
+    try {
+      if (pendingXShare && request.dataUrl) {
+        pendingXShare.dataUrl = request.dataUrl;
+        // Try to forward now; the content script may not yet be ready, so retries happen elsewhere
+        trySendImageToTweetTab();
+      }
+      // Try closing the image tab (sender.tab.id), if available
+      if (sender?.tab?.id) {
+        try { chrome.tabs.remove(sender.tab.id); } catch(_) {}
+      }
+      sendResponse({ success: true });
+    } catch (err) {
+      console.error('imageGenerated handling failed:', err);
+      sendResponse({ success: false, error: err?.message || String(err) });
+    }
+    return true;
+  }
+
+  // Content script from X tweet page signals readiness
+  if (request.action === 'xTweetPageReady') {
+    trySendImageToTweetTab();
+    sendResponse({ ok: true });
+    return true;
+  }
+
 });
 
 /**
@@ -644,6 +679,107 @@ async function handleImageExport(data) {
   } catch (error) {
     console.error('Image export failed:', error);
     throw new Error(`画像生成に失敗しました: ${error.message}`);
+  }
+}
+
+/**
+ * Handle X share with image - generates image first, then opens X tweet page
+ */
+// Global variable to track pending X share requests
+let pendingXShare = null;
+
+async function trySendImageToTweetTab(maxAttempts = 8, delayMs = 500) {
+  if (!pendingXShare?.tweetTabId || !pendingXShare?.dataUrl) return false;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await new Promise(r => setTimeout(r, i === 0 ? 0 : delayMs));
+      const ensureInjected = async () => {
+        // Try pinging the content script; if it fails to connect, inject the script programmatically
+        const pingOk = await new Promise((resolve) => {
+          try {
+            chrome.tabs.sendMessage(pendingXShare.tweetTabId, { action: 'krmPing' }, (resp) => {
+              resolve(!chrome.runtime.lastError);
+            });
+          } catch (_) { resolve(false); }
+        });
+        if (!pingOk && chrome?.scripting?.executeScript) {
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: pendingXShare.tweetTabId },
+              files: ['content-scripts/x-tweet-auto-attach.js']
+            });
+            await new Promise(r => setTimeout(r, 200));
+          } catch (e) {
+            console.warn('Programmatic injection failed:', e.message);
+          }
+        }
+      };
+
+      await ensureInjected();
+
+      await new Promise((resolve, reject) => {
+        try {
+          chrome.tabs.sendMessage(pendingXShare.tweetTabId, {
+            action: 'attachImageDataUrl',
+            dataUrl: pendingXShare.dataUrl
+          }, (resp) => {
+            if (chrome.runtime.lastError) {
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+            if (resp && resp.ok) return resolve();
+            return reject(new Error('Content script did not confirm attach'));
+          });
+        } catch (e) { reject(e); }
+      });
+      console.log('Sent image to tweet tab successfully');
+      if (pendingXShare.imageTabId) {
+        try { await chrome.tabs.remove(pendingXShare.imageTabId); } catch (_) {}
+      }
+      pendingXShare = null;
+      return true;
+    } catch (e) {
+      console.warn(`Send attempt ${i+1} failed:`, e.message);
+    }
+  }
+  console.error('All attempts to send image to tweet tab failed');
+  return false;
+}
+
+async function handleShareToXWithImage(data, tweetUrl) {
+  try {
+    console.log('Starting X share with image, data:', data);
+    
+    // First, open X tweet page immediately
+    const tweetTab = await chrome.tabs.create({
+      url: tweetUrl,
+      active: true
+    });
+
+    console.log('Opened X tweet tab:', tweetTab.id);
+    pendingXShare = { tweetTabId: tweetTab.id };
+    
+    // Then generate image in background and copy to clipboard
+    await chrome.storage.local.set({ 'pendingImageData': data });
+    console.log('Stored data in chrome.storage for image generation');
+    
+    // Create image generation page (will auto-close after generating)
+    const encodedData = encodeURIComponent(JSON.stringify(data));
+    const imagePageUrl = chrome.runtime.getURL(`popup/image-generator.html?data=${encodedData}&quickMode=true`);
+    
+    // Create image generation tab briefly in background
+    const backgroundTab = await chrome.tabs.create({
+      url: imagePageUrl,
+      active: false // No need to focus; we'll relay the image directly
+    });
+
+    console.log('Created image generation tab:', backgroundTab.id);
+    // Store image tab id for potential cleanup
+    pendingXShare.imageTabId = backgroundTab.id;
+    
+    return { success: true, tweetTabId: tweetTab.id, imageTabId: backgroundTab.id };
+  } catch (error) {
+    console.error('X share with image failed:', error);
+    throw new Error(`X投稿準備に失敗しました: ${error.message}`);
   }
 }
 
