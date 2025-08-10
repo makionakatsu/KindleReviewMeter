@@ -200,10 +200,27 @@ async function handleAmazonDataFetch(url) {
         
         if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 1000) {
           console.log('Successfully fetched data with proxy:', proxy);
-          console.log('Content preview:', htmlContent.substring(0, 200) + '...');
-          break;
+          console.log('Content length:', htmlContent.length);
+          console.log('Content preview:', htmlContent.substring(0, 300) + '...');
+          
+          // Check if it looks like an Amazon page (restored from working version)
+          const isAmazonPage = htmlContent.includes('amazon') || 
+                              htmlContent.includes('productTitle') || 
+                              htmlContent.includes('dp/') ||
+                              htmlContent.includes('<title>') && htmlContent.includes('</title>');
+          
+          if (isAmazonPage) {
+            console.log('Content appears to be from Amazon page');
+            break;
+          } else {
+            console.warn('Content does not appear to be from Amazon page, trying next proxy');
+            continue;
+          }
         } else {
           console.warn(`Proxy ${proxy} returned insufficient content:`, typeof htmlContent, htmlContent?.length);
+          if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 0) {
+            console.warn('Content preview:', htmlContent.substring(0, 200));
+          }
         }
       } catch (error) {
         console.warn(`Proxy ${proxy} failed:`, {
@@ -231,13 +248,7 @@ async function handleAmazonDataFetch(url) {
       url: normalizedUrl
     });
     
-    // Enhanced fallback
-    try {
-      return await enhancedAmazonExtraction(normalizedUrl);
-    } catch (fallbackError) {
-      console.error('Fallback extraction also failed:', fallbackError);
-      throw new Error(`データ取得に失敗しました: ${error.message}`);
-    }
+    throw new Error(`Amazon商品ページからのデータ取得に失敗しました。手動でデータを入力してください。: ${error.message}`);
   }
 }
 
@@ -250,33 +261,83 @@ function parseAmazonHTML(html, url) {
     
     // Helper function to extract text content between tags (simulates textContent)
     function extractTextContent(htmlString) {
-      return htmlString.replace(/<[^>]*>/g, '').trim().replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      if (!htmlString) return '';
+      
+      return htmlString
+        .replace(/<[^>]*>/g, '') // Remove HTML tags
+        .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
+        .replace(/&quot;/g, '"') // Replace quotes
+        .replace(/&amp;/g, '&') // Replace ampersands
+        .replace(/&lt;/g, '<') // Replace less than
+        .replace(/&gt;/g, '>') // Replace greater than
+        .replace(/&#39;/g, "'") // Replace apostrophes
+        .replace(/&#x27;/g, "'") // Replace apostrophes (hex)
+        .replace(/&mdash;/g, '—') // Replace em dash
+        .replace(/&ndash;/g, '–') // Replace en dash
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
     }
     
     // Helper function to find elements by selector-like patterns
     function findBySelector(html, selectorPatterns) {
-      for (const pattern of selectorPatterns) {
+      console.log('findBySelector called with', selectorPatterns.length, 'patterns');
+      for (let i = 0; i < selectorPatterns.length; i++) {
+        const pattern = selectorPatterns[i];
+        console.log(`Trying pattern ${i + 1}:`, pattern.source.substring(0, 80) + '...');
         const match = html.match(pattern);
+        console.log('Pattern match result:', !!match, match?.[1]?.length || 0);
+        
         if (match && match[1]) {
-          const content = extractTextContent(match[1]);
-          if (content.length > 0) {
-            console.log('Found with pattern:', pattern.source.substring(0, 50));
+          const content = extractTextContent(match[1])
+            .replace(/\s*[-–|]\s*Amazon.*$/i, '') // Remove Amazon suffix
+            .replace(/\s*:\s*Amazon.*$/i, '') // Remove Amazon suffix with colon
+            .trim();
+          
+          console.log('Extracted content:', content.substring(0, 100));
+          
+          // Validate the content
+          if (content.length >= 2 && content.length <= 300 && 
+              !content.match(/^(amazon|kindle|book|title|error|not found)$/i)) {
+            console.log('✅ Found valid title with pattern:', pattern.source.substring(0, 50));
             return content;
+          } else {
+            console.log('❌ Content rejected:', 
+              content.length < 2 ? 'too short' : 
+              content.length > 300 ? 'too long' : 'invalid content');
           }
         }
       }
+      console.log('❌ No patterns matched');
       return null;
     }
     
-    // Extract title - using original selectors converted to regex
+    // Extract title - simplified and more robust patterns
     const titlePatterns = [
-      /<span[^>]*id="productTitle"[^>]*>([^<]+(?:<[^>]*>[^<]*<\/[^>]*>[^<]*)*)<\/span>/gi,
-      /<h1[^>]*class="[^"]*a-size-large[^"]*"[^>]*>([^<]+(?:<[^>]*>[^<]*<\/[^>]*>[^<]*)*)<\/h1>/gi,
-      /<h1[^>]*>([^<]+(?:<span[^>]*>[^<]*<\/span>[^<]*)*)<\/h1>/gi,
-      /<title>([^<]*?) [-|] Amazon/i
+      // Most reliable: productTitle span - simplified
+      /<span[^>]*id="productTitle"[^>]*>([^<]+)<\/span>/i,
+      /<span[^>]*id="productTitle"[^>]*>\s*([^<]+(?:\s*<[^>]*>[^<]*<\/[^>]*>[^<]*)*?)\s*<\/span>/i,
+      
+      // h1 with a-size-large class
+      /<h1[^>]*class="[^"]*a-size-large[^"]*"[^>]*>([^<]+)<\/h1>/i,
+      /<h1[^>]*class="[^"]*a-size-large[^"]*"[^>]*>\s*([^<]+(?:\s*<[^>]*>[^<]*<\/[^>]*>[^<]*)*?)\s*<\/h1>/i,
+      
+      // Any h1 tag
+      /<h1[^>]*>([^<]+)<\/h1>/i,
+      
+      // Page title
+      /<title>\s*([^<]+?)\s*[-–|]\s*Amazon/i,
+      /<title>\s*([^<]+?)\s*:\s*Amazon/i,
+      
+      // Meta og:title
+      /<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+      
+      // Very basic fallback - any title tag
+      /<title>([^<]+)<\/title>/i
     ];
     
+    console.log('Attempting title extraction with', titlePatterns.length, 'patterns');
     const title = findBySelector(html, titlePatterns);
+    console.log('Title extraction result:', title);
     
     // Extract author - using original selectors (multiple approaches)
     const authorPatterns = [
@@ -514,9 +575,16 @@ function parseAmazonHTML(html, url) {
       reviewCount: reviewCount
     });
     
-    // Validate extracted data
-    if (!title || title.length < 5) {
-      throw new Error('Could not extract valid title from HTML');
+    // Final validation with debugging info
+    if (!title || title.length < 2) {
+      console.error('Title extraction failed completely');
+      console.error('Debug info:');
+      console.error('- HTML length:', html.length);
+      console.error('- Contains productTitle?', html.includes('productTitle'));
+      console.error('- Contains <title>?', html.includes('<title>'));
+      console.error('- HTML preview:', html.substring(0, 500));
+      
+      throw new Error('Amazon商品ページからタイトルを抽出できませんでした。ページの構造が予期されたものと異なります。');
     }
     
     return {
@@ -534,37 +602,6 @@ function parseAmazonHTML(html, url) {
   }
 }
 
-/**
- * Enhanced Amazon extraction fallback
- */
-async function enhancedAmazonExtraction(url) {
-  // Extract ASIN for potential API calls
-  const asinMatch = url.match(/\/(?:dp|product)\/([A-Z0-9]{10})(?:\/|$|\?)/);
-  const asin = asinMatch ? asinMatch[1] : null;
-  
-  if (!asin) {
-    throw new Error('Could not extract ASIN from URL');
-  }
-  
-  // Try alternative Amazon endpoints
-  try {
-    // Try Amazon's mobile API endpoint
-    const mobileUrl = `https://www.amazon.co.jp/gp/aw/d/${asin}`;
-    const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(mobileUrl)}`);
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (data.contents) {
-        return parseAmazonHTML(data.contents, url);
-      }
-    }
-  } catch (error) {
-    console.warn('Enhanced extraction failed:', error);
-  }
-  
-  // Final fallback - return basic structure for manual input
-  throw new Error('Unable to extract book data automatically. Please enter manually.');
-}
 
 /**
  * URL normalization - Extract ASIN and create clean URL (enhanced error handling)
@@ -656,72 +693,6 @@ function normalizeAmazonUrl(url) {
   }
 }
 
-/**
- * URL validation - Enhanced version
- */
-function isValidAmazonUrl(url) {
-  try {
-    const urlObj = new URL(url);
-    
-    // Amazon hostname patterns
-    const amazonHosts = [
-      'amazon.co.jp',
-      'amazon.com', 
-      'amazon.ca',
-      'amazon.co.uk',
-      'amazon.de',
-      'amazon.fr',
-      'amazon.it',
-      'amazon.es',
-      'www.amazon.co.jp',
-      'www.amazon.com',
-      'www.amazon.ca',
-      'www.amazon.co.uk',
-      'www.amazon.de',
-      'www.amazon.fr',
-      'www.amazon.it',
-      'www.amazon.es'
-    ];
-    
-    const isAmazonHost = amazonHosts.some(host => 
-      urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
-    );
-    
-    if (!isAmazonHost) {
-      console.log('Invalid Amazon host:', urlObj.hostname);
-      return false;
-    }
-    
-    // Amazon product URL patterns
-    const productPatterns = [
-      '/dp/',           // Digital Product
-      '/product/',      // Product
-      '/gp/product/',   // Generic Product
-      '/exec/obidos/',  // Old format
-      '/o/ASIN/'        // Old ASIN format
-    ];
-    
-    const hasProductPattern = productPatterns.some(pattern => url.includes(pattern));
-    
-    // ASIN pattern check (10 character alphanumeric)
-    const asinMatch = url.match(/\/(?:dp|product|ASIN|gp\/product)\/([A-Z0-9]{10})(?:\/|$|\?|#)/i);
-    
-    console.log('Background URL validation:', {
-      url,
-      hostname: urlObj.hostname,
-      isAmazonHost,
-      hasProductPattern,
-      asinMatch: !!asinMatch,
-      asin: asinMatch ? asinMatch[1] : null
-    });
-    
-    return hasProductPattern || asinMatch;
-    
-  } catch (error) {
-    console.error('URL validation error:', error);
-    return false;
-  }
-}
 
 // ============================================================================
 // IMAGE GENERATION SERVICE
@@ -801,105 +772,161 @@ async function handleImageExport(data) {
 // Global variable to track pending X share requests
 let pendingXShare = null;
 
-async function trySendImageToTweetTab(maxAttempts = 8, delayMs = 500) {
+async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
+  const snapshot = pendingXShare ? {
+    tweetTabId: pendingXShare.tweetTabId,
+    dataUrl: pendingXShare.dataUrl,
+    imageTabId: pendingXShare.imageTabId,
+    imageSent: !!pendingXShare.imageSent,
+  } : null;
+  
   console.log('trySendImageToTweetTab called:', {
     hasPendingXShare: !!pendingXShare,
-    tweetTabId: pendingXShare?.tweetTabId,
-    hasDataUrl: !!pendingXShare?.dataUrl,
-    dataUrlLength: pendingXShare?.dataUrl?.length,
-    imageSent: !!pendingXShare?.imageSent
+    tweetTabId: snapshot?.tweetTabId,
+    hasDataUrl: !!snapshot?.dataUrl,
+    dataUrlLength: snapshot?.dataUrl?.length,
+    imageSent: !!snapshot?.imageSent
   });
-  
-  if (!pendingXShare?.tweetTabId || !pendingXShare?.dataUrl) {
+
+  if (!snapshot?.tweetTabId || !snapshot?.dataUrl) {
     console.warn('Cannot send image to tweet tab - missing required data');
     return false;
   }
   
-  // Prevent duplicate sends
-  if (pendingXShare.imageSent) {
+  if (snapshot.imageSent) {
     console.log('Image already sent, skipping duplicate send attempt');
     return true;
   }
   
-  // Mark as in progress to prevent concurrent sends
-  pendingXShare.imageSent = true;
-  
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      console.log(`Attempt ${i + 1}/${maxAttempts} to send image to tweet tab ${pendingXShare.tweetTabId}`);
-      await new Promise(r => setTimeout(r, i === 0 ? 0 : delayMs));
+      console.log(`Attempt ${i + 1}/${maxAttempts} to send image to tweet tab ${snapshot.tweetTabId}`);
       
-      const ensureInjected = async () => {
-        // Try pinging the content script; if it fails to connect, inject the script programmatically
-        const pingOk = await new Promise((resolve) => {
-          try {
-            chrome.tabs.sendMessage(pendingXShare.tweetTabId, { action: 'krmPing' }, (resp) => {
-              const success = !chrome.runtime.lastError;
-              console.log('Content script ping result:', { success, error: chrome.runtime.lastError?.message });
-              resolve(success);
-            });
-          } catch (e) { 
-            console.warn('Ping attempt failed:', e);
-            resolve(false); 
+      // Progressive delay: start quickly, then increase delay
+      const currentDelay = i === 0 ? 0 : Math.min(delayMs + (i * 200), 2000);
+      if (currentDelay > 0) {
+        await new Promise(r => setTimeout(r, currentDelay));
+      }
+      
+      // Get current tab info for debugging
+      const tabInfo = await new Promise((resolve) => {
+        chrome.tabs.get(snapshot.tweetTabId, (tab) => {
+          if (chrome.runtime.lastError) {
+            console.warn('Tab query failed:', chrome.runtime.lastError.message);
+            return resolve(null);
           }
+          resolve(tab);
+        });
+      });
+      
+      if (!tabInfo) {
+        console.warn('Tweet tab no longer exists');
+        continue;
+      }
+      
+      console.log(`Attempt ${i + 1}: Tab status - URL: ${tabInfo.url}, Loading: ${tabInfo.status}`);
+      
+      // Check if tab is still loading
+      if (tabInfo.status === 'loading') {
+        console.log('Tab still loading, will retry');
+        continue;
+      }
+      
+      // Validate URL
+      const isValidUrl = /^https:\/\/(?:mobile\.)?(?:x|twitter)\.com\//.test(tabInfo.url);
+      if (!isValidUrl) {
+        console.warn('Tweet tab URL not valid for attachment:', tabInfo.url);
+        continue;
+      }
+      
+      // Enhanced content script injection with multiple attempts
+      let contentScriptReady = false;
+      for (let pingAttempt = 0; pingAttempt < 3; pingAttempt++) {
+        // Test if content script is responsive
+        const pingResult = await new Promise((resolve) => {
+          chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'krmPing' }, (resp) => {
+            const success = !chrome.runtime.lastError && resp?.pong;
+            console.log(`Ping attempt ${pingAttempt + 1}:`, { success, resp, error: chrome.runtime.lastError?.message });
+            resolve(success);
+          });
         });
         
-        if (!pingOk && chrome?.scripting?.executeScript) {
+        if (pingResult) {
+          contentScriptReady = true;
+          break;
+        }
+        
+        // Inject content script if ping failed
+        if (chrome?.scripting?.executeScript) {
           try {
-            console.log('Injecting content script programmatically');
+            console.log(`Injecting content script (attempt ${pingAttempt + 1})`);
             await chrome.scripting.executeScript({
-              target: { tabId: pendingXShare.tweetTabId },
+              target: { tabId: snapshot.tweetTabId },
               files: ['content-scripts/x-tweet-auto-attach.js']
             });
-            await new Promise(r => setTimeout(r, 200));
-            console.log('Content script injection completed');
+            await new Promise(r => setTimeout(r, 500)); // Give more time for initialization
           } catch (e) {
-            console.warn('Programmatic injection failed:', e.message);
+            console.warn(`Content script injection failed (attempt ${pingAttempt + 1}):`, e.message);
           }
         }
-      };
-
-      await ensureInjected();
-
-      await new Promise((resolve, reject) => {
-        try {
-          console.log('Sending attachImageDataUrl message to tab', pendingXShare.tweetTabId);
-          chrome.tabs.sendMessage(pendingXShare.tweetTabId, {
-            action: 'attachImageDataUrl',
-            dataUrl: pendingXShare.dataUrl
-          }, (resp) => {
-            console.log('Response from content script:', resp, 'lastError:', chrome.runtime.lastError?.message);
-            if (chrome.runtime.lastError) {
-              return reject(new Error(chrome.runtime.lastError.message));
-            }
-            if (resp && resp.ok) {
-              console.log('Content script confirmed successful attachment');
-              return resolve();
-            }
-            return reject(new Error('Content script did not confirm attach'));
-          });
-        } catch (e) { 
-          console.error('Error sending message to content script:', e);
-          reject(e); 
-        }
-      });
-      console.log('Sent image to tweet tab successfully');
-      if (pendingXShare.imageTabId) {
-        try { 
-          console.log('Cleaning up image generation tab:', pendingXShare.imageTabId);
-          await chrome.tabs.remove(pendingXShare.imageTabId); 
-        } catch (e) {
-          console.warn('Failed to cleanup image tab:', e);
-        }
       }
-      pendingXShare = null;
-      return true;
+      
+      if (!contentScriptReady) {
+        console.warn(`Content script not ready after 3 ping attempts, continuing anyway`);
+      }
+
+      // Attempt image attachment
+      const attachResult = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Message timeout after 5 seconds'));
+        }, 5000);
+        
+        chrome.tabs.sendMessage(snapshot.tweetTabId, {
+          action: 'attachImageDataUrl',
+          dataUrl: snapshot.dataUrl
+        }, (resp) => {
+          clearTimeout(timeout);
+          console.log('Attachment response:', resp, 'lastError:', chrome.runtime.lastError?.message);
+          
+          if (chrome.runtime.lastError) {
+            return reject(new Error(chrome.runtime.lastError.message));
+          }
+          
+          if (resp && resp.ok) {
+            console.log('Content script confirmed successful attachment');
+            return resolve(true);
+          }
+          
+          reject(new Error(`Content script attachment failed: ${resp?.error || 'Unknown error'}`));
+        });
+      });
+
+      if (attachResult) {
+        console.log('Successfully sent image to tweet tab');
+        
+        // Cleanup image generation tab
+        if (snapshot.imageTabId) {
+          try { 
+            console.log('Cleaning up image generation tab:', snapshot.imageTabId);
+            await chrome.tabs.remove(snapshot.imageTabId); 
+          } catch (e) {
+            console.warn('Failed to cleanup image tab:', e);
+          }
+        }
+        
+        // Mark as sent and clear state
+        if (pendingXShare && pendingXShare.tweetTabId === snapshot.tweetTabId) {
+          pendingXShare.imageSent = true;
+          pendingXShare = null;
+        }
+        return true;
+      }
     } catch (e) {
       console.warn(`Send attempt ${i+1} failed:`, e.message);
     }
   }
+  
   console.error('All attempts to send image to tweet tab failed');
-  // Reset flag so user can retry if needed
   if (pendingXShare) {
     pendingXShare.imageSent = false;
   }

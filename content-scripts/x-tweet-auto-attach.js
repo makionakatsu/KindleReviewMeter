@@ -33,6 +33,7 @@
   // Prevent multiple attachment attempts
   let attachmentInProgress = false;
   let attachmentCompleted = false;
+  let pendingDataUrl = null;
 
   console.log('KindleReviewMeter: X tweet auto-attach script loaded');
 
@@ -53,7 +54,9 @@
    * - Handle dynamic content loading and element changes
    * - Provide comprehensive selector coverage for UI variations
    */
-  function waitForElements() {
+  function waitForElements(options = {}) {
+    const { requireFileInput = false, timeoutMs = 8000 } = options;
+    const startedAt = Date.now();
     return new Promise((resolve) => {
       const checkForElements = () => {
         console.log('Searching for X/Twitter elements...');
@@ -100,10 +103,16 @@
           fileInputAccept: fileInput?.accept
         });
         
-        if (fileInput && composerTextbox) {
+        const haveComposer = !!composerTextbox;
+        const haveInput = !!fileInput;
+        const elapsed = Date.now() - startedAt;
+        if (haveComposer && (haveInput || !requireFileInput)) {
           resolve({ fileInput, composerTextbox });
+        } else if (elapsed > timeoutMs && haveComposer) {
+          console.warn('Timeout waiting for file input; proceeding with composer only');
+          resolve({ fileInput: null, composerTextbox });
         } else {
-          setTimeout(checkForElements, 500);
+          setTimeout(checkForElements, 400);
         }
       };
       checkForElements();
@@ -139,27 +148,69 @@
    */
   async function findAndClickAttachmentButton() {
     const attachButtonSelectors = [
+      // Common toolbar buttons
       '[data-testid="attachments"]',
-      '[aria-label*="Media"]',
-      '[aria-label*="画像"]',
-      '[aria-label*="写真"]',
-      'button[aria-label*="Add photos"]',
-      'button[aria-label*="Add media"]',
-      '[data-testid="toolBarAttachments"]'
+      '[data-testid="toolBarAttachments"]',
+      // Possible buttons with accessible labels (EN/JA)
+      'button[aria-label*="Add photos" i]',
+      'button[aria-label*="Add media" i]',
+      '[aria-label*="Media" i]',
+      '[aria-label*="写真" i]',
+      '[aria-label*="画像" i]',
+      '[aria-label*="メディア" i]',
+      // Fallback: toolbar container clickable
+      '[data-testid="toolBar"] [role="button"]',
     ];
     
-    for (const selector of attachButtonSelectors) {
-      const button = document.querySelector(selector);
-      if (button) {
-        console.log('Found attachment button with selector:', selector);
-        button.click();
-        await new Promise(resolve => setTimeout(resolve, 200)); // Wait for file input to appear
-        return true;
+    try {
+      for (const selector of attachButtonSelectors) {
+        const button = document.querySelector(selector);
+        if (button) {
+          console.log('Found attachment button with selector:', selector);
+          try {
+            // Prefer native click; if blocked, simulate mouse event
+            if (typeof button.click === 'function') {
+              button.click();
+            } else {
+              const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+              button.dispatchEvent(evt);
+            }
+          } catch (e) {
+            console.warn('Attachment button click failed:', e);
+          }
+          await new Promise(resolve => setTimeout(resolve, 250)); // Wait for file input to appear
+          return true;
+        }
       }
+      console.log('No attachment button found (non-fatal)');
+      return false;
+    } catch (err) {
+      console.warn('findAndClickAttachmentButton error (non-fatal):', err);
+      return false;
     }
-    
-    console.warn('No attachment button found');
-    return false;
+  }
+
+  /**
+   * Deep search for any file input in the document (even if hidden)
+   */
+  function findAnyFileInput() {
+    const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+    if (inputs.length === 0) return null;
+    // Prefer inputs that accept images or are inside compose
+    const scored = inputs.map((el) => {
+      let score = 0;
+      const accept = (el.getAttribute('accept') || '').toLowerCase();
+      if (accept.includes('image')) score += 2;
+      // Heuristic: closer to tweet composer
+      let p = el.parentElement; let depth = 0;
+      while (p && depth < 5) {
+        const ds = p.getAttribute('data-testid') || '';
+        if (ds.includes('attachments') || ds.includes('toolBar')) score += 1;
+        p = p.parentElement; depth++;
+      }
+      return { el, score };
+    }).sort((a,b)=>b.score-a.score);
+    return (scored[0] && scored[0].el) || inputs[0];
   }
 
   /**
@@ -181,6 +232,11 @@
   async function attachViaDataUrl(dataUrl) {
     try {
       console.log('attachViaDataUrl called with dataUrl length:', dataUrl?.length);
+      if (!dataUrl && pendingDataUrl) dataUrl = pendingDataUrl;
+      if (!dataUrl) {
+        console.warn('No dataUrl available to attach');
+        return false;
+      }
       
       // Prevent duplicate attachments
       if (attachmentInProgress) {
@@ -194,17 +250,43 @@
       }
       
       attachmentInProgress = true;
+      pendingDataUrl = dataUrl;
       
-      // Try to click attachment button first to reveal file input
+      // Try to click attachment button first to reveal file input (best effort, non-fatal)
       await findAndClickAttachmentButton();
+
+      // Observe DOM briefly to catch dynamically injected file inputs
+      const waitForFileInputAppears = (ms = 4000) => new Promise((resolve) => {
+        let resolved = false;
+        const found = document.querySelector('input[type="file"]');
+        if (found) { resolve(found); return; }
+        const obs = new MutationObserver(() => {
+          const el = document.querySelector('input[type="file"]');
+          if (el && !resolved) { resolved = true; obs.disconnect(); resolve(el); }
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+        setTimeout(() => { if (!resolved) { obs.disconnect(); resolve(null); } }, ms);
+      });
       
-      const { fileInput, composerTextbox } = await waitForElements();
+      // Do not block on missing file input; proceed with drag&drop/paste if needed
+      let { fileInput, composerTextbox } = await waitForElements({ requireFileInput: false, timeoutMs: 8000 });
+      if (!fileInput) {
+        // Try deep search as a fallback
+        fileInput = findAnyFileInput();
+        if (fileInput) {
+          console.log('Found file input via deep search');
+        } else {
+          // Last try: wait a bit with MutationObserver for dynamically added inputs
+          fileInput = await waitForFileInputAppears(2000);
+          if (fileInput) console.log('Found file input via observer');
+        }
+      }
       console.log('Found elements:', { hasFileInput: !!fileInput, hasComposerTextbox: !!composerTextbox });
       
       const file = dataUrlToFile(dataUrl);
       console.log('Converted dataUrl to file:', { name: file.name, size: file.size, type: file.type });
 
-      // Method 1: Direct file input assignment
+      // Method 1: Direct file input assignment (preferred and most reliable)
       if (fileInput) {
         try {
           console.log('Attempting method 1: direct file input assignment');
@@ -218,6 +300,10 @@
             const event = new Event(eventType, { bubbles: true });
             fileInput.dispatchEvent(event);
           }
+          // Also try to click tweet area to force UI update
+          if (composerTextbox && composerTextbox.focus) composerTextbox.focus();
+          composerTextbox?.dispatchEvent(new Event('focus', { bubbles: true }));
+          document.body.dispatchEvent(new Event('click', { bubbles: true }));
           
           console.log('Image attached via file input');
           attachmentCompleted = true;
@@ -231,39 +317,32 @@
       const dropZoneSelectors = [
         '[data-testid="attachments"]',
         '[data-testid="toolBar"]',
-        '.css-175oi2r[role="group"]', // Twitter's compose area
-        '[role="main"]'
+        '[data-testid="primaryColumn"]',
+        '[data-testid="tweetTextarea_0"]',
+        '[role="group"]',
+        '[role="main"]',
+        'div[contenteditable="true"]'
       ];
+      
+      async function dropOn(target, file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const dragEnterEvent = new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt });
+        const dragOverEvent  = new DragEvent('dragover',  { bubbles: true, cancelable: true, dataTransfer: dt });
+        const dropEvent      = new DragEvent('drop',      { bubbles: true, cancelable: true, dataTransfer: dt });
+        target.dispatchEvent(dragEnterEvent);
+        await new Promise(r=>setTimeout(r,80));
+        target.dispatchEvent(dragOverEvent);
+        await new Promise(r=>setTimeout(r,80));
+        target.dispatchEvent(dropEvent);
+      }
       
       for (const selector of dropZoneSelectors) {
         const dropZone = document.querySelector(selector);
         if (dropZone) {
           try {
             console.log(`Attempting method 2: drag and drop on ${selector}`);
-            const dt = new DataTransfer();
-            dt.items.add(file);
-            
-            const dragEnterEvent = new DragEvent('dragenter', { 
-              bubbles: true, 
-              cancelable: true, 
-              dataTransfer: dt 
-            });
-            const dragOverEvent = new DragEvent('dragover', { 
-              bubbles: true, 
-              cancelable: true, 
-              dataTransfer: dt 
-            });
-            const dropEvent = new DragEvent('drop', { 
-              bubbles: true, 
-              cancelable: true, 
-              dataTransfer: dt 
-            });
-            
-            dropZone.dispatchEvent(dragEnterEvent);
-            await new Promise(resolve => setTimeout(resolve, 100));
-            dropZone.dispatchEvent(dragOverEvent);
-            await new Promise(resolve => setTimeout(resolve, 100));
-            dropZone.dispatchEvent(dropEvent);
+            await dropOn(dropZone, file);
             
             console.log(`Image attached via drag-drop on ${selector}`);
             attachmentCompleted = true;
@@ -273,11 +352,22 @@
           }
         }
       }
+      // Last-chance global drop on body/main if specific zones failed
+      try {
+        console.log('Attempting method 2 fallback: drag and drop on document.body');
+        await dropOn(document.body, file);
+        console.log('Image attached via drag-drop on body');
+        attachmentCompleted = true;
+        return true;
+      } catch (e) {
+        console.warn('Body drag-drop fallback failed:', e);
+      }
 
       // Method 3: Enhanced paste simulation with proper target
       const pasteTargets = [
         composerTextbox,
         document.querySelector('[data-testid="tweetTextarea_0"]'),
+        document.querySelector('[role="textbox"]'),
         document.activeElement,
         document.body
       ].filter(Boolean);
@@ -356,6 +446,22 @@
         attachmentInProgress = false;
       }
     }
+  }
+
+  // Observe for UI readiness and retry attachment briefly
+  function setupAutoRetry(maxMs = 8000) {
+    const start = Date.now();
+    const observer = new MutationObserver(async () => {
+      if (attachmentCompleted) { observer.disconnect(); return; }
+      const elapsed = Date.now() - start;
+      if (elapsed > maxMs) { observer.disconnect(); return; }
+      if (!attachmentInProgress && pendingDataUrl) {
+        console.log('UI changed; retrying attachment');
+        attachViaDataUrl(pendingDataUrl);
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => observer.disconnect(), maxMs + 200);
   }
 
   // ============================================================================
@@ -465,25 +571,50 @@
    */
   if (chrome?.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      console.log('Content script received message:', request.action);
+      console.log('Content script received message:', request.action, 'at', new Date().toISOString());
       
       if (request.action === 'krmPing') {
         console.log('Content script responding to ping');
-        sendResponse({ pong: true });
+        sendResponse({ 
+          pong: true, 
+          url: window.location.href,
+          timestamp: Date.now(),
+          readyState: document.readyState
+        });
         return true;
       }
       
       if (request.action === 'attachImageDataUrl' && request.dataUrl) {
         console.log('Content script received image attach request, dataUrl length:', request.dataUrl?.length);
+        
+        // Validate data URL
+        if (!request.dataUrl.startsWith('data:image/')) {
+          console.error('Invalid data URL format');
+          sendResponse({ ok: false, error: 'Invalid data URL format' });
+          return true;
+        }
+        
+        pendingDataUrl = request.dataUrl;
+        setupAutoRetry(15000); // Increase retry time
+        
         attachViaDataUrl(request.dataUrl).then((ok) => {
           console.log('Content script attach result:', ok);
-          sendResponse({ ok });
+          sendResponse({ ok, timestamp: Date.now() });
         }).catch((e) => {
           console.error('Content script attach error:', e);
-          sendResponse({ ok: false, error: e?.message });
+          sendResponse({ 
+            ok: false, 
+            error: e?.message || 'Unknown attachment error',
+            timestamp: Date.now()
+          });
         });
         return true;
       }
+      
+      // Unknown action
+      console.warn('Content script received unknown action:', request.action);
+      sendResponse({ ok: false, error: 'Unknown action' });
+      return true;
     });
   }
 

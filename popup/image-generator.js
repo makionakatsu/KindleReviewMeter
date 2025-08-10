@@ -169,7 +169,7 @@
   function drawBookCoverOnCanvas(ctx, imageUrl, x, y, width, height) {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      // Using object URLs from fetched blobs avoids canvas taint; crossOrigin not required
       img.onload = () => {
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -191,6 +191,15 @@
       img.onerror = reject;
       img.src = imageUrl;
     });
+  }
+
+  // Fetch remote image as Blob and return an object URL to avoid canvas taint
+  async function fetchImageObjectUrl(url) {
+    const res = await fetch(url, { credentials: 'omit', cache: 'no-cache' });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    if (!blob || blob.size === 0) throw new Error('empty image blob');
+    return URL.createObjectURL(blob);
   }
 
   // ============================================================================
@@ -265,8 +274,16 @@
       const coverX = (canvas.width - coverW) / 2;
       const coverY = cardY + 40;
       if (d.imageUrl && d.imageUrl.trim()) {
-        try { await drawBookCoverOnCanvas(ctx, d.imageUrl.trim(), coverX, coverY, coverW, coverH); }
-        catch { drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH); }
+        let objUrl = null;
+        try {
+          objUrl = await fetchImageObjectUrl(d.imageUrl.trim());
+          await drawBookCoverOnCanvas(ctx, objUrl, coverX, coverY, coverW, coverH);
+        } catch (e) {
+          console.warn('Cover fetch/draw failed, using placeholder:', e?.message || e);
+          drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH);
+        } finally {
+          if (objUrl) URL.revokeObjectURL(objUrl);
+        }
       } else {
         drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH);
       }

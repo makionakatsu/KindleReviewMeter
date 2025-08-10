@@ -29,52 +29,48 @@ class StorageService {
     this.storageKey = key;
   }
 
+  handleStorageError(operation, error) {
+    console.error(`Storage ${operation} failed:`, error);
+    return operation === 'save' || operation === 'clear' ? false : null;
+  }
+
   async save(data) {
     try {
-      // Use Chrome Storage API for extensions
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.set({ [this.storageKey]: data });
       } else {
-        // Fallback to localStorage for testing
         localStorage.setItem(this.storageKey, JSON.stringify(data));
       }
       return true;
     } catch (error) {
-      console.error('Storage save failed:', error);
-      return false;
+      return this.handleStorageError('save', error);
     }
   }
 
   async load() {
     try {
-      // Use Chrome Storage API for extensions
       if (typeof chrome !== 'undefined' && chrome.storage) {
         const result = await chrome.storage.local.get([this.storageKey]);
         return result[this.storageKey] || null;
       } else {
-        // Fallback to localStorage for testing
         const data = localStorage.getItem(this.storageKey);
         return data ? JSON.parse(data) : null;
       }
     } catch (error) {
-      console.error('Storage load failed:', error);
-      return null;
+      return this.handleStorageError('load', error);
     }
   }
 
   async clear() {
     try {
-      // Use Chrome Storage API for extensions
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.remove([this.storageKey]);
       } else {
-        // Fallback to localStorage for testing
         localStorage.removeItem(this.storageKey);
       }
       return true;
     } catch (error) {
-      console.error('Storage clear failed:', error);
-      return false;
+      return this.handleStorageError('clear', error);
     }
   }
 }
@@ -304,50 +300,26 @@ class App {
   }
 
   bindEvents() {
-    // Amazon fetch button
-    const fetchBtn = document.getElementById('fetchAmazonBtn');
-    if (fetchBtn) {
-      fetchBtn.addEventListener('click', () => this.fetchAmazonData());
-      console.log('Fetch button event bound');
-    } else {
-      console.error('Fetch button not found');
-    }
+    const buttons = [
+      { id: 'fetchAmazonBtn', handler: () => this.fetchAmazonData(), name: 'Fetch' },
+      { id: 'saveBtn', handler: () => this.saveData(), name: 'Save' },
+      { id: 'clearBtn', handler: () => this.clearData(), name: 'Clear' },
+      { id: 'exportBtn', handler: () => this.exportProgressImage(), name: 'Export' },
+      { id: 'shareToXBtn', handler: () => this.shareToX(), name: 'Share to X' }
+    ];
 
-    // Save button
-    const saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', () => this.saveData());
-      console.log('Save button event bound');
-    } else {
-      console.error('Save button not found');
-    }
-
-    // Clear button
-    const clearBtn = document.getElementById('clearBtn');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => this.clearData());
-      console.log('Clear button event bound');
-    } else {
-      console.error('Clear button not found');
-    }
-
-    // Export button
-    const exportBtn = document.getElementById('exportBtn');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', () => this.exportProgressImage());
-      console.log('Export button event bound');
-    } else {
-      console.error('Export button not found');
-    }
-
-    // X Share button
-    const shareToXBtn = document.getElementById('shareToXBtn');
-    if (shareToXBtn) {
-      shareToXBtn.addEventListener('click', () => this.shareToX());
-      console.log('Share to X button event bound');
-    } else {
-      console.error('Share to X button not found');
-    }
+    buttons.forEach(({ id, handler, name }) => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.addEventListener('click', () => {
+          console.log(`${name} button clicked`);
+          handler();
+        });
+        console.log(`${name} button event bound`);
+      } else {
+        console.error(`${name} button not found`);
+      }
+    });
   }
 
   /**
@@ -429,11 +401,7 @@ class App {
         throw new Error('Chrome拡張機能コンテキストが必要です');
       }
     } catch (error) {
-      console.error('Amazon data fetch error:', error);
-      this.toast.error(`取得エラー: ${error.message}`, {
-        title: 'エラー',
-        duration: 8000
-      });
+      this.handleError('Amazon data fetch', error);
     } finally {
       fetchBtn.classList.remove('loading');
       fetchBtn.disabled = false;
@@ -472,11 +440,7 @@ class App {
   }
 
   async saveData() {
-    const saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) {
-      saveBtn.classList.add('animate-wiggle');
-      setTimeout(() => saveBtn.classList.remove('animate-wiggle'), 800);
-    }
+    this.animateElement('saveBtn', 'wiggle');
 
     const data = {
       amazonUrl: document.getElementById('amazonUrl').value.trim(),
@@ -510,25 +474,124 @@ class App {
   }
 
   async clearData() {
-    const confirmed = confirm('データを削除しますか？');
+    console.log('Clear button clicked - clearData method called');
+    
+    // Add visual feedback immediately to show button is working
+    this.animateElement('clearBtn', 'wiggle');
+    
+    // Check if there's any data to clear first
+    const currentData = await this.storage.load();
+    console.log('Current storage data:', currentData);
+    
+    const formFields = {
+      amazonUrl: document.getElementById('amazonUrl').value,
+      title: document.getElementById('title').value,
+      author: document.getElementById('author').value,
+      imageUrl: document.getElementById('imageUrl').value,
+      reviewCount: document.getElementById('reviewCount').value,
+      targetReviews: document.getElementById('targetReviews').value
+    };
+    
+    console.log('Current form data:', formFields);
+    
+    const hasFormData = formFields.amazonUrl ||
+                       formFields.title ||
+                       formFields.author ||
+                       formFields.imageUrl ||
+                       (formFields.reviewCount && formFields.reviewCount !== '0') ||
+                       formFields.targetReviews;
 
-    if (confirmed) {
-      if (await this.storage.clear()) {
-        document.getElementById('amazonUrl').value = '';
-        document.getElementById('title').value = '';
-        document.getElementById('author').value = '';
-        document.getElementById('imageUrl').value = '';
-        document.getElementById('reviewCount').value = '0';
-        document.getElementById('targetReviews').value = '';
-        
-        this.toast.success('データを削除しました', {
-          title: '削除完了'
-        });
-      } else {
-        this.toast.error('削除に失敗しました', {
-          title: '削除エラー'
+    console.log('Has form data:', hasFormData, 'Has storage data:', !!currentData);
+
+    if (!currentData && !hasFormData) {
+      this.toast.info('クリアするデータがありません', {
+        title: '情報',
+        duration: 3000
+      });
+      return;
+    }
+
+    // Use a custom confirmation system instead of browser confirm()
+    this.showClearConfirmation();
+  }
+
+  showClearConfirmation() {
+    const confirmToast = this.toast.show('データを削除してもよろしいですか？', 'warning', {
+      title: '確認',
+      duration: 0, // Don't auto-dismiss
+      closable: false // Don't show close button
+    });
+
+    // Generate unique IDs for buttons
+    const confirmId = `confirmClear_${Date.now()}`;
+    const cancelId = `cancelClear_${Date.now()}`;
+
+    // Add custom buttons to the toast
+    const buttonsHtml = `
+      <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
+        <button id="${confirmId}" style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">削除する</button>
+        <button id="${cancelId}" style="background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">キャンセル</button>
+      </div>
+    `;
+    
+    const messageDiv = confirmToast.querySelector('.toast-message');
+    if (messageDiv) {
+      messageDiv.innerHTML += buttonsHtml;
+      
+      // Add event listeners
+      const confirmBtn = document.getElementById(confirmId);
+      const cancelBtn = document.getElementById(cancelId);
+      
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', async () => {
+          this.toast.dismiss(confirmToast);
+          await this.executeClearData();
         });
       }
+      
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          this.toast.dismiss(confirmToast);
+          this.toast.info('削除をキャンセルしました', {
+            title: 'キャンセル',
+            duration: 2000
+          });
+        });
+      }
+    }
+  }
+
+  async executeClearData() {
+    try {
+      // Clear storage
+      const storageCleared = await this.storage.clear();
+      
+      // Clear form fields
+      document.getElementById('amazonUrl').value = '';
+      document.getElementById('title').value = '';
+      document.getElementById('author').value = '';
+      document.getElementById('imageUrl').value = '';
+      document.getElementById('reviewCount').value = '0';
+      document.getElementById('targetReviews').value = '';
+      
+      if (storageCleared) {
+        this.animateSuccessFlash();
+        this.toast.success('すべてのデータを削除しました', {
+          title: '削除完了',
+          duration: 4000
+        });
+      } else {
+        this.toast.warning('フォームをクリアしましたが、保存データの削除に失敗しました', {
+          title: '部分的成功',
+          duration: 5000
+        });
+      }
+    } catch (error) {
+      console.error('Clear data error:', error);
+      this.toast.error('データの削除中にエラーが発生しました', {
+        title: 'エラー',
+        duration: 5000
+      });
     }
   }
 
@@ -550,16 +613,39 @@ class App {
     }
   }
 
-  animateInputError(inputId) {
-    const input = document.getElementById(inputId);
-    if (input) {
-      input.style.borderColor = 'var(--danger)';
-      input.classList.add('animate-wiggle');
-      setTimeout(() => {
-        input.classList.remove('animate-wiggle');
-        input.style.borderColor = '';
-      }, 800);
+  animateElement(elementId, type = 'wiggle', options = {}) {
+    const element = document.getElementById(elementId) || document.querySelector(elementId);
+    if (!element) return;
+
+    const { 
+      duration = 800, 
+      borderColor = null, 
+      resetBorder = false 
+    } = options;
+
+    switch (type) {
+      case 'wiggle':
+        if (borderColor) element.style.borderColor = borderColor;
+        element.classList.add('animate-wiggle');
+        setTimeout(() => {
+          element.classList.remove('animate-wiggle');
+          if (resetBorder) element.style.borderColor = '';
+        }, duration);
+        break;
+      case 'pulse':
+        element.classList.add('animate-pulse');
+        setTimeout(() => {
+          element.classList.remove('animate-pulse');
+        }, duration);
+        break;
     }
+  }
+
+  animateInputError(inputId) {
+    this.animateElement(inputId, 'wiggle', {
+      borderColor: 'var(--danger)',
+      resetBorder: true
+    });
   }
 
   animateSuccessFlash() {
@@ -584,6 +670,36 @@ class App {
         }
       }, 600);
     }
+  }
+
+  handleError(operation, error, options = {}) {
+    console.error(`${operation} error:`, error);
+    
+    let message;
+    let duration = options.duration || 8000;
+    
+    switch (operation) {
+      case 'Amazon data fetch':
+        message = `取得エラー: ${error.message}`;
+        break;
+      case 'Export':
+        message = `画像生成エラー: ${error.message}`;
+        break;
+      case 'X sharing':
+        message = `X投稿の準備でエラーが発生しました。\n画像を手動でダウンロードして X に投稿してください。\n\nエラー詳細: ${error.message}`;
+        duration = 10000; // Longer duration for important instruction
+        break;
+      case 'Chrome runtime':
+        message = 'Chrome拡張機能コンテキストが必要です';
+        break;
+      default:
+        message = `${operation}でエラーが発生しました: ${error.message}`;
+    }
+
+    this.toast.error(message, {
+      title: 'エラー',
+      duration
+    });
   }
 
   async exportProgressImage() {
@@ -625,17 +741,10 @@ class App {
           throw new Error(response?.error || '画像生成に失敗しました');
         }
       } catch (error) {
-        console.error('Export error:', error);
-        this.toast.error(`画像生成エラー: ${error.message}`, {
-          title: 'エラー',
-          duration: 8000
-        });
+        this.handleError('Export', error);
       }
     } else {
-      console.error('Chrome runtime not available');
-      this.toast.warning('Chrome拡張機能コンテキストが必要です', {
-        title: '機能制限'
-      });
+      this.handleError('Chrome runtime', new Error('Chrome runtime not available'));
     }
   }
 
@@ -689,9 +798,9 @@ class App {
         });
 
         if (response && response.success) {
-          this.toast.success('画像を生成中です。完了後にX投稿画面が開きます。画像が自動添付されない場合はCtrl+V（Mac: Cmd+V）で貼り付けてください。', {
-            title: 'X投稿準備中',
-            duration: 8000
+          this.toast.success('X投稿画面を開きました。画像を自動生成・添付しています...\n\n自動添付されない場合は：\n1. 画像ダウンロードボタンを使用\n2. X投稿画面にドラッグ&ドロップ\n3. Ctrl+V（Mac: Cmd+V）で貼り付け', {
+            title: 'X投稿準備完了',
+            duration: 12000
           });
         } else {
           throw new Error(response?.error || 'X投稿準備に失敗しました');
@@ -705,11 +814,7 @@ class App {
         });
       }
     } catch (error) {
-      console.error('Error in X sharing process:', error);
-      this.toast.error(`X投稿の準備でエラーが発生しました: ${error.message}`, {
-        title: 'エラー',
-        duration: 8000
-      });
+      this.handleError('X sharing', error);
     }
   }
 

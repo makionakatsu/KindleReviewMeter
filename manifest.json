@@ -17,6 +17,9 @@
   "host_permissions": [
     "https://*.amazon.co.jp/*",
     "https://*.amazon.com/*",
+    "https://*.media-amazon.com/*",
+    "https://*.images-amazon.com/*",
+    "https://*.ssl-images-amazon.com/*",
     "https://api.allorigins.win/*",
     "https://corsproxy.io/*",
     "https://cors-anywhere.herokuapp.com/*",
@@ -45,17 +48,17 @@
       "matches": [
         "https://twitter.com/*intent/tweet*",
         "https://x.com/*intent/tweet*",
-        "https://twitter.com/compose/tweet*",
-        "https://x.com/compose/tweet*",
-        "https://twitter.com/compose/post*",
-        "https://x.com/compose/post*",
+        "https://twitter.com/compose*",
+        "https://x.com/compose*",
         "https://twitter.com/i/flow/tweet*",
         "https://x.com/i/flow/tweet*",
         "https://twitter.com/i/flow/post*",
         "https://x.com/i/flow/post*",
+        "https://twitter.com/i/flow/compose*",
+        "https://x.com/i/flow/compose*",
         "https://mobile.twitter.com/intent/tweet*",
-        "https://mobile.twitter.com/compose/tweet*",
-        "https://mobile.twitter.com/compose/post*"
+        "https://mobile.twitter.com/compose*",
+        "https://mobile.x.com/compose*"
       ],
       "js": ["content-scripts/x-tweet-auto-attach.js"],
       "run_at": "document_idle"
