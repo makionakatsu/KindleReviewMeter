@@ -563,15 +563,20 @@ function parseAmazonHTML(html, url) {
         .trim();
     }
     
-    // Speed-optimized pattern matcher with early exit
-    function findBySelector(html, selectorPatterns, maxTries = 3) {
+    // Speed-optimized pattern matcher with early exit and content type detection
+    function findBySelector(html, selectorPatterns, maxTries = 3, contentType = 'general') {
       for (let i = 0; i < Math.min(selectorPatterns.length, maxTries); i++) {
         const match = html.match(selectorPatterns[i]);
         
         if (match && match[1]) {
-          const content = extractTextContent(match[1])
+          let content = extractTextContent(match[1])
             .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
             .trim();
+          
+          // Special cleaning for author names
+          if (contentType === 'author') {
+            content = cleanAuthorName(content);
+          }
           
           // Quick validation - optimized boolean logic
           if (content.length >= 2 && content.length <= 300 && 
@@ -581,6 +586,21 @@ function parseAmazonHTML(html, url) {
         }
       }
       return null;
+    }
+    
+    // Author name cleaning function
+    function cleanAuthorName(authorText) {
+      if (!authorText) return '';
+      
+      return authorText
+        // Remove common prefixes/suffixes
+        .replace(/^(by\s+|著者[：:]?\s*|作者[：:]?\s*|著[：:]?\s*)/i, '')
+        .replace(/(\s*\(.*?\)\s*|\s*【.*?】\s*)$/, '') // Remove parenthetical info
+        .replace(/\s*,.*$/, '') // Remove anything after comma
+        .replace(/\s*\|\s*.*$/, '') // Remove anything after pipe
+        .replace(/\s+/g, ' ') // Normalize spaces
+        .replace(/^["''""]|["''""]$/g, '') // Remove quotes
+        .trim();
     }
     
     // Extract title - prioritized patterns for speed
@@ -594,15 +614,39 @@ function parseAmazonHTML(html, url) {
     
     const title = findBySelector(html, titlePatterns, 3); // Limit to first 3 attempts
     
-    // Extract author - streamlined patterns
+    // Extract author - enhanced patterns for better detection
     const authorPatterns = [
+      // Most reliable: contributorNameID class
+      /<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i,
+      
+      // Author section with links
       /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      /<[^>]*class="[^"]*by-author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      
+      // Byline automation ID
       /<[^>]*data-automation-id="byline"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
-      /著[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i,
-      /<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i
+      
+      // Japanese text patterns
+      /著[\s]*者[：:]?[\s]*([^<>\n\r]{2,50})(?=<|\n|\r|$)/i,
+      /作[\s]*者[：:]?[\s]*([^<>\n\r]{2,50})(?=<|\n|\r|$)/i,
+      /著[：:]?[\s]*([^<>\n\r]{2,50})(?=<|\n|\r|$)/i,
+      
+      // General author patterns
+      /<span[^>]*>[\s]*著[：:]?[\s]*([^<>\n\r]{2,50})<\/span>/i,
+      /<div[^>]*author[^>]*>[\s\S]*?([^<>\n\r]{2,50})<\/div>/i,
+      
+      // Meta tag patterns
+      /<meta[^>]*name=["']author["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+      
+      // Link text containing author info
+      /<a[^>]*href="[^"]*author[^"]*"[^>]*>([^<]+)<\/a>/i,
+      
+      // Fallback: any text following author indicators
+      /(?:by|著者|作者)[：:\s]+([A-Za-z\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF\s]{2,50})(?=<|$|\n)/i
     ];
     
-    const author = findBySelector(html, authorPatterns, 2); // Quick author lookup
+    // Try multiple patterns for better author detection with special cleaning
+    const author = findBySelector(html, authorPatterns, 5, 'author'); // Check up to 5 patterns with author cleaning
     
     // Extract image URL - optimized patterns
     const imagePatterns = [
