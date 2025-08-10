@@ -1,6 +1,25 @@
-# Kindle Review Meter (SPA)
+# Kindle Review Meter
 
-単一ページのWebアプリで、Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化・共有します。
+[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue)](https://makionakatsu.github.io/KindleReviewMeter/) [![Chrome Extension](https://img.shields.io/badge/Extension-In%20Development-orange)](#chrome-extension)
+
+Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化・共有するツールです。
+
+## 🚀 プロジェクト構成
+
+このリポジトリには2つのバージョンが含まれています：
+
+### 📱 Webアプリ版 (main ブランチ)
+- 統合型HTMLアプリケーション（SPA）
+- ブラウザで直接利用可能
+- **デモ**: [https://makionakatsu.github.io/KindleReviewMeter/](https://makionakatsu.github.io/KindleReviewMeter/)
+
+### 🔧 Chrome拡張機能版 (feature/chrome-extension ブランチ)
+- Manifest V3対応
+- Service Worker実装
+- Context Menu統合
+- Chrome Storage API対応
+
+---
 
 ## 使い方（MVP）
 - 設定タブ:
