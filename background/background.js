@@ -117,475 +117,548 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // ============================================================================
 
 /**
- * Amazon Data Fetching Service
+ * Intelligent Caching System for Amazon Data
+ * 
+ * Features:
+ * - In-memory cache with TTL (Time To Live)
+ * - Smart cache invalidation based on content age
+ * - Automatic cleanup of expired entries
+ * - Cache hit/miss tracking for optimization
+ */
+class AmazonDataCache {
+  constructor() {
+    this.cache = new Map();
+    this.defaultTTL = 5 * 60 * 1000; // 5 minutes for fresh data
+    this.maxSize = 100; // Limit memory usage
+    this.stats = { hits: 0, misses: 0 };
+    
+    // Clean up expired entries every 2 minutes
+    setInterval(() => this.cleanup(), 2 * 60 * 1000);
+  }
+  
+  generateKey(url) {
+    // Use normalized URL as cache key
+    return normalizeAmazonUrl(url) || url;
+  }
+  
+  get(url) {
+    const key = this.generateKey(url);
+    const entry = this.cache.get(key);
+    
+    if (!entry) {
+      this.stats.misses++;
+      return null;
+    }
+    
+    // Check if entry is still valid
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      this.stats.misses++;
+      return null;
+    }
+    
+    this.stats.hits++;
+    console.log(`📦 Cache HIT for ${key.substring(0, 50)}...`);
+    return entry.data;
+  }
+  
+  set(url, data, ttl = this.defaultTTL) {
+    const key = this.generateKey(url);
+    
+    // Implement LRU-like behavior: remove oldest if cache is full
+    if (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      this.cache.delete(oldestKey);
+    }
+    
+    const entry = {
+      data: data,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + ttl,
+      accessCount: 1
+    };
+    
+    this.cache.set(key, entry);
+    console.log(`💾 Cache SET for ${key.substring(0, 50)}... (TTL: ${ttl/1000}s)`);
+  }
+  
+  cleanup() {
+    const now = Date.now();
+    let cleanedCount = 0;
+    
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+        cleanedCount++;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      console.log(`🧹 Cache cleanup: removed ${cleanedCount} expired entries`);
+    }
+  }
+  
+  getStats() {
+    const hitRate = this.stats.hits + this.stats.misses > 0 
+      ? (this.stats.hits / (this.stats.hits + this.stats.misses) * 100).toFixed(1)
+      : 0;
+    
+    return {
+      size: this.cache.size,
+      hits: this.stats.hits,
+      misses: this.stats.misses,
+      hitRate: `${hitRate}%`
+    };
+  }
+  
+  clear() {
+    this.cache.clear();
+    this.stats = { hits: 0, misses: 0 };
+    console.log('🗑️ Cache cleared');
+  }
+}
+
+// Global cache instance
+const amazonDataCache = new AmazonDataCache();
+
+/**
+ * Dynamic Proxy Performance Tracker
+ * 
+ * Features:
+ * - Track success rates and response times per proxy
+ * - Dynamic reordering based on performance metrics
+ * - Automatic proxy health monitoring
+ * - Performance-based timeout adjustments
+ */
+class ProxyPerformanceTracker {
+  constructor() {
+    this.stats = new Map();
+    this.defaultProxies = [
+      'https://api.allorigins.win/get?url=',
+      'https://corsproxy.io/?',
+      'https://api.codetabs.com/v1/proxy?quest=',
+      'https://thingproxy.freeboard.io/fetch/',
+      'https://cors-anywhere.herokuapp.com/'
+    ];
+    
+    // Initialize stats for each proxy
+    this.defaultProxies.forEach(proxy => {
+      this.stats.set(proxy, {
+        attempts: 0,
+        successes: 0,
+        totalResponseTime: 0,
+        averageResponseTime: 0,
+        successRate: 0,
+        lastUsed: 0,
+        consecutiveFailures: 0
+      });
+    });
+  }
+  
+  recordAttempt(proxy, success, responseTime) {
+    const stat = this.stats.get(proxy);
+    if (!stat) return;
+    
+    stat.attempts++;
+    stat.lastUsed = Date.now();
+    
+    if (success) {
+      stat.successes++;
+      stat.consecutiveFailures = 0;
+      stat.totalResponseTime += responseTime;
+      stat.averageResponseTime = stat.totalResponseTime / stat.successes;
+    } else {
+      stat.consecutiveFailures++;
+    }
+    
+    stat.successRate = (stat.successes / stat.attempts) * 100;
+    
+    console.log(`📈 Proxy stats updated: ${proxy.split('/')[2]} - ${stat.successRate.toFixed(1)}% success, ${stat.averageResponseTime.toFixed(0)}ms avg`);
+  }
+  
+  getOptimizedProxyList() {
+    // Create array of [proxy, score] pairs
+    const scoredProxies = Array.from(this.stats.entries()).map(([proxy, stat]) => {
+      let score = 0;
+      
+      // Base score from success rate (0-100)
+      score += stat.successRate * 1.0;
+      
+      // Bonus for fast response times (faster = higher score)
+      if (stat.averageResponseTime > 0) {
+        const speedBonus = Math.max(0, 50 - (stat.averageResponseTime / 100));
+        score += speedBonus;
+      }
+      
+      // Penalty for consecutive failures
+      score -= stat.consecutiveFailures * 20;
+      
+      // Slight bonus for recent usage (helps with load balancing)
+      const hoursSinceLastUse = (Date.now() - stat.lastUsed) / (1000 * 60 * 60);
+      if (hoursSinceLastUse < 1) {
+        score += 5;
+      }
+      
+      // Ensure non-negative score
+      score = Math.max(0, score);
+      
+      return { proxy, score, stat };
+    });
+    
+    // Sort by score (highest first) and extract proxies
+    const optimizedList = scoredProxies
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.proxy);
+    
+    console.log('🎯 Optimized proxy order:', optimizedList.map(p => `${p.split('/')[2]}(${this.stats.get(p).successRate.toFixed(0)}%)`));
+    
+    return optimizedList;
+  }
+  
+  getRecommendedTimeout(proxy) {
+    const stat = this.stats.get(proxy);
+    if (!stat || stat.averageResponseTime === 0) {
+      return 4000; // Default timeout
+    }
+    
+    // Dynamic timeout: average response time + buffer
+    // But keep within reasonable bounds (2-8 seconds)
+    const dynamicTimeout = Math.min(8000, Math.max(2000, stat.averageResponseTime * 3));
+    return dynamicTimeout;
+  }
+  
+  getStats() {
+    const stats = {};
+    for (const [proxy, stat] of this.stats.entries()) {
+      stats[proxy.split('/')[2]] = {
+        successRate: `${stat.successRate.toFixed(1)}%`,
+        avgResponseTime: `${stat.averageResponseTime.toFixed(0)}ms`,
+        attempts: stat.attempts,
+        consecutiveFailures: stat.consecutiveFailures
+      };
+    }
+    return stats;
+  }
+  
+  reset() {
+    this.stats.forEach(stat => {
+      stat.attempts = 0;
+      stat.successes = 0;
+      stat.totalResponseTime = 0;
+      stat.averageResponseTime = 0;
+      stat.successRate = 0;
+      stat.lastUsed = 0;
+      stat.consecutiveFailures = 0;
+    });
+    console.log('🔄 Proxy performance stats reset');
+  }
+}
+
+// Global proxy tracker instance
+const proxyTracker = new ProxyPerformanceTracker();
+
+/**
+ * Amazon Data Fetching Service - Speed Optimized
  * 
  * Responsibilities:
  * - Extract book information from Amazon product pages
- * - Handle CORS restrictions via multiple proxy attempts
+ * - Handle CORS restrictions via parallel proxy attempts
  * - Parse HTML content to extract title, author, image, and review count
  * - Provide fallback mechanisms for reliable data extraction
  * 
- * Architecture:
- * - Multi-proxy system with automatic failover
- * - Enhanced HTML parsing with regex-based selectors
- * - URL normalization and validation
- * - Comprehensive error handling and logging
+ * Speed Optimizations:
+ * - Parallel proxy processing with Promise.race() for first-success
+ * - Reduced timeout to 4 seconds per proxy
+ * - Intelligent proxy prioritization based on past performance
+ * - Streamlined error handling and reduced logging
  */
 async function handleAmazonDataFetch(url) {
+  const fetchStartTime = Date.now();
+  
   // Normalize URL first
   const normalizedUrl = normalizeAmazonUrl(url);
   if (!normalizedUrl) {
     throw new Error('Invalid Amazon URL - could not normalize');
   }
   
-  console.log('Using normalized URL:', normalizedUrl);
+  console.log('⚡ Speed-optimized fetch for:', normalizedUrl);
+  
+  // Check cache first - this could save significant time
+  const cachedData = amazonDataCache.get(normalizedUrl);
+  if (cachedData) {
+    const totalDuration = Date.now() - fetchStartTime;
+    console.log(`🚀 Cache hit! Returned in ${totalDuration}ms`);
+    return cachedData;
+  }
 
   try {
-    // Multiple CORS proxy attempts for reliability
-    const proxies = [
-      'https://api.allorigins.win/get?url=',
-      'https://corsproxy.io/?',
-      'https://cors-anywhere.herokuapp.com/',
-      'https://thingproxy.freeboard.io/fetch/',
-      'https://api.codetabs.com/v1/proxy?quest=',
-    ];
+    // Use dynamically optimized proxy list based on performance
+    const proxies = proxyTracker.getOptimizedProxyList();
     
-    let htmlContent = null;
-    
-    // Try each proxy until one works
-    for (let i = 0; i < proxies.length; i++) {
-      const proxy = proxies[i];
-      try {
-        const proxyUrl = proxy + encodeURIComponent(normalizedUrl);
-        console.log(`Trying proxy ${i + 1}/${proxies.length}: ${proxy}`);
-        
+    // Create parallel fetch promises with dynamic timeouts
+    const createProxyFetch = (proxy, index) => {
+      return new Promise(async (resolve, reject) => {
+        const proxyStartTime = Date.now();
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
         
-        const response = await fetch(proxyUrl, {
-          method: 'GET',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
-            'Cache-Control': 'no-cache'
-          },
-          signal: controller.signal
-        });
+        // Use dynamic timeout based on proxy's historical performance
+        const dynamicTimeout = proxyTracker.getRecommendedTimeout(proxy);
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Timeout after ${dynamicTimeout}ms`));
+        }, dynamicTimeout);
         
-        clearTimeout(timeoutId);
-        
-        console.log(`Proxy ${proxy} response:`, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: Object.fromEntries(response.headers.entries())
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status} ${response.statusText}`);
-        }
-        
-        // Handle different proxy response formats
-        let data;
-        const contentType = response.headers.get('content-type');
-        
-        if (contentType && contentType.includes('application/json')) {
-          data = await response.json();
-          htmlContent = data.contents || data.response || data.data || data;
-        } else {
-          htmlContent = await response.text();
-        }
-        
-        console.log('Received content length:', htmlContent ? htmlContent.length : 0);
-        
-        if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 1000) {
-          console.log('Successfully fetched data with proxy:', proxy);
-          console.log('Content length:', htmlContent.length);
-          console.log('Content preview:', htmlContent.substring(0, 300) + '...');
+        try {
+          const proxyUrl = proxy + encodeURIComponent(normalizedUrl);
           
-          // Check if it looks like an Amazon page (restored from working version)
-          const isAmazonPage = htmlContent.includes('amazon') || 
-                              htmlContent.includes('productTitle') || 
-                              htmlContent.includes('dp/') ||
-                              htmlContent.includes('<title>') && htmlContent.includes('</title>');
+          const response = await fetch(proxyUrl, {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
+              'Cache-Control': 'no-cache'
+            },
+            signal: controller.signal
+          });
           
-          if (isAmazonPage) {
-            console.log('Content appears to be from Amazon page');
-            break;
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          // Handle different proxy response formats
+          let data, htmlContent;
+          const contentType = response.headers.get('content-type');
+          
+          if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+            htmlContent = data.contents || data.response || data.data || data;
           } else {
-            console.warn('Content does not appear to be from Amazon page, trying next proxy');
-            continue;
+            htmlContent = await response.text();
           }
-        } else {
-          console.warn(`Proxy ${proxy} returned insufficient content:`, typeof htmlContent, htmlContent?.length);
-          if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 0) {
-            console.warn('Content preview:', htmlContent.substring(0, 200));
+          
+          // Quick validation
+          if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 1000) {
+            const isAmazonPage = htmlContent.includes('productTitle') || 
+                                htmlContent.includes('amazon') || 
+                                htmlContent.includes('<title>');
+            
+            if (isAmazonPage) {
+              const duration = Date.now() - proxyStartTime;
+              console.log(`✅ Proxy ${index + 1} succeeded in ${duration}ms`);
+              
+              // Record successful proxy performance
+              proxyTracker.recordAttempt(proxy, true, duration);
+              
+              resolve({ htmlContent, proxy, duration, index });
+            } else {
+              reject(new Error('Not Amazon page'));
+            }
+          } else {
+            reject(new Error('Insufficient content'));
           }
+        } catch (error) {
+          clearTimeout(timeoutId);
+          
+          // Record failed proxy performance
+          const duration = Date.now() - proxyStartTime;
+          proxyTracker.recordAttempt(proxy, false, duration);
+          
+          reject(new Error(`${proxy.split('/')[2]}: ${error.message}`));
         }
-      } catch (error) {
-        console.warn(`Proxy ${proxy} failed:`, {
-          message: error.message,
-          name: error.name,
-          stack: error.stack?.substring(0, 200)
-        });
-        continue;
+      });
+    };
+    
+    // Launch all proxy attempts in parallel
+    const proxyPromises = proxies.map(createProxyFetch);
+    
+    // Strategy 1: Race for the first successful response
+    let result = null;
+    try {
+      console.log(`🚀 Racing ${proxies.length} proxies in parallel...`);
+      result = await Promise.race(proxyPromises);
+      console.log(`🏆 First success: Proxy ${result.index + 1} in ${result.duration}ms`);
+    } catch (raceError) {
+      console.log('⚠️ Race failed, trying Promise.allSettled fallback...');
+      
+      // Strategy 2: If race fails, wait for any successful completion
+      const settled = await Promise.allSettled(proxyPromises);
+      const successful = settled.find(p => p.status === 'fulfilled');
+      
+      if (successful) {
+        result = successful.value;
+        console.log(`🎯 Fallback success: Proxy ${result.index + 1}`);
+      } else {
+        const errors = settled
+          .filter(p => p.status === 'rejected')
+          .map((p, i) => `${i + 1}: ${p.reason.message}`)
+          .join(', ');
+        throw new Error(`All proxies failed: ${errors}`);
       }
     }
     
-    if (!htmlContent) {
-      throw new Error('All proxies failed');
+    if (!result?.htmlContent) {
+      throw new Error('No valid content retrieved from any proxy');
     }
     
-    const bookData = parseAmazonHTML(htmlContent, normalizedUrl);
+    const totalDuration = Date.now() - fetchStartTime;
+    console.log(`⚡ Speed improvement: Total fetch completed in ${totalDuration}ms`);
+    
+    const bookData = parseAmazonHTML(result.htmlContent, normalizedUrl);
     bookData.normalizedUrl = normalizedUrl;
+    bookData.fetchDurationMs = totalDuration;
+    bookData.winningProxy = result.proxy;
+    
+    // Cache the successful result for future requests
+    amazonDataCache.set(normalizedUrl, bookData);
+    
+    // Log performance stats periodically
+    const cacheStats = amazonDataCache.getStats();
+    const proxyStats = proxyTracker.getStats();
+    console.log(`📊 Performance stats:`);
+    console.log(`   Cache: ${cacheStats.size} entries, ${cacheStats.hitRate} hit rate`);
+    console.log(`   Top proxies:`, Object.entries(proxyStats).slice(0, 2).map(([name, stat]) => `${name}(${stat.successRate})`));
+    
     return bookData;
     
   } catch (error) {
-    console.error('Amazon scraping failed:', error);
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      url: normalizedUrl
-    });
+    const totalDuration = Date.now() - fetchStartTime;
+    console.error(`❌ Amazon scraping failed after ${totalDuration}ms:`, error.message);
     
     throw new Error(`Amazon商品ページからのデータ取得に失敗しました。手動でデータを入力してください。: ${error.message}`);
   }
 }
 
 /**
- * Parse Amazon HTML to extract book data (Service Worker compatible with original selectors)
+ * Parse Amazon HTML to extract book data - Speed Optimized
+ * 
+ * Optimizations:
+ * - Reduced logging for faster execution
+ * - Streamlined regex patterns with early returns
+ * - Optimized text extraction with fewer replacements
+ * - Pattern matching stops on first valid result
  */
 function parseAmazonHTML(html, url) {
+  const parseStartTime = Date.now();
+  
   try {
-    console.log('Parsing HTML content, length:', html.length);
-    
-    // Helper function to extract text content between tags (simulates textContent)
+    // Optimized helper function to extract text content
     function extractTextContent(htmlString) {
       if (!htmlString) return '';
       
+      // Single-pass optimization: combine multiple replacements
       return htmlString
         .replace(/<[^>]*>/g, '') // Remove HTML tags
-        .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
-        .replace(/&quot;/g, '"') // Replace quotes
-        .replace(/&amp;/g, '&') // Replace ampersands
-        .replace(/&lt;/g, '<') // Replace less than
-        .replace(/&gt;/g, '>') // Replace greater than
-        .replace(/&#39;/g, "'") // Replace apostrophes
-        .replace(/&#x27;/g, "'") // Replace apostrophes (hex)
-        .replace(/&mdash;/g, '—') // Replace em dash
-        .replace(/&ndash;/g, '–') // Replace en dash
+        .replace(/&(?:nbsp|#160);/g, ' ') // Non-breaking spaces
+        .replace(/&(?:quot|#34);/g, '"') // Quotes
+        .replace(/&(?:amp|#38);/g, '&') // Ampersands  
+        .replace(/&(?:lt|#60);/g, '<') // Less than
+        .replace(/&(?:gt|#62);/g, '>') // Greater than
+        .replace(/&(?:#39|#x27);/g, "'") // Apostrophes
+        .replace(/&(?:mdash|#8212);/g, '—') // Em dash
+        .replace(/&(?:ndash|#8211);/g, '–') // En dash
         .replace(/\s+/g, ' ') // Normalize whitespace
         .trim();
     }
     
-    // Helper function to find elements by selector-like patterns
-    function findBySelector(html, selectorPatterns) {
-      console.log('findBySelector called with', selectorPatterns.length, 'patterns');
-      for (let i = 0; i < selectorPatterns.length; i++) {
-        const pattern = selectorPatterns[i];
-        console.log(`Trying pattern ${i + 1}:`, pattern.source.substring(0, 80) + '...');
-        const match = html.match(pattern);
-        console.log('Pattern match result:', !!match, match?.[1]?.length || 0);
+    // Speed-optimized pattern matcher with early exit
+    function findBySelector(html, selectorPatterns, maxTries = 3) {
+      for (let i = 0; i < Math.min(selectorPatterns.length, maxTries); i++) {
+        const match = html.match(selectorPatterns[i]);
         
         if (match && match[1]) {
           const content = extractTextContent(match[1])
-            .replace(/\s*[-–|]\s*Amazon.*$/i, '') // Remove Amazon suffix
-            .replace(/\s*:\s*Amazon.*$/i, '') // Remove Amazon suffix with colon
+            .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
             .trim();
           
-          console.log('Extracted content:', content.substring(0, 100));
-          
-          // Validate the content
+          // Quick validation - optimized boolean logic
           if (content.length >= 2 && content.length <= 300 && 
-              !content.match(/^(amazon|kindle|book|title|error|not found)$/i)) {
-            console.log('✅ Found valid title with pattern:', pattern.source.substring(0, 50));
+              !/^(amazon|kindle|book|title|error|not found)$/i.test(content)) {
             return content;
-          } else {
-            console.log('❌ Content rejected:', 
-              content.length < 2 ? 'too short' : 
-              content.length > 300 ? 'too long' : 'invalid content');
           }
         }
       }
-      console.log('❌ No patterns matched');
       return null;
     }
     
-    // Extract title - simplified and more robust patterns
+    // Extract title - prioritized patterns for speed
     const titlePatterns = [
-      // Most reliable: productTitle span - simplified
       /<span[^>]*id="productTitle"[^>]*>([^<]+)<\/span>/i,
-      /<span[^>]*id="productTitle"[^>]*>\s*([^<]+(?:\s*<[^>]*>[^<]*<\/[^>]*>[^<]*)*?)\s*<\/span>/i,
-      
-      // h1 with a-size-large class
       /<h1[^>]*class="[^"]*a-size-large[^"]*"[^>]*>([^<]+)<\/h1>/i,
-      /<h1[^>]*class="[^"]*a-size-large[^"]*"[^>]*>\s*([^<]+(?:\s*<[^>]*>[^<]*<\/[^>]*>[^<]*)*?)\s*<\/h1>/i,
-      
-      // Any h1 tag
-      /<h1[^>]*>([^<]+)<\/h1>/i,
-      
-      // Page title
-      /<title>\s*([^<]+?)\s*[-–|]\s*Amazon/i,
-      /<title>\s*([^<]+?)\s*:\s*Amazon/i,
-      
-      // Meta og:title
+      /<title>\s*([^<]+?)\s*[-–|:]\s*Amazon/i,
       /<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-      
-      // Very basic fallback - any title tag
-      /<title>([^<]+)<\/title>/i
+      /<h1[^>]*>([^<]+)<\/h1>/i
     ];
     
-    console.log('Attempting title extraction with', titlePatterns.length, 'patterns');
-    const title = findBySelector(html, titlePatterns);
-    console.log('Title extraction result:', title);
+    const title = findBySelector(html, titlePatterns, 3); // Limit to first 3 attempts
     
-    // Extract author - using original selectors (multiple approaches)
+    // Extract author - streamlined patterns
     const authorPatterns = [
-      // .author .contributorNameID
-      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/gi,
-      // .author a
-      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/gi,
-      // .by-author a
-      /<[^>]*class="[^"]*by-author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/gi,
-      // [data-automation-id="byline"] a
-      /<[^>]*data-automation-id="byline"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/gi,
-      // .a-size-base+ .a-size-base .a-link-normal (adjacent sibling selector approximation)
-      /<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-link-normal[^"]*"[^>]*>([^<]+)<\/[^>]*>/gi
+      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      /<[^>]*data-automation-id="byline"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
+      /著[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i,
+      /<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i
     ];
     
-    let author = findBySelector(html, authorPatterns);
+    const author = findBySelector(html, authorPatterns, 2); // Quick author lookup
     
-    // Additional author extraction for Japanese pages
-    if (!author) {
-      const japaneseAuthorPatterns = [
-        /著[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/gi,
-        /作[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/gi,
-        /著[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/gi
-      ];
-      author = findBySelector(html, japaneseAuthorPatterns);
-    }
-    
-    // Extract image URL - comprehensive patterns for Amazon book covers
+    // Extract image URL - optimized patterns
     const imagePatterns = [
-      // Main product image patterns
-      /<img[^>]*id="landingImage"[^>]*src="([^"]+)"/gi,
-      /<img[^>]*id="imgBlkFront"[^>]*src="([^"]+)"/gi,
-      /<img[^>]*id="ebooksImgBlkFront"[^>]*src="([^"]+)"/gi,
-      
-      // Data-src attributes (lazy loading)
-      /<img[^>]*id="landingImage"[^>]*data-src="([^"]+)"/gi,
-      /<img[^>]*id="imgBlkFront"[^>]*data-src="([^"]+)"/gi,
-      /<img[^>]*id="ebooksImgBlkFront"[^>]*data-src="([^"]+)"/gi,
-      
-      // Class-based patterns
-      /<img[^>]*class="[^"]*a-dynamic-image[^"]*"[^>]*src="([^"]+)"/gi,
-      /<img[^>]*class="[^"]*frontImage[^"]*"[^>]*src="([^"]+)"/gi,
-      /<img[^>]*class="[^"]*itemImageBlock[^"]*"[^>]*src="([^"]+)"/gi,
-      
-      // Container-based patterns
-      /<[^>]*class="[^"]*frontImage[^"]*"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"/gi,
-      /<[^>]*class="[^"]*itemImageBlock[^"]*"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"/gi,
-      /<[^>]*id="imageBlock"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"/gi,
-      /<[^>]*id="imgTagWrapperId"[^>]*>[\s\S]*?<img[^>]*src="([^"]+)"/gi,
-      
-      // Alternative attributes and patterns
-      /<img[^>]*data-old-hires="([^"]+)"/gi,
-      /<img[^>]*data-a-dynamic-image="[^"]*&quot;([^&]+)&quot;"/gi,
-      
-      // General Amazon image patterns
-      /src="([^"]*images-amazon[^"]*\.jpg[^"]*)"/gi,
-      /src="([^"]*ssl-images-amazon[^"]*\.jpg[^"]*)"/gi,
-      /src="([^"]*media-amazon[^"]*\.jpg[^"]*)"/gi,
-      /data-src="([^"]*images-amazon[^"]*\.jpg[^"]*)"/gi,
-      /data-src="([^"]*ssl-images-amazon[^"]*\.jpg[^"]*)"/gi,
-      
-      // Fallback: any image with book-like dimensions in URL
-      /src="([^"]*amazon[^"]*[_\.](?:SX|SY|AC_UL|AC_SX|AC_SY)\d+[^"]*\.jpg[^"]*)"/gi
+      /<img[^>]*id="(?:landingImage|imgBlkFront|ebooksImgBlkFront)"[^>]*(?:src|data-src)="([^"]+)"/i,
+      /<img[^>]*class="[^"]*(?:a-dynamic-image|frontImage)"[^>]*src="([^"]+)"/i,
+      /src="([^"]*(?:images-amazon|ssl-images-amazon|media-amazon)[^"]*\.jpg[^"]*)"/i,
+      /"(?:image|hiRes|large)":\s*"([^"]*amazon[^"]*\.jpg[^"]*)"/i
     ];
     
     let imageUrl = null;
     for (const pattern of imagePatterns) {
-      const matches = html.matchAll(pattern);
-      for (const match of matches) {
-        if (match && match[1]) {
-          let candidateUrl = match[1];
-          
-          // Clean up the URL
-          candidateUrl = candidateUrl.replace(/&amp;/g, '&');
-          
-          // Check if it's a valid Amazon image
-          const isAmazonImage = candidateUrl.includes('amazon') || 
-                               candidateUrl.includes('ssl-images') || 
-                               candidateUrl.includes('media-amazon') ||
-                               candidateUrl.includes('images-na');
-          
-          // Avoid tiny thumbnails and icons
-          const isNotThumbnail = !candidateUrl.includes('._SS') && 
-                                 !candidateUrl.includes('._SX40') && 
-                                 !candidateUrl.includes('._SY40') &&
-                                 !candidateUrl.includes('._AC_UL16') &&
-                                 !candidateUrl.includes('favicon');
-          
-          if (isAmazonImage && isNotThumbnail) {
-            imageUrl = candidateUrl;
-            console.log('Found image with pattern:', pattern.source.substring(0, 50));
-            console.log('Image URL:', imageUrl.substring(0, 80) + '...');
-            break;
-          }
-        }
-      }
-      if (imageUrl) break;
-    }
-    
-    // If no direct image found, try to extract from JSON-LD or script tags
-    if (!imageUrl) {
-      const jsonPatterns = [
-        /"image":\s*"([^"]*amazon[^"]*\.jpg[^"]*)"/gi,
-        /"hiRes":\s*"([^"]*amazon[^"]*\.jpg[^"]*)"/gi,
-        /"large":\s*"([^"]*amazon[^"]*\.jpg[^"]*)"/gi
-      ];
-      
-      for (const pattern of jsonPatterns) {
-        const match = html.match(pattern);
-        if (match && match[1]) {
-          imageUrl = match[1].replace(/\\u003d/g, '=').replace(/\\/g, '');
-          console.log('Found image in JSON with pattern:', pattern.source.substring(0, 30));
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        let candidateUrl = match[1].replace(/&amp;/g, '&');
+        
+        // Quick validation
+        if (candidateUrl.includes('amazon') && 
+            !candidateUrl.includes('._SS') && 
+            !candidateUrl.includes('._SX40') && 
+            !candidateUrl.includes('favicon')) {
+          imageUrl = candidateUrl;
           break;
         }
       }
     }
     
-    // Extract review count - enhanced patterns to avoid price confusion
-    const reviewSelectors = [
-      '[data-hook="total-review-count"]',
-      '.cr-widget-ACR .a-size-base', 
-      '.averageStarRating .a-size-base',
-      'review link #customerReviews',
-      'review link reviews',
-      'Japanese: 個の評価',
-      'Japanese: 件のレビュー',
-      'Japanese: レビュー件',
-      'Japanese: カスタマーレビュー',
-      '.a-link-normal .a-size-base (price excluded)'
-    ];
-    
-    // Convert selectors to regex patterns, with additional specific patterns for reviews
+    // Extract review count - streamlined for speed
     const reviewPatterns = [
-      // [data-hook="total-review-count"] - most reliable
-      /<[^>]*data-hook="total-review-count"[^>]*>([^<]*)<\/[^>]*>/gi,
-      
-      // .cr-widget-ACR .a-size-base
-      /<[^>]*class="[^"]*cr-widget-ACR[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>([^<]*)<\/[^>]*>/gi,
-      
-      // .averageStarRating .a-size-base
-      /<[^>]*class="[^"]*averageStarRating[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>([^<]*)<\/[^>]*>/gi,
-      
-      // Review links (customer review section)
-      /<a[^>]*href="[^"]*#customerReviews[^"]*"[^>]*>([^<]*\d[^<]*)<\/a>/gi,
-      /<a[^>]*href="[^"]*reviews[^"]*"[^>]*>([^<]*\d[^<]*)<\/a>/gi,
-      
-      // Japanese specific patterns (more targeted)
-      /([0-9,\d]+)[\s]*個の評価/gi,
-      /([0-9,\d]+)[\s]*件のレビュー/gi, 
-      /レビュー[\s]*([0-9,\d]+)[\s]*件/gi,
-      /カスタマーレビュー[\s\S]*?([0-9,\d]+)[\s]*件/gi,
-      
-      // .a-link-normal .a-size-base but exclude price patterns
-      /<[^>]*class="[^"]*a-link-normal[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>([^<]*\d[^<]*(?!.*￥|.*円|.*から))<\/[^>]*>/gi
+      /<[^>]*data-hook="total-review-count"[^>]*>([^<]*)<\/[^>]*>/i,
+      /<a[^>]*href="[^"]*#customerReviews[^"]*"[^>]*>([^<]*\d[^<]*)<\/a>/i,
+      /([0-9,\d]+)[\s]*(?:個の評価|件のレビュー)/i,
+      /<[^>]*class="[^"]*cr-widget-ACR[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*a-size-base[^"]*"[^>]*>([^<]*)<\/[^>]*>/i
     ];
     
     let reviewCount = 0;
-    let allCandidates = []; // Debug: track all found numbers
     
-    // Try selectors in order, but first collect all candidates for debugging
-    for (let i = 0; i < reviewPatterns.length; i++) {
-      const pattern = reviewPatterns[i];
-      const selectorName = reviewSelectors[i];
-      const matches = html.matchAll(pattern);
-      
-      let foundAny = false;
-      for (const match of matches) {
-        if (match && match[1]) {
-          foundAny = true;
-          const text = extractTextContent(match[1]);
-          const numberMatches = text.match(/(\d{1,3}(?:,\d{3})*|\d+)/);
-          if (numberMatches) {
-            const candidate = parseInt(numberMatches[1].replace(/,/g, ''));
-            if (candidate > 0) {
-              allCandidates.push({
-                selector: selectorName,
-                count: candidate,
-                text: text.substring(0, 50),
-                patternIndex: i,
-                rawMatch: match[1].substring(0, 50)
-              });
-              console.log(`Pattern ${i} (${selectorName}): found ${candidate} in "${text.substring(0, 50)}" | raw: "${match[1].substring(0, 50)}"`);
-            }
-          }
+    // Quick search for review count
+    for (const pattern of reviewPatterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        const text = extractTextContent(match[1]);
+        const numberMatch = text.match(/(\d{1,3}(?:,\d{3})*|\d+)/);
+        if (numberMatch) {
+          reviewCount = parseInt(numberMatch[1].replace(/,/g, ''));
+          if (reviewCount > 0) break; // Take first valid number found
         }
       }
-      
-      if (!foundAny) {
-        console.log(`Pattern ${i} (${selectorName}): No matches found`);
-      }
     }
     
-    // Additional search for 1292 specifically in the HTML
-    console.log('=== Searching specifically for 1292 in HTML ===');
-    const search1292Patterns = [
-      /1[,，]?292/g,
-      /1292/g,
-      />[^<]*1[,，]?292[^<]*</g
-    ];
-    
-    for (let i = 0; i < search1292Patterns.length; i++) {
-      const pattern = search1292Patterns[i];
-      const matches = html.matchAll(pattern);
-      for (const match of matches) {
-        console.log(`Found "1292" pattern ${i}:`, match[0].substring(0, 100));
-        
-        // Look for surrounding context (100 characters before and after)
-        const index = html.indexOf(match[0]);
-        const start = Math.max(0, index - 100);
-        const end = Math.min(html.length, index + match[0].length + 100);
-        const context = html.substring(start, end);
-        console.log('Context around 1292:', context);
-      }
-    }
-    
-    console.log('All review count candidates:', allCandidates);
-    
-    // Now use original logic: take first valid match
-    if (allCandidates.length > 0) {
-      reviewCount = allCandidates[0].count;
-      console.log('Selected review count (first match):', reviewCount, 'from', allCandidates[0].selector);
-      
-      // But let's also check if there's a significantly larger number that might be the correct one
-      const maxCandidate = allCandidates.reduce((max, current) => current.count > max.count ? current : max);
-      if (maxCandidate.count > reviewCount * 1.2) { // If max is 20% larger, it might be the correct one
-        console.log('WARNING: Found larger review count:', maxCandidate.count, 'from', maxCandidate.selector);
-        console.log('Consider using this instead of', reviewCount);
-      }
-    }
-    
-    console.log('Extraction results:', {
-      title: title ? title.substring(0, 50) + '...' : null,
-      author: author ? author.substring(0, 30) + '...' : null,
-      imageUrl: imageUrl ? imageUrl.substring(0, 50) + '...' : null,
-      reviewCount: reviewCount
-    });
-    
-    // Final validation with debugging info
+    // Final validation
     if (!title || title.length < 2) {
-      console.error('Title extraction failed completely');
-      console.error('Debug info:');
-      console.error('- HTML length:', html.length);
-      console.error('- Contains productTitle?', html.includes('productTitle'));
-      console.error('- Contains <title>?', html.includes('<title>'));
-      console.error('- HTML preview:', html.substring(0, 500));
-      
-      throw new Error('Amazon商品ページからタイトルを抽出できませんでした。ページの構造が予期されたものと異なります。');
+      throw new Error('Amazon商品ページからタイトルを抽出できませんでした。');
     }
+    
+    const parseDuration = Date.now() - parseStartTime;
+    console.log(`🔍 HTML parsing completed in ${parseDuration}ms`);
     
     return {
       title: title,
@@ -593,11 +666,12 @@ function parseAmazonHTML(html, url) {
       imageUrl: imageUrl,
       currentReviews: reviewCount,
       extractedFrom: url,
-      extractionTime: new Date().toISOString()
+      extractionTime: new Date().toISOString(),
+      parseDurationMs: parseDuration
     };
     
   } catch (error) {
-    console.error('HTML parsing failed:', error);
+    console.error('❌ HTML parsing failed:', error.message);
     throw error;
   }
 }
