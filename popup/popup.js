@@ -286,6 +286,15 @@ class App {
     } else {
       console.error('Export button not found');
     }
+
+    // X Share button
+    const shareToXBtn = document.getElementById('shareToXBtn');
+    if (shareToXBtn) {
+      shareToXBtn.addEventListener('click', () => this.shareToX());
+      console.log('Share to X button event bound');
+    } else {
+      console.error('Share to X button not found');
+    }
   }
 
   async fetchAmazonData() {
@@ -709,6 +718,89 @@ class App {
         title: '機能制限'
       });
     }
+  }
+
+  async shareToX() {
+    console.log('Share to X button clicked');
+    
+    const data = await this.storage.load();
+    console.log('Loaded data for X sharing:', data);
+    
+    if (!data) {
+      this.toast.warning('シェアするデータがありません', {
+        title: 'シェア失敗'
+      });
+      return;
+    }
+
+    // 投稿文生成
+    const tweetText = this.generateTweetText(data);
+    console.log('Generated tweet text:', tweetText);
+
+    // X投稿URLを構築
+    const tweetUrl = this.buildTweetUrl(tweetText);
+    console.log('Tweet URL:', tweetUrl);
+
+    // 画像生成とX投稿画面オープンを統合処理
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        this.toast.info('画像生成中...', {
+          title: 'X投稿準備中',
+          duration: 4000
+        });
+
+        // 新しいバックグラウンドスクリプトアクションを使用
+        const response = await chrome.runtime.sendMessage({
+          action: 'shareToXWithImage',
+          data: data,
+          tweetUrl: tweetUrl
+        });
+
+        if (response && response.success) {
+          this.toast.success('画像を生成中です。完了後にX投稿画面が開きます。画像が自動添付されない場合はCtrl+V（Mac: Cmd+V）で貼り付けてください。', {
+            title: 'X投稿準備中',
+            duration: 8000
+          });
+        } else {
+          throw new Error(response?.error || 'X投稿準備に失敗しました');
+        }
+      } else {
+        // Chrome拡張機能コンテキスト外では画像なしでX投稿画面のみ開く
+        window.open(tweetUrl, '_blank');
+        this.toast.warning('画像生成にはChrome拡張機能が必要です', {
+          title: '機能制限',
+          duration: 4000
+        });
+      }
+    } catch (error) {
+      console.error('Error in X sharing process:', error);
+      this.toast.error(`X投稿の準備でエラーが発生しました: ${error.message}`, {
+        title: 'エラー',
+        duration: 8000
+      });
+    }
+  }
+
+  generateTweetText(data) {
+    const { title, reviewCount, targetReviews } = data;
+    const bookTitle = title || '書籍';
+    const currentCount = parseInt(reviewCount) || 0;
+    
+    if (targetReviews && parseInt(targetReviews) > 0) {
+      // パターンA: 目標値設定あり
+      const target = parseInt(targetReviews);
+      const remaining = Math.max(0, target - currentCount);
+      return `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚\n#KindleReviewMeter`;
+    } else {
+      // パターンB: 目標値設定なし
+      return `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚\n#KindleReviewMeter`;
+    }
+  }
+
+  buildTweetUrl(text) {
+    const encodedText = encodeURIComponent(text);
+    // Use compose endpoint for better media attach support
+    return `https://x.com/compose/tweet?text=${encodedText}`;
   }
 }
 

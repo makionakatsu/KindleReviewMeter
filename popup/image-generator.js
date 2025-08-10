@@ -273,6 +273,10 @@
         console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap });
       }
 
+      // Global variables for clipboard functionality
+      let globalCanvas = canvas;
+      let globalBlob = null;
+      
       // Direct download without preview
       const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
       const triggerDownload = (href) => {
@@ -284,19 +288,198 @@
         document.body.removeChild(a);
       };
 
-      canvas.toBlob((blob)=>{
+      // Setup clipboard button with multiple methods
+      const setupClipboardButton = (blob) => {
+        const copyBtn = document.getElementById('copyToClipboard');
+        if (copyBtn) {
+          copyBtn.style.display = 'inline-flex';
+          copyBtn.onclick = async () => {
+            let success = false;
+            let lastError = null;
+            
+            // Method 1: Modern Clipboard API
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'image/png': blob
+                })
+              ]);
+              success = true;
+              console.log('Clipboard copy succeeded with modern API');
+            } catch (error) {
+              lastError = error;
+              console.warn('Modern clipboard API failed:', error);
+            }
+            
+            // Method 2: Canvas copy to clipboard (alternative approach)
+            if (!success) {
+              try {
+                // Create a temporary canvas and try to copy it
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                await new Promise((resolve, reject) => {
+                  img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // Try to copy canvas
+                    canvas.toBlob(async (canvasBlob) => {
+                      try {
+                        await navigator.clipboard.write([
+                          new ClipboardItem({
+                            'image/png': canvasBlob
+                          })
+                        ]);
+                        resolve();
+                      } catch (e) {
+                        reject(e);
+                      }
+                    }, 'image/png');
+                  };
+                  img.onerror = reject;
+                  img.src = URL.createObjectURL(blob);
+                });
+                
+                success = true;
+                console.log('Clipboard copy succeeded with canvas method');
+              } catch (error) {
+                lastError = error;
+                console.warn('Canvas clipboard method failed:', error);
+              }
+            }
+            
+            if (success) {
+              copyBtn.textContent = 'コピー完了！';
+              copyBtn.style.background = '#10b981';
+              setTimeout(() => {
+                copyBtn.textContent = 'クリップボードにコピー';
+                copyBtn.style.background = '';
+              }, 2000);
+              
+              if (chrome?.runtime) {
+                chrome.runtime.sendMessage({
+                  action: 'clipboardCopySuccess',
+                  success: true
+                });
+              }
+            } else {
+              console.error('All clipboard copy methods failed. Last error:', {
+                name: lastError?.name,
+                message: lastError?.message,
+                code: lastError?.code,
+                stack: lastError?.stack
+              });
+              copyBtn.textContent = `コピー失敗 (${lastError?.name || 'Unknown'})`;
+              copyBtn.style.background = '#ef4444';
+              setTimeout(() => {
+                copyBtn.textContent = 'クリップボードにコピー';
+                copyBtn.style.background = '';
+              }, 3000);
+              
+              // Show detailed error to user
+              const statusEl = document.getElementById('status');
+              if (statusEl) {
+                statusEl.innerHTML = `クリップボードエラー: ${lastError?.name || 'Unknown'}<br>手動で画像をダウンロードしてX投稿画面にドラッグ&ドロップしてください。`;
+              }
+            }
+          };
+        }
+      };
+
+      canvas.toBlob(async (blob)=>{
+        const urlParams = new URLSearchParams(window.location.search);
+        const quickMode = urlParams.has('quickMode');
+
+        // Quick mode: クリップボードを使わず、データURLを背景→Xタブへ転送
+        if (quickMode) {
+          try {
+            let dataUrl;
+            if (blob) {
+              dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } else {
+              dataUrl = canvas.toDataURL('image/png');
+            }
+            if (chrome?.runtime?.sendMessage) {
+              await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl });
+              status.textContent = '画像データを送信しました';
+            }
+          } catch (e) {
+            console.error('Quick mode send failed, falling back to download:', e);
+            const fallbackUrl = blob ? URL.createObjectURL(blob) : canvas.toDataURL('image/png');
+            triggerDownload(fallbackUrl);
+          } finally {
+            setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
+          }
+          return;
+        }
+
+        // 通常モード: 既存のダウンロード + 任意のクリップボードコピー
         if (blob) {
+          // Setup manual clipboard button
+          setupClipboardButton(blob);
+          const helpText = document.getElementById('helpText');
+          if (helpText) helpText.style.display = 'block';
           const url = URL.createObjectURL(blob);
           triggerDownload(url);
-          setTimeout(()=>URL.revokeObjectURL(url), 2000);
+          try {
+            const permission = await navigator.permissions.query({name: 'clipboard-write'});
+            if (permission.state === 'granted' || permission.state === 'prompt') {
+              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+              status.textContent = 'ダウンロードを開始しました';
+              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
+            }
+          } catch (clipboardError) {
+            console.warn('Optional clipboard copy failed:', clipboardError);
+            status.textContent = 'ダウンロードを開始しました';
+            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
+          } finally {
+            setTimeout(()=>URL.revokeObjectURL(url), 2000);
+          }
         } else {
-          // Fallback to data URL
           const dataUrl = canvas.toDataURL('image/png');
           triggerDownload(dataUrl);
+          try {
+            const permission = await navigator.permissions.query({name: 'clipboard-write'});
+            if (permission.state === 'granted' || permission.state === 'prompt') {
+              const resp = await fetch(dataUrl);
+              const clipBlob = await resp.blob();
+              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': clipBlob }) ]);
+              status.textContent = 'ダウンロードを開始しました';
+              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
+            }
+          } catch (clipboardError) {
+            console.warn('Optional clipboard copy (data URL) failed:', clipboardError);
+            status.textContent = 'ダウンロードを開始しました';
+            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
+          }
         }
-        status.textContent = 'ダウンロードを開始しました';
-        // Try to auto-close after a moment (tab was opened by the extension)
-        setTimeout(()=>{ try { window.close(); } catch(_) {} }, 1500);
+
+        // 通常モード: オートクローズ制御（既存挙動維持）
+        const silent = urlParams.has('silent');
+        if (silent) {
+          const clipboardSuccess = false;
+          if (chrome?.runtime) {
+            chrome.runtime.sendMessage({ action: 'imageGenerationComplete', success: clipboardSuccess, error: clipboardSuccess ? null : 'Clipboard copy failed' });
+          }
+          setTimeout(() => { try { window.close(); } catch(_) {} }, 1000);
+        } else {
+          const autoClose = urlParams.has('autoClose');
+          if (autoClose) {
+            setTimeout(() => {
+              const statusEl = document.getElementById('status');
+              // 自動クローズの挙動は、クリップボードには依存させない
+              try { window.close(); } catch(_) {}
+            }, 3000);
+          }
+        }
       }, 'image/png');
     } catch (e) {
       console.error(e);
