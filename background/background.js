@@ -31,14 +31,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Receive generated image (as data URL) from image-generator tab in quickMode
   if (request.action === 'imageGenerated') {
     try {
+      console.log('imageGenerated received:', {
+        hasPendingXShare: !!pendingXShare,
+        hasDataUrl: !!request.dataUrl,
+        dataUrlLength: request.dataUrl?.length,
+        senderTabId: sender?.tab?.id
+      });
+      
       if (pendingXShare && request.dataUrl) {
         pendingXShare.dataUrl = request.dataUrl;
+        console.log('Updated pendingXShare with dataUrl, attempting to send to tweet tab');
         // Try to forward now; the content script may not yet be ready, so retries happen elsewhere
         trySendImageToTweetTab();
+      } else {
+        console.warn('Cannot process imageGenerated:', {
+          pendingXShare: !!pendingXShare,
+          dataUrl: !!request.dataUrl
+        });
       }
+      
       // Try closing the image tab (sender.tab.id), if available
       if (sender?.tab?.id) {
-        try { chrome.tabs.remove(sender.tab.id); } catch(_) {}
+        try { 
+          console.log('Closing image generation tab:', sender.tab.id);
+          chrome.tabs.remove(sender.tab.id); 
+        } catch(e) {
+          console.warn('Failed to close image tab:', e);
+        }
       }
       sendResponse({ success: true });
     } catch (err) {
@@ -50,7 +69,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Content script from X tweet page signals readiness
   if (request.action === 'xTweetPageReady') {
-    trySendImageToTweetTab();
+    console.log('X tweet page ready signal received');
+    // Only try to send if we have pending data and haven't sent yet
+    if (pendingXShare && pendingXShare.dataUrl && !pendingXShare.imageSent) {
+      console.log('Tweet page ready and we have pending image data, attempting send');
+      trySendImageToTweetTab();
+    } else {
+      console.log('Tweet page ready but no pending image or already sent:', {
+        hasPendingXShare: !!pendingXShare,
+        hasDataUrl: !!pendingXShare?.dataUrl,
+        imageSent: !!pendingXShare?.imageSent
+      });
+    }
     sendResponse({ ok: true });
     return true;
   }
@@ -689,26 +719,57 @@ async function handleImageExport(data) {
 let pendingXShare = null;
 
 async function trySendImageToTweetTab(maxAttempts = 8, delayMs = 500) {
-  if (!pendingXShare?.tweetTabId || !pendingXShare?.dataUrl) return false;
+  console.log('trySendImageToTweetTab called:', {
+    hasPendingXShare: !!pendingXShare,
+    tweetTabId: pendingXShare?.tweetTabId,
+    hasDataUrl: !!pendingXShare?.dataUrl,
+    dataUrlLength: pendingXShare?.dataUrl?.length,
+    imageSent: !!pendingXShare?.imageSent
+  });
+  
+  if (!pendingXShare?.tweetTabId || !pendingXShare?.dataUrl) {
+    console.warn('Cannot send image to tweet tab - missing required data');
+    return false;
+  }
+  
+  // Prevent duplicate sends
+  if (pendingXShare.imageSent) {
+    console.log('Image already sent, skipping duplicate send attempt');
+    return true;
+  }
+  
+  // Mark as in progress to prevent concurrent sends
+  pendingXShare.imageSent = true;
+  
   for (let i = 0; i < maxAttempts; i++) {
     try {
+      console.log(`Attempt ${i + 1}/${maxAttempts} to send image to tweet tab ${pendingXShare.tweetTabId}`);
       await new Promise(r => setTimeout(r, i === 0 ? 0 : delayMs));
+      
       const ensureInjected = async () => {
         // Try pinging the content script; if it fails to connect, inject the script programmatically
         const pingOk = await new Promise((resolve) => {
           try {
             chrome.tabs.sendMessage(pendingXShare.tweetTabId, { action: 'krmPing' }, (resp) => {
-              resolve(!chrome.runtime.lastError);
+              const success = !chrome.runtime.lastError;
+              console.log('Content script ping result:', { success, error: chrome.runtime.lastError?.message });
+              resolve(success);
             });
-          } catch (_) { resolve(false); }
+          } catch (e) { 
+            console.warn('Ping attempt failed:', e);
+            resolve(false); 
+          }
         });
+        
         if (!pingOk && chrome?.scripting?.executeScript) {
           try {
+            console.log('Injecting content script programmatically');
             await chrome.scripting.executeScript({
               target: { tabId: pendingXShare.tweetTabId },
               files: ['content-scripts/x-tweet-auto-attach.js']
             });
             await new Promise(r => setTimeout(r, 200));
+            console.log('Content script injection completed');
           } catch (e) {
             console.warn('Programmatic injection failed:', e.message);
           }
@@ -719,21 +780,34 @@ async function trySendImageToTweetTab(maxAttempts = 8, delayMs = 500) {
 
       await new Promise((resolve, reject) => {
         try {
+          console.log('Sending attachImageDataUrl message to tab', pendingXShare.tweetTabId);
           chrome.tabs.sendMessage(pendingXShare.tweetTabId, {
             action: 'attachImageDataUrl',
             dataUrl: pendingXShare.dataUrl
           }, (resp) => {
+            console.log('Response from content script:', resp, 'lastError:', chrome.runtime.lastError?.message);
             if (chrome.runtime.lastError) {
               return reject(new Error(chrome.runtime.lastError.message));
             }
-            if (resp && resp.ok) return resolve();
+            if (resp && resp.ok) {
+              console.log('Content script confirmed successful attachment');
+              return resolve();
+            }
             return reject(new Error('Content script did not confirm attach'));
           });
-        } catch (e) { reject(e); }
+        } catch (e) { 
+          console.error('Error sending message to content script:', e);
+          reject(e); 
+        }
       });
       console.log('Sent image to tweet tab successfully');
       if (pendingXShare.imageTabId) {
-        try { await chrome.tabs.remove(pendingXShare.imageTabId); } catch (_) {}
+        try { 
+          console.log('Cleaning up image generation tab:', pendingXShare.imageTabId);
+          await chrome.tabs.remove(pendingXShare.imageTabId); 
+        } catch (e) {
+          console.warn('Failed to cleanup image tab:', e);
+        }
       }
       pendingXShare = null;
       return true;
@@ -742,6 +816,10 @@ async function trySendImageToTweetTab(maxAttempts = 8, delayMs = 500) {
     }
   }
   console.error('All attempts to send image to tweet tab failed');
+  // Reset flag so user can retry if needed
+  if (pendingXShare) {
+    pendingXShare.imageSent = false;
+  }
   return false;
 }
 

@@ -396,20 +396,32 @@
         // Quick mode: クリップボードを使わず、データURLを背景→Xタブへ転送
         if (quickMode) {
           try {
+            console.log('Quick mode: generating image data URL');
             let dataUrl;
             if (blob) {
+              console.log('Converting blob to data URL, blob size:', blob.size);
               dataUrl = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
+                reader.onload = () => {
+                  console.log('Blob to data URL conversion complete');
+                  resolve(reader.result);
+                };
                 reader.onerror = reject;
                 reader.readAsDataURL(blob);
               });
             } else {
+              console.log('Using canvas toDataURL fallback');
               dataUrl = canvas.toDataURL('image/png');
             }
+            
+            console.log('Data URL generated, length:', dataUrl?.length);
             if (chrome?.runtime?.sendMessage) {
-              await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl });
+              console.log('Sending imageGenerated message to background');
+              const response = await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl });
+              console.log('Background response:', response);
               status.textContent = '画像データを送信しました';
+            } else {
+              console.error('Chrome runtime not available for message sending');
             }
           } catch (e) {
             console.error('Quick mode send failed, falling back to download:', e);

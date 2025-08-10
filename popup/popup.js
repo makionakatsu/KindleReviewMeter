@@ -349,8 +349,12 @@ class App {
 
         if (response && response.success && response.data) {
           this.populateBookData(response.data);
-          this.toast.success(`「${response.data.title}」の情報を取得しました`, {
-            title: '取得完了',
+          
+          // 自動取得完了後に自動保存
+          await this.saveData();
+          
+          this.toast.success(`「${response.data.title}」の情報を取得・保存しました`, {
+            title: '取得・保存完了',
             duration: 5000
           });
         } else {
