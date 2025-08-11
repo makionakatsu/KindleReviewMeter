@@ -418,14 +418,21 @@ class App {
       { id: 'reviewCount', value: bookData.currentReviews || 0 }
     ];
 
+    // Set values immediately so subsequent save sees them
+    fields.forEach((field) => {
+      const element = document.getElementById(field.id);
+      if (element) {
+        element.value = field.value;
+      }
+    });
+
+    // Then run staggered animations for visual feedback
     fields.forEach((field, index) => {
       setTimeout(() => {
         const element = document.getElementById(field.id);
         if (element) {
           element.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(52, 211, 153, 0.05))';
-          element.value = field.value;
           element.classList.add('animate-pulse');
-          
           setTimeout(() => {
             element.style.background = '';
             element.classList.remove('animate-pulse');

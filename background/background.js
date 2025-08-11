@@ -318,12 +318,12 @@ class ProxyPerformanceTracker {
   getRecommendedTimeout(proxy) {
     const stat = this.stats.get(proxy);
     if (!stat || stat.averageResponseTime === 0) {
-      return 4000; // Default timeout
+      return 6000; // Reduced default timeout from 4000 to 6000ms
     }
     
     // Dynamic timeout: average response time + buffer
-    // But keep within reasonable bounds (2-8 seconds)
-    const dynamicTimeout = Math.min(8000, Math.max(2000, stat.averageResponseTime * 3));
+    // But keep within tighter bounds (2-8 seconds)
+    const dynamicTimeout = Math.min(8000, Math.max(2000, stat.averageResponseTime * 2));
     return dynamicTimeout;
   }
   
@@ -401,8 +401,8 @@ async function handleAmazonDataFetch(url) {
         const proxyStartTime = Date.now();
         const controller = new AbortController();
         
-        // Use dynamic timeout based on proxy's historical performance
-        const dynamicTimeout = proxyTracker.getRecommendedTimeout(proxy);
+        // Use shorter timeout for faster failure detection
+        const dynamicTimeout = Math.min(8000, proxyTracker.getRecommendedTimeout(proxy));
         const timeoutId = setTimeout(() => {
           controller.abort();
           reject(new Error(`Timeout after ${dynamicTimeout}ms`));
@@ -474,28 +474,85 @@ async function handleAmazonDataFetch(url) {
     // Launch all proxy attempts in parallel
     const proxyPromises = proxies.map(createProxyFetch);
     
-    // Strategy 1: Race for the first successful response
+    // Strategy 1: Race for the first successful response with timeout
     let result = null;
     try {
       console.log(`🚀 Racing ${proxies.length} proxies in parallel...`);
-      result = await Promise.race(proxyPromises);
+      
+      // Add overall race timeout of 15 seconds
+      const raceWithTimeout = Promise.race([
+        Promise.race(proxyPromises),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Overall race timeout')), 15000)
+        )
+      ]);
+      
+      result = await raceWithTimeout;
       console.log(`🏆 First success: Proxy ${result.index + 1} in ${result.duration}ms`);
     } catch (raceError) {
-      console.log('⚠️ Race failed, trying Promise.allSettled fallback...');
+      console.log('⚠️ Race failed, trying quick fallback...');
       
-      // Strategy 2: If race fails, wait for any successful completion
-      const settled = await Promise.allSettled(proxyPromises);
-      const successful = settled.find(p => p.status === 'fulfilled');
+      // Strategy 2: Quick fallback - try first 3 proxies with shorter timeout
+      const quickPromises = proxies.slice(0, 3).map((proxy, index) => {
+        return new Promise(async (resolve, reject) => {
+          const proxyStartTime = Date.now();
+          const controller = new AbortController();
+          
+          // Very short timeout for quick fallback
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+            reject(new Error('Quick fallback timeout'));
+          }, 5000);
+          
+          try {
+            const proxyUrl = proxy + encodeURIComponent(normalizedUrl);
+            const response = await fetch(proxyUrl, {
+              method: 'GET',
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
+                'Cache-Control': 'no-cache'
+              },
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+              let htmlContent;
+              const contentType = response.headers.get('content-type');
+              
+              if (contentType && contentType.includes('application/json')) {
+                const data = await response.json();
+                htmlContent = data.contents || data.response || data.data || data;
+              } else {
+                htmlContent = await response.text();
+              }
+              
+              if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 1000) {
+                const duration = Date.now() - proxyStartTime;
+                proxyTracker.recordAttempt(proxy, true, duration);
+                resolve({ htmlContent, proxy, duration, index });
+              } else {
+                reject(new Error('Invalid content'));
+              }
+            } else {
+              reject(new Error(`HTTP ${response.status}`));
+            }
+          } catch (error) {
+            clearTimeout(timeoutId);
+            proxyTracker.recordAttempt(proxy, false, Date.now() - proxyStartTime);
+            reject(error);
+          }
+        });
+      });
       
-      if (successful) {
-        result = successful.value;
-        console.log(`🎯 Fallback success: Proxy ${result.index + 1}`);
-      } else {
-        const errors = settled
-          .filter(p => p.status === 'rejected')
-          .map((p, i) => `${i + 1}: ${p.reason.message}`)
-          .join(', ');
-        throw new Error(`All proxies failed: ${errors}`);
+      try {
+        result = await Promise.race(quickPromises);
+        console.log(`🎯 Quick fallback success: Proxy ${result.index + 1}`);
+      } catch (quickError) {
+        throw new Error('All proxy attempts failed or timed out');
       }
     }
     
@@ -593,9 +650,9 @@ function parseAmazonHTML(html, url) {
               isValid: !!content && content.length >= 2
             });
             
-            // Skip if it's clearly not an author name
+            // Basic filtering only for obvious non-author content
             if (!content || content.length < 2 || 
-                /^(follow|フォロー|amazon|kindle|book|title|error|not found|see all|すべて見る|をフォロー)$/i.test(content)) {
+                /^(follow|フォロー|amazon|kindle|error|not found)$/i.test(content)) {
               console.log(`❌ Skipping invalid author content: "${content}"`);
               continue;
             }
@@ -652,12 +709,15 @@ function parseAmazonHTML(html, url) {
       
       console.log(`🧹 After basic cleaning: "${cleaned}"`);
       
-      // Additional filtering for common false positives
+      // Keep basic filtering but remove overly strict patterns
       const invalidPatterns = [
         /^(follow|フォロー|をフォロー|see all|すべて見る|more|もっと見る|visit|amazon|kindle)$/i,
         /^[0-9\s\+\-\(\)]+$/, // Only numbers and symbols
         /^[a-z]{1,3}$/i, // Very short single words like "by", "to", etc.
-        /^(see|click|read|view|visit|follow|buy|shop)(\s|$)/i // Action verbs
+        /^(see|click|read|view|visit|follow|buy|shop)(\s|$)/i, // Action verbs
+        // Only filter out obvious sentence fragments, not all Japanese patterns
+        /[。？！]/, // Contains Japanese punctuation (obvious sentences)
+        /^.*(という学問|時間を費やして|勉強してきた|わかったこと).*$/i // Very specific sentence patterns only
       ];
       
       for (const pattern of invalidPatterns) {
@@ -682,59 +742,194 @@ function parseAmazonHTML(html, url) {
     
     const title = findBySelector(html, titlePatterns, 3); // Limit to first 3 attempts
     
-    // Extract author - simplified and fast patterns (no global flags for speed)
-    const authorPatterns = [
-      // Most reliable: contributorNameID - this should catch most cases
-      /<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i,
-      
-      // [data-automation-id="byline"] a - reliable for many Amazon pages
-      /<[^>]*data-automation-id="byline"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
-      
-      // .author .contributorNameID - full path pattern
-      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([^<]+)<\/[^>]*>/i,
-      
-      // .by-author a - common pattern
-      /<[^>]*class="[^"]*by-author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i,
-      
-      // .author a - general author link
-      /<[^>]*class="[^"]*author[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i
-    ];
-    
-    let author = findBySelector(html, authorPatterns, 'author');
-    
-    // Additional author extraction for Japanese pages (if first attempt failed)
-    if (!author) {
-      const japaneseAuthorPatterns = [
-        /著[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i,
-        /作[\s]*者[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i,
-        /著[：:]?[\s]*([^<\n\r]{2,50})(?=<|\n|\r|$)/i
+    // Extract authors - collect multiple names and join with '、'
+    function extractAuthors(allHtml) {
+      const authors = [];
+      const pushAuthor = (name) => {
+        if (!name) return;
+        const parts = String(name)
+          .split(/\s*[、,，&＆／\/]|\s*・\s*/)
+          .map(s => s && s.trim())
+          .filter(Boolean);
+        const tokens = parts.length ? parts : [String(name).trim()];
+        for (const t of tokens) {
+          const cleaned = cleanAuthorName(t);
+          if (!cleaned || cleaned.length < 2) continue;
+          const key = cleaned.replace(/\s+/g, '').toLowerCase();
+          if (!authors.some(a => a.key === key)) authors.push({ key, name: cleaned });
+        }
+      };
+
+      // 1) Build a bounded byline region around id="bylineInfo" (avoid global false positives)
+      let region = '';
+      const idxByline = allHtml.indexOf('id="bylineInfo"');
+      if (idxByline !== -1) {
+        region = allHtml.slice(Math.max(0, idxByline - 200), idxByline + 2000);
+      } else {
+        const idxFeature = allHtml.indexOf('bylineInfo_feature_div');
+        if (idxFeature !== -1) region = allHtml.slice(Math.max(0, idxFeature - 200), idxFeature + 3000);
+        else region = allHtml; // last resort only
+      }
+      const workHtml = region
+        .replace(/<[^>]*data-action="follow"[^>]*>[\s\S]*?<\/[^>]*>/ig, '')
+        .replace(/<a[^>]*aria-label="[^"]*(?:フォロー|follow)[^"]*"[^>]*>[\s\S]*?<\/a>/ig, '')
+        .replace(/<a[^>]*>[\s\S]*?(?:をフォロー|フォロー|follow)[\s\S]*?<\/a>/ig, '');
+
+      // 2) Anchors that are likely author names
+      const anchorRegexes = [
+        /<a[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([\s\S]*?)<\/a>/ig,
+        /<a[^>]*class="[^"]*(?:by-author|author)[^"]*"[^>]*>([\s\S]*?)<\/a>/ig
       ];
-      author = findBySelector(html, japaneseAuthorPatterns, 'author');
-    }
-    
-    // Extract image URL - optimized patterns
-    const imagePatterns = [
-      /<img[^>]*id="(?:landingImage|imgBlkFront|ebooksImgBlkFront)"[^>]*(?:src|data-src)="([^"]+)"/i,
-      /<img[^>]*class="[^"]*(?:a-dynamic-image|frontImage)"[^>]*src="([^"]+)"/i,
-      /src="([^"]*(?:images-amazon|ssl-images-amazon|media-amazon)[^"]*\.jpg[^"]*)"/i,
-      /"(?:image|hiRes|large)":\s*"([^"]*amazon[^"]*\.jpg[^"]*)"/i
-    ];
-    
-    let imageUrl = null;
-    for (const pattern of imagePatterns) {
-      const match = html.match(pattern);
-      if (match && match[1]) {
-        let candidateUrl = match[1].replace(/&amp;/g, '&');
-        
-        // Quick validation
-        if (candidateUrl.includes('amazon') && 
-            !candidateUrl.includes('._SS') && 
-            !candidateUrl.includes('._SX40') && 
-            !candidateUrl.includes('favicon')) {
-          imageUrl = candidateUrl;
-          break;
+      for (const rx of anchorRegexes) {
+        let m;
+        while ((m = rx.exec(workHtml)) !== null) {
+          pushAuthor(extractTextContent(m[1]));
         }
       }
+
+      // 3) Span wrappers around anchors (author notFaded etc.)
+      const spanBlockRegexes = [
+        /<span[^>]*class="[^"]*author[^"]*"[^>]*>([\s\S]*?)<\/span>/ig
+      ];
+      for (const rx of spanBlockRegexes) {
+        let m;
+        while ((m = rx.exec(workHtml)) !== null) {
+          const inner = m[1];
+          let a;
+          const innerAnchor = /<a[^>]*>([\s\S]*?)<\/a>/ig;
+          while ((a = innerAnchor.exec(inner)) !== null) {
+            pushAuthor(extractTextContent(a[1]));
+          }
+        }
+      }
+
+      // 3b) Last-resort within byline: any anchors not containing follow text
+      if (authors.length === 0 && bylineHtml) {
+        let m;
+        const anyAnchor = /<a[^>]*>([\s\S]*?)<\/a>/ig;
+        while ((m = anyAnchor.exec(bylineHtml)) !== null) {
+          const text = extractTextContent(m[1]);
+          if (!text) continue;
+          if (/フォロー|follow/i.test(text)) continue;
+          pushAuthor(text);
+        }
+      }
+
+      // Debug logging when nothing found
+      if (authors.length === 0) {
+        try { console.log('Author debug: no author anchors in bounded byline region. snippet:', region.substring(0, 160)); } catch {}
+      }
+
+      // 4) Meta tag fallback
+      const metaMatch = allHtml.match(/<meta[^>]*name="author"[^>]*content="([^"]+)"[^>]*>/i);
+      if (metaMatch && metaMatch[1]) pushAuthor(metaMatch[1]);
+
+      // 5) JSON-LD fallback
+      try {
+        const scriptRegex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/ig;
+        let sm;
+        while ((sm = scriptRegex.exec(allHtml)) !== null) {
+          const jsonText = sm[1] && sm[1].trim();
+          if (!jsonText) continue;
+          let data;
+          try { data = JSON.parse(jsonText); } catch { continue; }
+          const nodes = Array.isArray(data) ? data : [data];
+          for (const node of nodes) {
+            if (!node) continue;
+            const a = node.author || node.authors;
+            if (!a) continue;
+            if (typeof a === 'string') {
+              pushAuthor(a);
+            } else if (Array.isArray(a)) {
+              for (const entry of a) {
+                if (!entry) continue;
+                if (typeof entry === 'string') pushAuthor(entry);
+                else if (entry.name) pushAuthor(entry.name);
+              }
+            } else if (typeof a === 'object' && a.name) {
+              pushAuthor(a.name);
+            }
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      return authors.map(a => a.name);
+    }
+
+    let authors = extractAuthors(html);
+    let author = authors.length ? authors.join('、') : null;
+    
+    // Extract image URL - robust and precise for product images
+    let imageUrl = null;
+
+    // 0) Limit search to product image region to avoid ads/banners
+    const imageRegionCandidates = [
+      'id="imgTagWrapperId"',
+      'id="ebooksImageBlock"',
+      'id="imageBlock"',
+      'id="main-image-container"',
+      'imageGallery'
+    ];
+    let imageRegion = '';
+    for (const marker of imageRegionCandidates) {
+      const idx = html.indexOf(marker);
+      if (idx !== -1) { imageRegion = html.slice(Math.max(0, idx - 500), idx + 5000); break; }
+    }
+    if (!imageRegion) imageRegion = html; // fallback
+
+    const isLikelyCover = (url) => {
+      if (!url) return false;
+      const u = url.replace(/&amp;/g, '&');
+      if (!/\.(jpg|jpeg|png)(?:[?#].*)?$/i.test(u)) return false;
+      if (!/\/images\/I\//.test(u)) return false; // prefer product images path
+      if (/Digital_Video|svod|PrimeVideo|\/images\/G\//i.test(u)) return false; // likely banner
+      return true;
+    };
+
+    // 1) data-a-dynamic-image JSON on product image
+    if (!imageUrl) {
+      const dynImgMatch = imageRegion.match(/data-a-dynamic-image\s*=\s*'([^']+)'/i) ||
+                          imageRegion.match(/data-a-dynamic-image\s*=\s*"([^"]+)"/i);
+      if (dynImgMatch && dynImgMatch[1]) {
+        try {
+          const jsonText = dynImgMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+          const obj = JSON.parse(jsonText);
+          let best = null, bestArea = 0;
+          for (const [urlStr, size] of Object.entries(obj)) {
+            const area = Array.isArray(size) && size.length >= 2 ? (Number(size[0]) * Number(size[1])) : 0;
+            if (isLikelyCover(urlStr) && area >= bestArea) { bestArea = area; best = urlStr; }
+          }
+          if (best) imageUrl = String(best).replace(/&amp;/g, '&');
+        } catch {}
+      }
+    }
+
+    // 2) High-res attribute
+    if (!imageUrl) {
+      const hiresMatch = imageRegion.match(/data-old-hires=\"([^\"]+)\"/i);
+      if (hiresMatch && isLikelyCover(hiresMatch[1])) imageUrl = hiresMatch[1].replace(/&amp;/g, '&');
+    }
+
+    // 3) Common ids/classes
+    if (!imageUrl) {
+      const idMatch = imageRegion.match(/<img[^>]*id=\"(?:landingImage|imgBlkFront|ebooksImgBlkFront)\"[^>]*(?:src|data-src)=\"([^\"]+)\"/i);
+      if (idMatch && isLikelyCover(idMatch[1])) imageUrl = idMatch[1].replace(/&amp;/g, '&');
+    }
+    if (!imageUrl) {
+      const clsMatch = imageRegion.match(/<img[^>]*class=\"[^\"]*(?:a-dynamic-image|frontImage)\"[^>]*src=\"([^\"]+)\"/i);
+      if (clsMatch && isLikelyCover(clsMatch[1])) imageUrl = clsMatch[1].replace(/&amp;/g, '&');
+    }
+
+    // 4) og:image
+    if (!imageUrl) {
+      const ogMatch = html.match(/<meta[^>]*property=\"og:image\"[^>]*content=\"([^\"]+)\"[^>]*>/i);
+      if (ogMatch && isLikelyCover(ogMatch[1])) imageUrl = ogMatch[1].replace(/&amp;/g, '&');
+    }
+
+    // 5) Conservative generic fallback restricted to /images/I/
+    if (!imageUrl) {
+      const anyMatch = imageRegion.match(/src=\"([^\"]*\/images\/I\/[^\"]*\.(?:jpg|jpeg|png)[^\"]*)\"/i);
+      if (anyMatch && isLikelyCover(anyMatch[1])) imageUrl = anyMatch[1].replace(/&amp;/g, '&');
     }
     
     // Extract review count - streamlined for speed
@@ -1060,8 +1255,8 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
       // Attempt image attachment
       const attachResult = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Message timeout after 5 seconds'));
-        }, 5000);
+          reject(new Error('Message timeout after 20 seconds'));
+        }, 20000);
         
         chrome.tabs.sendMessage(snapshot.tweetTabId, {
           action: 'attachImageDataUrl',
