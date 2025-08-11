@@ -320,6 +320,16 @@ class App {
         console.error(`${name} button not found`);
       }
     });
+
+    // Auto-save Associate ID on input with debounce
+    const associateInput = document.getElementById('associateTag');
+    if (associateInput) {
+      const debounced = this.debounce(async () => {
+        await this.saveAssociateId(associateInput.value.trim());
+      }, 500);
+      associateInput.addEventListener('input', debounced);
+      console.log('Associate ID auto-save binding set');
+    }
   }
 
   /**
@@ -456,7 +466,6 @@ class App {
       imageUrl: document.getElementById('imageUrl').value.trim(),
       reviewCount: parseInt(document.getElementById('reviewCount').value) || 0,
       targetReviews: parseInt(document.getElementById('targetReviews').value) || 0,
-      useAssociateLink: !!document.getElementById('useAssociateLink').checked,
       associateTag: document.getElementById('associateTag').value.trim(),
       savedAt: new Date().toISOString()
     };
@@ -616,7 +625,6 @@ class App {
       document.getElementById('imageUrl').value = data.imageUrl || '';
       document.getElementById('reviewCount').value = data.reviewCount || 0;
       document.getElementById('targetReviews').value = data.targetReviews || '';
-      document.getElementById('useAssociateLink').checked = !!data.useAssociateLink;
       document.getElementById('associateTag').value = data.associateTag || '';
       console.log('Data populated to form fields');
     } else {
@@ -869,6 +877,27 @@ class App {
       console.warn('Failed to build share URL:', e);
       return data.amazonUrl || '';
     }
+  }
+
+  // Save only Associate ID to storage without requiring full Save action
+  async saveAssociateId(id) {
+    try {
+      const current = await this.storage.load() || {};
+      current.associateTag = id;
+      await this.storage.save(current);
+      console.log('Associate ID saved');
+    } catch (e) {
+      console.warn('Failed to save Associate ID:', e);
+    }
+  }
+
+  // Simple debounce helper
+  debounce(fn, wait = 300) {
+    let t = null;
+    return (...args) => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), wait);
+    };
   }
 }
 
