@@ -46,53 +46,38 @@ async function initializeExtension() {
 /**
  * Register legacy message handlers temporarily
  * These will be replaced with proper service handlers in Phase 2
+ * 
+ * For Phase 1, we'll revert to the original message handling approach
+ * to ensure compatibility while the architecture is being built
  */
 function registerLegacyHandlers() {
-  // Import legacy background.js functions temporarily
-  // This is a bridge during the refactoring process
+  console.log('📋 Setting up legacy message handlers for Phase 1 compatibility');
   
+  // Instead of dynamic imports, we'll temporarily use the old approach
+  // and gradually migrate in Phase 2
+  
+  // Temporarily disable the new message router and fall back to direct handlers
+  console.warn('⚠️ Using legacy message handling during Phase 1 transition');
+  
+  // We'll register placeholder handlers that will be implemented in Phase 2
   messageRouter.registerHandler('fetchAmazonData', async (request) => {
-    // TODO: Replace with AmazonScrapingService in Phase 2
-    const { handleAmazonDataFetch } = await import('./background.js');
-    return await handleAmazonDataFetch(request.url);
+    throw new Error('fetchAmazonData handler not implemented yet - please use legacy background.js temporarily');
   });
   
   messageRouter.registerHandler('exportProgressImage', async (request) => {
-    // TODO: Replace with ImageGenerationService in Phase 2
-    const { handleImageExport } = await import('./background.js');
-    return await handleImageExport(request.data);
+    throw new Error('exportProgressImage handler not implemented yet - please use legacy background.js temporarily');
   });
   
   messageRouter.registerHandler('shareToXWithImage', async (request) => {
-    // TODO: Replace with SocialMediaService in Phase 2
-    const { handleShareToXWithImage } = await import('./background.js');
-    return await handleShareToXWithImage(request.data, request.tweetUrl);
+    throw new Error('shareToXWithImage handler not implemented yet - please use legacy background.js temporarily');
   });
   
   messageRouter.registerHandler('imageGenerated', async (request, sender) => {
-    // TODO: Replace with proper service coordination in Phase 2
-    console.log('imageGenerated received:', {
-      hasPendingXShare: !!extensionStateManager.getPendingXShare('any'), // TODO: Proper lookup
-      hasDataUrl: !!request.dataUrl,
-      dataUrlLength: request.dataUrl?.length,
-      senderTabId: sender?.tab?.id
-    });
-    
-    // For now, maintain compatibility with legacy pendingXShare global
-    // This will be replaced with proper state management in Phase 2
-    if (request.dataUrl && sender?.tab?.id) {
-      // TODO: Update state manager and trigger proper service flow
-      try {
-        await chrome.tabs.remove(sender.tab.id);
-      } catch (e) {
-        console.warn('Failed to close image generation tab:', e);
-      }
-    }
-    
-    return { success: true };
+    console.log('imageGenerated received via MessageRouter');
+    return { success: true, message: 'Handled by MessageRouter' };
   });
   
-  console.log('📋 Registered legacy message handlers (temporary)');
+  console.log('📋 Legacy handler placeholders registered');
 }
 
 /**

@@ -114,16 +114,24 @@ class MessageRouter {
       console.log('✅ MessageRouter completed:', request.action);
 
     } catch (error) {
-      console.error('❌ MessageRouter error:', {
+      // Enhanced error logging
+      const errorDetails = {
         action: request.action,
-        error: error.message,
-        stack: error.stack
-      });
+        errorMessage: error?.message || 'Unknown error',
+        errorStack: error?.stack || 'No stack trace',
+        errorType: error?.constructor?.name || 'Unknown',
+        requestData: Object.keys(request || {}).join(', '),
+        timestamp: new Date().toISOString()
+      };
+      
+      console.error('❌ MessageRouter error details:', errorDetails);
+      console.error('❌ Raw error object:', error);
 
       // Send error response
       sendResponse({
         success: false,
-        error: error.message,
+        error: errorDetails.errorMessage,
+        errorType: errorDetails.errorType,
         timestamp: Date.now()
       });
     }

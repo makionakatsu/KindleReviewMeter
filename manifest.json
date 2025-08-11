@@ -40,8 +40,7 @@
   },
   
   "background": {
-    "service_worker": "background/index.js",
-    "type": "module"
+    "service_worker": "background/background.js"
   },
 
   "content_scripts": [

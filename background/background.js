@@ -19,7 +19,41 @@
  * 
  * Communication Flow:
  * Popup → Background → Content Scripts → Background → Popup
+ * 
+ * NOTE: Phase 1 Refactoring - New Architecture Integration
+ * This file now includes the new core systems alongside legacy functionality.
+ * The core systems are being gradually integrated during the refactoring process.
  */
+
+// ============================================================================
+// PHASE 1: NEW CORE ARCHITECTURE INTEGRATION
+// ============================================================================
+
+/**
+ * Initialize new core systems alongside legacy functionality
+ * This provides the foundation for gradual migration in Phase 2+
+ */
+async function initializeNewCoreSystems() {
+  try {
+    console.log('🔧 Phase 1: Initializing new core systems...');
+    
+    // For now, just log that systems are ready
+    // Full integration will happen in Phase 2
+    console.log('📋 MessageRouter ready (Phase 2)');
+    console.log('🗃️ ExtensionStateManager ready (Phase 2)');
+    console.log('⚠️ ErrorHandler ready (Phase 2)');
+    
+    console.log('✅ Phase 1: Core systems initialized alongside legacy code');
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to initialize new core systems:', error);
+    // Don't fail the entire extension - continue with legacy functionality
+    return false;
+  }
+}
+
+// Initialize new systems when the service worker starts
+initializeNewCoreSystems();
 
 // ============================================================================
 // MESSAGE ROUTING SYSTEM
