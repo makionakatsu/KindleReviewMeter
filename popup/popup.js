@@ -866,12 +866,10 @@ class App {
       if (!base) return '';
       if (!/^https?:\/\//i.test(base)) base = 'https://' + base;
       const u = new URL(base);
-      // Normalize host to canonical if possible stays as is; assume background normalized earlier
-      if (data.useAssociateLink && data.associateTag) {
-        u.searchParams.set('tag', data.associateTag);
-      } else {
-        u.searchParams.delete('tag');
-      }
+      // Prefer latest input value to avoid debounce timing issues
+      const liveId = document.getElementById('associateTag')?.value?.trim();
+      const id = liveId || (data.associateTag || '').trim();
+      if (id) u.searchParams.set('tag', id); else u.searchParams.delete('tag');
       return u.toString();
     } catch (e) {
       console.warn('Failed to build share URL:', e);
