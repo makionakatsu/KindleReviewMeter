@@ -842,15 +842,18 @@ class App {
     const bookTitle = title || '書籍';
     const currentCount = parseInt(reviewCount) || 0;
     const urlForShare = this.buildBookUrlForShare(data);
+    const liveAssociateId = document.getElementById('associateTag')?.value?.trim();
+    const hasAssociate = !!(liveAssociateId || (data.associateTag || '').trim());
+    const disclosure = hasAssociate ? '\n#アマゾンアソシエイトに参加しています' : '';
     
     if (targetReviews && parseInt(targetReviews) > 0) {
       // パターンA: 目標値設定あり
       const target = parseInt(targetReviews);
       const remaining = Math.max(0, target - currentCount);
-      return `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚\n${urlForShare}\n#KindleReviewMeter`;
+      return `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚\n${urlForShare}\n#KindleReviewMeter${disclosure}`;
     } else {
       // パターンB: 目標値設定なし
-      return `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚\n${urlForShare}\n#KindleReviewMeter`;
+      return `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚\n${urlForShare}\n#KindleReviewMeter${disclosure}`;
     }
   }
 
