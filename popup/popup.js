@@ -456,6 +456,8 @@ class App {
       imageUrl: document.getElementById('imageUrl').value.trim(),
       reviewCount: parseInt(document.getElementById('reviewCount').value) || 0,
       targetReviews: parseInt(document.getElementById('targetReviews').value) || 0,
+      useAssociateLink: !!document.getElementById('useAssociateLink').checked,
+      associateTag: document.getElementById('associateTag').value.trim(),
       savedAt: new Date().toISOString()
     };
 
@@ -614,6 +616,8 @@ class App {
       document.getElementById('imageUrl').value = data.imageUrl || '';
       document.getElementById('reviewCount').value = data.reviewCount || 0;
       document.getElementById('targetReviews').value = data.targetReviews || '';
+      document.getElementById('useAssociateLink').checked = !!data.useAssociateLink;
+      document.getElementById('associateTag').value = data.associateTag || '';
       console.log('Data populated to form fields');
     } else {
       console.log('No data found in storage');
@@ -829,15 +833,16 @@ class App {
     const { title, reviewCount, targetReviews } = data;
     const bookTitle = title || '書籍';
     const currentCount = parseInt(reviewCount) || 0;
+    const urlForShare = this.buildBookUrlForShare(data);
     
     if (targetReviews && parseInt(targetReviews) > 0) {
       // パターンA: 目標値設定あり
       const target = parseInt(targetReviews);
       const remaining = Math.max(0, target - currentCount);
-      return `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚\n#KindleReviewMeter`;
+      return `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚\n${urlForShare}\n#KindleReviewMeter`;
     } else {
       // パターンB: 目標値設定なし
-      return `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚\n#KindleReviewMeter`;
+      return `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚\n${urlForShare}\n#KindleReviewMeter`;
     }
   }
 
@@ -845,6 +850,25 @@ class App {
     const encodedText = encodeURIComponent(text);
     // Use compose endpoint for better media attach support
     return `https://x.com/compose/tweet?text=${encodedText}`;
+  }
+
+  buildBookUrlForShare(data) {
+    try {
+      let base = (data.amazonUrl || '').trim();
+      if (!base) return '';
+      if (!/^https?:\/\//i.test(base)) base = 'https://' + base;
+      const u = new URL(base);
+      // Normalize host to canonical if possible stays as is; assume background normalized earlier
+      if (data.useAssociateLink && data.associateTag) {
+        u.searchParams.set('tag', data.associateTag);
+      } else {
+        u.searchParams.delete('tag');
+      }
+      return u.toString();
+    } catch (e) {
+      console.warn('Failed to build share URL:', e);
+      return data.amazonUrl || '';
+    }
   }
 }
 
