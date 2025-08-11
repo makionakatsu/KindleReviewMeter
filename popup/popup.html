@@ -16,8 +16,6 @@
   <div class="main-container">
     <div id="view-settings" class="view active">
       <div class="card">
-        <h2>🖼️ 共有画像作成</h2>
-        
         <div class="form-grid">
           <div class="form-group">
             <label for="amazonUrl">Amazon書籍URL</label>
@@ -55,11 +53,17 @@
           </div>
 
           <div class="form-group">
-            <label>アソシエイトURL使用</label>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <input type="text" id="associateTag" placeholder="アソシエイトID（例: yourid-22）" style="flex:1; min-width:260px;">
+            <label for="associateTag">アソシエイトURL使用</label>
+            <div class="associate-compact-layout">
+              <input type="text" id="associateTag" placeholder="アソシエイトID（例: yourid-22）" class="associate-input-compact">
+              <div class="toggle-switch-compact">
+                <input type="checkbox" id="associateEnabled" class="toggle-input">
+                <label for="associateEnabled" class="toggle-slider-compact">
+                  <span class="toggle-knob-compact"></span>
+                </label>
+              </div>
             </div>
-            <small style="color:#6b7280;">X投稿文の末尾に書籍URLを付与します。アソシエイトIDを設定するとアフィリエイトURLになります。</small>
+            <small class="input-description-compact">X投稿文の末尾に書籍URLを付与します。アソシエイトIDを設定するとアフィリエイトURLになります。</small>
           </div>
         </div>
         

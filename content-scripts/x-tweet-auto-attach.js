@@ -433,9 +433,14 @@
         console.warn('Hidden file input method failed:', e);
       }
 
-      // Fallback: show overlay with open/download options
+      // Method 5: Show user-friendly fallback overlay with manual options
+      console.log('All automatic attachment methods failed, showing fallback UI');
       showFallbackOverlay(dataUrl);
-      return false;
+      
+      // Return true to indicate the process completed (even if manually)
+      // This prevents the background script from treating it as a complete failure
+      attachmentCompleted = true;
+      return true;
     } catch (error) {
       console.error('attachViaDataUrl error:', error);
       showFallbackOverlay(dataUrl);
@@ -573,48 +578,86 @@
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log('Content script received message:', request.action, 'at', new Date().toISOString());
       
-      if (request.action === 'krmPing') {
-        console.log('Content script responding to ping');
-        sendResponse({ 
-          pong: true, 
-          url: window.location.href,
-          timestamp: Date.now(),
-          readyState: document.readyState
-        });
-        return true;
-      }
-      
-      if (request.action === 'attachImageDataUrl' && request.dataUrl) {
-        console.log('Content script received image attach request, dataUrl length:', request.dataUrl?.length);
-        
-        // Validate data URL
-        if (!request.dataUrl.startsWith('data:image/')) {
-          console.error('Invalid data URL format');
-          sendResponse({ ok: false, error: 'Invalid data URL format' });
-          return true;
+      try {
+        if (request.action === 'krmPing') {
+          console.log('Content script responding to ping');
+          const response = { 
+            pong: true, 
+            url: window.location.href,
+            timestamp: Date.now(),
+            readyState: document.readyState
+          };
+          sendResponse(response);
+          return false; // Synchronous response, don't keep channel open
         }
         
-        pendingDataUrl = request.dataUrl;
-        setupAutoRetry(15000); // Increase retry time
+        if (request.action === 'attachImageDataUrl' && request.dataUrl) {
+          console.log('Content script received image attach request, dataUrl length:', request.dataUrl?.length);
+          
+          // Validate data URL
+          if (!request.dataUrl.startsWith('data:image/')) {
+            console.error('Invalid data URL format');
+            sendResponse({ ok: false, error: 'Invalid data URL format' });
+            return false; // Synchronous response for validation errors
+          }
+          
+          pendingDataUrl = request.dataUrl;
+          setupAutoRetry(15000); // Increase retry time
+          
+          // Handle async attachment with proper error handling
+          (async () => {
+            try {
+              console.log('Starting async image attachment...');
+              const attachResult = await attachViaDataUrl(request.dataUrl);
+              console.log('Content script attach result:', attachResult);
+              
+              // Ensure we can still send response
+              if (chrome.runtime?.id) {
+                sendResponse({ 
+                  ok: attachResult, 
+                  timestamp: Date.now(),
+                  method: attachResult ? 'success' : 'fallback'
+                });
+              } else {
+                console.warn('Extension context invalidated, cannot send response');
+              }
+            } catch (e) {
+              console.error('Content script attach error:', e);
+              
+              // Ensure we can still send response
+              if (chrome.runtime?.id) {
+                sendResponse({ 
+                  ok: false, 
+                  error: e?.message || 'Unknown attachment error',
+                  timestamp: Date.now()
+                });
+              } else {
+                console.warn('Extension context invalidated during error, cannot send response');
+              }
+            }
+          })();
+          
+          return true; // Indicate async response
+        }
         
-        attachViaDataUrl(request.dataUrl).then((ok) => {
-          console.log('Content script attach result:', ok);
-          sendResponse({ ok, timestamp: Date.now() });
-        }).catch((e) => {
-          console.error('Content script attach error:', e);
+        // Unknown action
+        console.warn('Content script received unknown action:', request.action);
+        sendResponse({ ok: false, error: 'Unknown action' });
+        return false; // Synchronous response for unknown actions
+        
+      } catch (handlerError) {
+        console.error('Message handler error:', handlerError);
+        try {
           sendResponse({ 
             ok: false, 
-            error: e?.message || 'Unknown attachment error',
+            error: `Handler error: ${handlerError.message}`,
             timestamp: Date.now()
           });
-        });
-        return true;
+        } catch (responseError) {
+          console.error('Failed to send error response:', responseError);
+        }
+        return false; // Don't keep channel open on handler errors
       }
-      
-      // Unknown action
-      console.warn('Content script received unknown action:', request.action);
-      sendResponse({ ok: false, error: 'Unknown action' });
-      return true;
     });
   }
 

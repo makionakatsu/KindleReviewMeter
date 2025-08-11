@@ -330,6 +330,16 @@ class App {
       associateInput.addEventListener('input', debounced);
       console.log('Associate ID auto-save binding set');
     }
+
+    // Associate URL Toggle functionality
+    const associateToggle = document.getElementById('associateEnabled');
+    const associateContainer = document.getElementById('associateInputContainer');
+    if (associateToggle && associateContainer) {
+      associateToggle.addEventListener('change', async () => {
+        await this.handleAssociateToggle();
+      });
+      console.log('Associate toggle event bound');
+    }
   }
 
   /**
@@ -467,6 +477,7 @@ class App {
       reviewCount: parseInt(document.getElementById('reviewCount').value) || 0,
       targetReviews: parseInt(document.getElementById('targetReviews').value) || 0,
       associateTag: document.getElementById('associateTag').value.trim(),
+      associateEnabled: document.getElementById('associateEnabled')?.checked ?? true,
       savedAt: new Date().toISOString()
     };
 
@@ -626,9 +637,38 @@ class App {
       document.getElementById('reviewCount').value = data.reviewCount || 0;
       document.getElementById('targetReviews').value = data.targetReviews || '';
       document.getElementById('associateTag').value = data.associateTag || '';
+      
+      // Load associate toggle state (default: true for backward compatibility)
+      const associateEnabled = data.associateEnabled !== undefined ? data.associateEnabled : true;
+      const toggle = document.getElementById('associateEnabled');
+      const container = document.getElementById('associateInputContainer');
+      const input = document.getElementById('associateTag');
+      
+      if (toggle && container && input) {
+        toggle.checked = associateEnabled;
+        if (associateEnabled) {
+          container.classList.remove('disabled');
+          input.disabled = false;
+        } else {
+          container.classList.add('disabled');
+          input.disabled = true;
+        }
+      }
+      
       console.log('Data populated to form fields');
     } else {
       console.log('No data found in storage');
+      
+      // Set default toggle state for new users
+      const toggle = document.getElementById('associateEnabled');
+      const container = document.getElementById('associateInputContainer');
+      const input = document.getElementById('associateTag');
+      
+      if (toggle && container && input) {
+        toggle.checked = true; // Default to enabled
+        container.classList.remove('disabled');
+        input.disabled = false;
+      }
     }
   }
 
@@ -841,20 +881,36 @@ class App {
     const { title, reviewCount, targetReviews } = data;
     const bookTitle = title || '書籍';
     const currentCount = parseInt(reviewCount) || 0;
-    const urlForShare = this.buildBookUrlForShare(data);
-    const liveAssociateId = document.getElementById('associateTag')?.value?.trim();
-    const hasAssociate = !!(liveAssociateId || (data.associateTag || '').trim());
-    const disclosure = hasAssociate ? '\n#アマゾンアソシエイトに参加しています' : '';
     
+    // Check if associate URL feature is enabled
+    const isAssociateEnabled = document.getElementById('associateEnabled')?.checked ?? data.associateEnabled ?? true;
+    
+    let tweetContent = '';
+    let urlPart = '';
+    let disclosure = '';
+    
+    // Generate main tweet content
     if (targetReviews && parseInt(targetReviews) > 0) {
       // パターンA: 目標値設定あり
       const target = parseInt(targetReviews);
       const remaining = Math.max(0, target - currentCount);
-      return `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚\n${urlForShare}\n#KindleReviewMeter${disclosure}`;
+      tweetContent = `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚`;
     } else {
       // パターンB: 目標値設定なし
-      return `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚\n${urlForShare}\n#KindleReviewMeter${disclosure}`;
+      tweetContent = `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚`;
     }
+    
+    // Add URL only if associate feature is enabled
+    if (isAssociateEnabled) {
+      const urlForShare = this.buildBookUrlForShare(data);
+      const liveAssociateId = document.getElementById('associateTag')?.value?.trim();
+      const hasAssociate = !!(liveAssociateId || (data.associateTag || '').trim());
+      
+      urlPart = urlForShare ? `\n${urlForShare}` : '';
+      disclosure = hasAssociate ? '\n#アマゾンアソシエイトに参加しています' : '';
+    }
+    
+    return `${tweetContent}${urlPart}\n#KindleReviewMeter${disclosure}`;
   }
 
   buildTweetUrl(text) {
@@ -869,9 +925,14 @@ class App {
       if (!base) return '';
       if (!/^https?:\/\//i.test(base)) base = 'https://' + base;
       const u = new URL(base);
+      
       // Prefer latest input value to avoid debounce timing issues
       const liveId = document.getElementById('associateTag')?.value?.trim();
-      const id = liveId || (data.associateTag || '').trim();
+      const rawId = liveId || (data.associateTag || '').trim();
+      
+      // Validate and sanitize Associate ID
+      const id = this.validateAndSanitizeAssociateId(rawId);
+      
       if (id) u.searchParams.set('tag', id); else u.searchParams.delete('tag');
       return u.toString();
     } catch (e) {
@@ -880,24 +941,127 @@ class App {
     }
   }
 
+  // Validate and sanitize Associate ID for security
+  validateAndSanitizeAssociateId(id) {
+    if (!id || typeof id !== 'string') return '';
+    
+    // Amazon Associate IDs should be alphanumeric with hyphens, typically 10-20 characters
+    const sanitized = id.replace(/[^\w\-]/g, '').substring(0, 30);
+    
+    // Basic format validation
+    if (!/^[\w\-]{3,30}$/.test(sanitized)) {
+      console.warn('Invalid Associate ID format:', id);
+      return '';
+    }
+    
+    return sanitized;
+  }
+
   // Save only Associate ID to storage without requiring full Save action
-  async saveAssociateId(id) {
+  async saveAssociateId(rawId) {
     try {
+      // Validate input before saving
+      const validatedId = this.validateAndSanitizeAssociateId(rawId);
+      
       const current = await this.storage.load() || {};
-      current.associateTag = id;
+      current.associateTag = validatedId;
       await this.storage.save(current);
-      console.log('Associate ID saved');
+      console.log('Associate ID saved:', validatedId || '(empty)');
+      
+      // Update input field if sanitization occurred
+      const inputElement = document.getElementById('associateTag');
+      if (inputElement && inputElement.value !== validatedId) {
+        inputElement.value = validatedId;
+      }
     } catch (e) {
       console.warn('Failed to save Associate ID:', e);
     }
   }
 
-  // Simple debounce helper
+  // Handle Associate URL toggle switch changes (updated for compact layout)
+  async handleAssociateToggle() {
+    const toggle = document.getElementById('associateEnabled');
+    const container = document.querySelector('.associate-compact-layout');
+    const input = document.getElementById('associateTag');
+    const toggleSwitch = document.querySelector('.toggle-switch-compact');
+    
+    if (!toggle || !container || !input) return;
+    
+    const isEnabled = toggle.checked;
+    
+    // Add bounce animation to compact switch
+    if (toggleSwitch) {
+      toggleSwitch.classList.add('animate');
+      setTimeout(() => toggleSwitch.classList.remove('animate'), 600);
+    }
+    
+    // Update UI state for compact layout
+    if (isEnabled) {
+      container.classList.remove('disabled');
+      input.disabled = false;
+      input.focus();
+      this.toast.info('アソシエイトURL機能を有効にしました', {
+        title: '設定変更',
+        duration: 3000
+      });
+    } else {
+      container.classList.add('disabled');
+      input.disabled = true;
+      this.toast.info('アソシエイトURL機能を無効にしました', {
+        title: '設定変更',
+        duration: 3000
+      });
+    }
+    
+    // Save toggle state to storage
+    try {
+      const current = await this.storage.load() || {};
+      current.associateEnabled = isEnabled;
+      await this.storage.save(current);
+      console.log('Associate toggle state saved:', isEnabled);
+    } catch (e) {
+      console.warn('Failed to save associate toggle state:', e);
+    }
+  }
+
+  // Enhanced debounce helper with race condition protection
   debounce(fn, wait = 300) {
-    let t = null;
+    let timeoutId = null;
+    let lastCall = 0;
+    
     return (...args) => {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => fn.apply(this, args), wait);
+      const now = Date.now();
+      
+      // Clear any existing timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      
+      // Set up new timeout with race condition protection
+      timeoutId = setTimeout(async () => {
+        const callTime = Date.now();
+        lastCall = callTime;
+        
+        try {
+          await fn.apply(this, args);
+          
+          // Only log success if this is still the most recent call
+          if (lastCall === callTime) {
+            console.log('Debounced function completed successfully');
+          }
+        } catch (e) {
+          // Only log error if this is still the most recent call
+          if (lastCall === callTime) {
+            console.warn('Debounced function failed:', e);
+          }
+        } finally {
+          // Clear timeout reference
+          if (timeoutId && lastCall === callTime) {
+            timeoutId = null;
+          }
+        }
+      }, wait);
     };
   }
 }

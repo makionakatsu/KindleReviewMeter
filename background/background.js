@@ -47,9 +47,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'shareToXWithImage') {
+    console.log('🎯 Background script received shareToXWithImage request:', {
+      hasData: !!request.data,
+      hasTweetUrl: !!request.tweetUrl,
+      tweetUrl: request.tweetUrl
+    });
+    
     handleShareToXWithImage(request.data, request.tweetUrl)
-      .then(() => sendResponse({ success: true }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
+      .then((result) => {
+        console.log('✅ shareToXWithImage completed successfully:', result);
+        sendResponse({ success: true, result });
+      })
+      .catch(error => {
+        console.error('❌ shareToXWithImage failed:', error);
+        sendResponse({ success: false, error: error.message });
+      });
     return true; // Keep message channel open for async response
   }
 
@@ -395,6 +407,8 @@ async function handleAmazonDataFetch(url) {
     // Use dynamically optimized proxy list based on performance
     const proxies = proxyTracker.getOptimizedProxyList();
     
+    console.log(`🚀 Starting Amazon fetch with ${proxies.length} proxies:`, proxies.map(p => p.split('/')[2]));
+    
     // Create parallel fetch promises with dynamic timeouts
     const createProxyFetch = (proxy, index) => {
       return new Promise(async (resolve, reject) => {
@@ -464,9 +478,22 @@ async function handleAmazonDataFetch(url) {
           
           // Record failed proxy performance
           const duration = Date.now() - proxyStartTime;
+          
+          // Enhanced error context for main proxy attempts
+          const proxyErrorContext = {
+            proxy: proxy.split('/')[2],
+            index,
+            duration,
+            errorType: error?.name || typeof error,
+            errorMessage: error?.message || String(error),
+            isTimeout: error?.name === 'AbortError',
+            timestamp: Date.now()
+          };
+          
+          console.warn('Main proxy attempt failed:', JSON.stringify(proxyErrorContext, null, 2));
           proxyTracker.recordAttempt(proxy, false, duration);
           
-          reject(new Error(`${proxy.split('/')[2]}: ${error.message}`));
+          reject(new Error(`${proxy.split('/')[2]}: ${error?.message || String(error)}`));
         }
       });
     };
@@ -491,6 +518,16 @@ async function handleAmazonDataFetch(url) {
       console.log(`🏆 First success: Proxy ${result.index + 1} in ${result.duration}ms`);
     } catch (raceError) {
       console.log('⚠️ Race failed, trying quick fallback...');
+      
+      // Log race error details
+      const raceErrorContext = {
+        raceError: raceError?.message || String(raceError),
+        raceErrorType: raceError?.name || typeof raceError,
+        duration: Date.now() - fetchStartTime,
+        proxiesInRace: proxies.length,
+        timestamp: new Date().toISOString()
+      };
+      console.warn('Race error details:', JSON.stringify(raceErrorContext, null, 2));
       
       // Strategy 2: Quick fallback - try first 3 proxies with shorter timeout
       const quickPromises = proxies.slice(0, 3).map((proxy, index) => {
@@ -542,7 +579,23 @@ async function handleAmazonDataFetch(url) {
             }
           } catch (error) {
             clearTimeout(timeoutId);
-            proxyTracker.recordAttempt(proxy, false, Date.now() - proxyStartTime);
+            const duration = Date.now() - proxyStartTime;
+            
+            // Enhanced error logging with context and better serialization
+            const errorContext = {
+              proxy: proxy.split('/')[2], // Just domain for logging
+              proxyIndex: index,
+              duration,
+              errorType: error?.name || typeof error,
+              errorMessage: error?.message?.substring(0, 100) || error?.toString?.() || String(error),
+              isTimeout: error?.name === 'AbortError' || error?.message?.includes('timeout'),
+              isNetworkError: error?.message?.includes('fetch') || error?.message?.includes('network'),
+              statusCode: error?.status || null,
+              timestamp: Date.now()
+            };
+            
+            console.warn('Proxy request failed:', JSON.stringify(errorContext, null, 2));
+            proxyTracker.recordAttempt(proxy, false, duration);
             reject(error);
           }
         });
@@ -552,7 +605,16 @@ async function handleAmazonDataFetch(url) {
         result = await Promise.race(quickPromises);
         console.log(`🎯 Quick fallback success: Proxy ${result.index + 1}`);
       } catch (quickError) {
-        throw new Error('All proxy attempts failed or timed out');
+        // Enhanced error context for quick fallback failure
+        const quickErrorContext = {
+          quickError: quickError?.message || String(quickError),
+          quickErrorType: quickError?.name || typeof quickError,
+          totalDuration: Date.now() - fetchStartTime,
+          proxiesAttempted: proxies.length,
+          timestamp: new Date().toISOString()
+        };
+        console.error('Quick fallback failed with context:', JSON.stringify(quickErrorContext, null, 2));
+        throw new Error(`All proxy attempts failed: ${quickError?.message || String(quickError)}`);
       }
     }
     
@@ -571,20 +633,47 @@ async function handleAmazonDataFetch(url) {
     // Cache the successful result for future requests
     amazonDataCache.set(normalizedUrl, bookData);
     
-    // Log performance stats periodically
+    // Enhanced performance stats logging
     const cacheStats = amazonDataCache.getStats();
     const proxyStats = proxyTracker.getStats();
     console.log(`📊 Performance stats:`);
     console.log(`   Cache: ${cacheStats.size} entries, ${cacheStats.hitRate} hit rate`);
-    console.log(`   Top proxies:`, Object.entries(proxyStats).slice(0, 2).map(([name, stat]) => `${name}(${stat.successRate})`));
+    console.log(`   Winning proxy: ${result.proxy.split('/')[2]} (${result.duration}ms)`);
+    console.log(`   All proxy stats:`, JSON.stringify(proxyStats, null, 2));
     
     return bookData;
     
   } catch (error) {
     const totalDuration = Date.now() - fetchStartTime;
-    console.error(`❌ Amazon scraping failed after ${totalDuration}ms:`, error.message);
     
-    throw new Error(`Amazon商品ページからのデータ取得に失敗しました。手動でデータを入力してください。: ${error.message}`);
+    // Enhanced error context for debugging with proper serialization
+    const errorContext = {
+      url: normalizedUrl?.substring(0, 50) + '...' || 'unknown',
+      duration: totalDuration,
+      errorType: error?.name || (typeof error),
+      errorMessage: error?.message || error?.toString?.() || String(error),
+      errorString: String(error),
+      proxyStats: proxyTracker.getStats(),
+      timestamp: new Date().toISOString(),
+      stack: error?.stack?.substring(0, 300) || 'No stack trace'
+    };
+    
+    // Better error logging with proper stringification
+    console.error(`❌ Amazon scraping failed after ${totalDuration}ms:`, JSON.stringify(errorContext, null, 2));
+    console.error('Raw error object:', error);
+    
+    // Create user-friendly error message based on error type
+    let userMessage = 'Amazon商品ページからのデータ取得に失敗しました。手動でデータを入力してください。';
+    
+    if (totalDuration > 30000) {
+      userMessage = 'タイムアウト: サーバーの応答が遅いため処理を中断しました。しばらく待ってから再試行してください。';
+    } else if (error.message?.includes('proxy') || error.message?.includes('CORS')) {
+      userMessage = 'ネットワークエラー: プロキシサーバーに接続できません。インターネット接続を確認してください。';
+    } else if (error.message?.includes('parse') || error.message?.includes('extract')) {
+      userMessage = 'データ解析エラー: Amazonページの構造が変更されている可能性があります。手動でデータを入力してください。';
+    }
+    
+    throw new Error(userMessage + `\n技術詳細: ${error.message}`);
   }
 }
 
@@ -770,48 +859,76 @@ function parseAmazonHTML(html, url) {
         if (idxFeature !== -1) region = allHtml.slice(Math.max(0, idxFeature - 200), idxFeature + 3000);
         else region = allHtml; // last resort only
       }
-      const workHtml = region
-        .replace(/<[^>]*data-action="follow"[^>]*>[\s\S]*?<\/[^>]*>/ig, '')
-        .replace(/<a[^>]*aria-label="[^"]*(?:フォロー|follow)[^"]*"[^>]*>[\s\S]*?<\/a>/ig, '')
-        .replace(/<a[^>]*>[\s\S]*?(?:をフォロー|フォロー|follow)[\s\S]*?<\/a>/ig, '');
+      // Optimize HTML cleaning - use single regex with alternation to reduce string operations
+      const cleanRegex = /<[^>]*data-action="follow"[^>]*>[\s\S]*?<\/[^>]*>|<a[^>]*aria-label="[^"]*(?:フォロー|follow)[^"]*"[^>]*>[\s\S]*?<\/a>|<a[^>]*>[\s\S]*?(?:をフォロー|フォロー|follow)[\s\S]*?<\/a>/ig;
+      const workHtml = region.replace(cleanRegex, '');
 
-      // 2) Anchors that are likely author names
+      // 2) Anchors that are likely author names - safe iteration to prevent infinite loops
       const anchorRegexes = [
         /<a[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([\s\S]*?)<\/a>/ig,
         /<a[^>]*class="[^"]*(?:by-author|author)[^"]*"[^>]*>([\s\S]*?)<\/a>/ig
       ];
       for (const rx of anchorRegexes) {
-        let m;
-        while ((m = rx.exec(workHtml)) !== null) {
-          pushAuthor(extractTextContent(m[1]));
+        // Use matchAll instead of exec() loop to prevent infinite loop issues
+        try {
+          const matches = [...workHtml.matchAll(rx)];
+          for (const match of matches) {
+            if (match && match[1]) {
+              pushAuthor(extractTextContent(match[1]));
+            }
+          }
+        } catch (e) {
+          console.warn('Regex matching failed for anchor patterns:', e);
         }
       }
 
-      // 3) Span wrappers around anchors (author notFaded etc.)
+      // 3) Span wrappers around anchors (author notFaded etc.) - safe iteration
       const spanBlockRegexes = [
         /<span[^>]*class="[^"]*author[^"]*"[^>]*>([\s\S]*?)<\/span>/ig
       ];
       for (const rx of spanBlockRegexes) {
-        let m;
-        while ((m = rx.exec(workHtml)) !== null) {
-          const inner = m[1];
-          let a;
-          const innerAnchor = /<a[^>]*>([\s\S]*?)<\/a>/ig;
-          while ((a = innerAnchor.exec(inner)) !== null) {
-            pushAuthor(extractTextContent(a[1]));
+        try {
+          const spanMatches = [...workHtml.matchAll(rx)];
+          for (const spanMatch of spanMatches) {
+            if (spanMatch && spanMatch[1]) {
+              const inner = spanMatch[1];
+              const innerAnchor = /<a[^>]*>([\s\S]*?)<\/a>/ig;
+              try {
+                const anchorMatches = [...inner.matchAll(innerAnchor)];
+                for (const anchorMatch of anchorMatches) {
+                  if (anchorMatch && anchorMatch[1]) {
+                    pushAuthor(extractTextContent(anchorMatch[1]));
+                  }
+                }
+              } catch (e) {
+                console.warn('Inner anchor matching failed:', e);
+              }
+            }
           }
+        } catch (e) {
+          console.warn('Span block regex matching failed:', e);
         }
       }
 
-      // 3b) Last-resort within byline: any anchors not containing follow text
-      if (authors.length === 0 && bylineHtml) {
-        let m;
-        const anyAnchor = /<a[^>]*>([\s\S]*?)<\/a>/ig;
-        while ((m = anyAnchor.exec(bylineHtml)) !== null) {
-          const text = extractTextContent(m[1]);
-          if (!text) continue;
-          if (/フォロー|follow/i.test(text)) continue;
-          pushAuthor(text);
+      // 3b) Last-resort within byline: any anchors not containing follow text - safe iteration
+      if (authors.length === 0 && region.includes('id="bylineInfo"')) {
+        try {
+          const bylineMatch = region.match(/id="bylineInfo"[^>]*>([\s\S]{0,1500})/);
+          const bylineHtml = bylineMatch ? bylineMatch[1] : '';
+          if (bylineHtml) {
+            const anyAnchor = /<a[^>]*>([\s\S]*?)<\/a>/ig;
+            const anchorMatches = [...bylineHtml.matchAll(anyAnchor)];
+            for (const match of anchorMatches) {
+              if (match && match[1]) {
+                const text = extractTextContent(match[1]);
+                if (!text) continue;
+                if (/フォロー|follow/i.test(text)) continue;
+                pushAuthor(text);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Byline anchor extraction failed:', e);
         }
       }
 
@@ -824,40 +941,59 @@ function parseAmazonHTML(html, url) {
       const metaMatch = allHtml.match(/<meta[^>]*name="author"[^>]*content="([^"]+)"[^>]*>/i);
       if (metaMatch && metaMatch[1]) pushAuthor(metaMatch[1]);
 
-      // 5) JSON-LD fallback
+      // 5) JSON-LD fallback - safe iteration and improved error handling
       try {
         const scriptRegex = /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/ig;
-        let sm;
-        while ((sm = scriptRegex.exec(allHtml)) !== null) {
-          const jsonText = sm[1] && sm[1].trim();
+        const scriptMatches = [...allHtml.matchAll(scriptRegex)];
+        for (const scriptMatch of scriptMatches) {
+          if (!scriptMatch || !scriptMatch[1]) continue;
+          const jsonText = scriptMatch[1].trim();
           if (!jsonText) continue;
-          let data;
-          try { data = JSON.parse(jsonText); } catch { continue; }
-          const nodes = Array.isArray(data) ? data : [data];
-          for (const node of nodes) {
-            if (!node) continue;
-            const a = node.author || node.authors;
-            if (!a) continue;
-            if (typeof a === 'string') {
-              pushAuthor(a);
-            } else if (Array.isArray(a)) {
-              for (const entry of a) {
-                if (!entry) continue;
-                if (typeof entry === 'string') pushAuthor(entry);
-                else if (entry.name) pushAuthor(entry.name);
+          
+          try {
+            const data = JSON.parse(jsonText);
+            const nodes = Array.isArray(data) ? data : [data];
+            for (const node of nodes) {
+              if (!node || typeof node !== 'object') continue;
+              const a = node.author || node.authors;
+              if (!a) continue;
+              
+              if (typeof a === 'string') {
+                pushAuthor(a);
+              } else if (Array.isArray(a)) {
+                for (const entry of a) {
+                  if (!entry) continue;
+                  if (typeof entry === 'string') {
+                    pushAuthor(entry);
+                  } else if (entry && typeof entry === 'object' && entry.name) {
+                    pushAuthor(entry.name);
+                  }
+                }
+              } else if (typeof a === 'object' && a.name) {
+                pushAuthor(a.name);
               }
-            } else if (typeof a === 'object' && a.name) {
-              pushAuthor(a.name);
             }
+          } catch (parseError) {
+            console.warn('JSON-LD parsing failed:', parseError.message.substring(0, 100));
           }
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        console.warn('JSON-LD extraction failed:', e.message);
+      }
 
-      return authors.map(a => a.name);
+      const authorNames = authors.map(a => a.name);
+      
+      // Clear references for memory efficiency
+      authors.length = 0;
+      
+      return authorNames;
     }
 
     let authors = extractAuthors(html);
     let author = authors.length ? authors.join('、') : null;
+    
+    // Clear authors array after use
+    authors = null;
     
     // Extract image URL - robust and precise for product images
     let imageUrl = null;
@@ -1149,7 +1285,7 @@ async function handleImageExport(data) {
 // Global variable to track pending X share requests
 let pendingXShare = null;
 
-async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
+async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
   const snapshot = pendingXShare ? {
     tweetTabId: pendingXShare.tweetTabId,
     dataUrl: pendingXShare.dataUrl,
@@ -1216,24 +1352,12 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
         continue;
       }
       
-      // Enhanced content script injection with multiple attempts
+      // Enhanced content script injection with multiple attempts and better timing
       let contentScriptReady = false;
-      for (let pingAttempt = 0; pingAttempt < 3; pingAttempt++) {
-        // Test if content script is responsive
-        const pingResult = await new Promise((resolve) => {
-          chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'krmPing' }, (resp) => {
-            const success = !chrome.runtime.lastError && resp?.pong;
-            console.log(`Ping attempt ${pingAttempt + 1}:`, { success, resp, error: chrome.runtime.lastError?.message });
-            resolve(success);
-          });
-        });
+      for (let pingAttempt = 0; pingAttempt < 5; pingAttempt++) {
+        console.log(`Ping/inject attempt ${pingAttempt + 1}/5`);
         
-        if (pingResult) {
-          contentScriptReady = true;
-          break;
-        }
-        
-        // Inject content script if ping failed
+        // Always try injection first (idempotent operation)
         if (chrome?.scripting?.executeScript) {
           try {
             console.log(`Injecting content script (attempt ${pingAttempt + 1})`);
@@ -1241,53 +1365,144 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
               target: { tabId: snapshot.tweetTabId },
               files: ['content-scripts/x-tweet-auto-attach.js']
             });
-            await new Promise(r => setTimeout(r, 500)); // Give more time for initialization
-          } catch (e) {
-            console.warn(`Content script injection failed (attempt ${pingAttempt + 1}):`, e.message);
+            
+            // Wait progressively longer for script initialization
+            const initWait = Math.min(1000 + (pingAttempt * 500), 3000);
+            console.log(`Waiting ${initWait}ms for content script initialization`);
+            await new Promise(r => setTimeout(r, initWait));
+          } catch (injectionError) {
+            console.warn(`Content script injection failed (attempt ${pingAttempt + 1}):`, injectionError.message);
+            
+            // If tab doesn't exist, abort immediately
+            if (injectionError.message.includes('No tab with id')) {
+              console.error('Tweet tab no longer exists, aborting');
+              throw new Error('Tweet tab was closed');
+            }
+            
+            // Continue with ping even if injection failed
           }
+        }
+        
+        // Test if content script is responsive with longer timeout
+        const pingResult = await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            console.log(`Ping timeout after 5 seconds (attempt ${pingAttempt + 1})`);
+            resolve(false);
+          }, 5000);
+          
+          chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'krmPing' }, (resp) => {
+            clearTimeout(timeout);
+            const success = !chrome.runtime.lastError && resp?.pong;
+            console.log(`Ping attempt ${pingAttempt + 1}:`, { 
+              success, 
+              response: resp, 
+              error: chrome.runtime.lastError?.message 
+            });
+            resolve(success);
+          });
+        });
+        
+        if (pingResult) {
+          console.log('✅ Content script is ready and responding');
+          contentScriptReady = true;
+          break;
+        }
+        
+        // Exponential backoff between attempts
+        if (pingAttempt < 4) { // Don't wait after last attempt
+          const waitTime = Math.min(1000 * Math.pow(2, pingAttempt), 4000);
+          console.log(`❌ Ping failed, waiting ${waitTime}ms before retry`);
+          await new Promise(r => setTimeout(r, waitTime));
         }
       }
       
       if (!contentScriptReady) {
-        console.warn(`Content script not ready after 3 ping attempts, continuing anyway`);
+        console.warn(`⚠️ Content script not ready after 5 ping attempts, will try attachment anyway`);
       }
 
-      // Attempt image attachment
+      // Attempt image attachment with enhanced error handling and connection check
+      console.log('🎯 Attempting image attachment...');
       const attachResult = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Message timeout after 20 seconds'));
-        }, 20000);
+        let responseReceived = false;
         
-        chrome.tabs.sendMessage(snapshot.tweetTabId, {
-          action: 'attachImageDataUrl',
-          dataUrl: snapshot.dataUrl
-        }, (resp) => {
+        const timeout = setTimeout(() => {
+          if (!responseReceived) {
+            console.error('🔥 Image attachment timed out after 45 seconds');
+            reject(new Error('Image attachment timeout after 45 seconds'));
+          }
+        }, 45000); // Reduced to 45 seconds for faster failure detection
+        
+        try {
+          // Check if tab still exists before sending message
+          chrome.tabs.get(snapshot.tweetTabId, (tab) => {
+            if (chrome.runtime.lastError) {
+              clearTimeout(timeout);
+              console.error('❌ Tweet tab no longer exists:', chrome.runtime.lastError.message);
+              return reject(new Error('Tweet tab was closed or inaccessible'));
+            }
+            
+            console.log('📤 Sending attachment message to tab:', tab.url);
+            
+            chrome.tabs.sendMessage(snapshot.tweetTabId, {
+              action: 'attachImageDataUrl',
+              dataUrl: snapshot.dataUrl
+            }, (resp) => {
+              responseReceived = true;
+              clearTimeout(timeout);
+              
+              const lastError = chrome.runtime.lastError;
+              console.log('📨 Attachment response received:', {
+                response: resp,
+                lastError: lastError?.message,
+                timestamp: new Date().toISOString(),
+                responseTime: Date.now()
+              });
+              
+              if (lastError) {
+                console.error('💥 Chrome runtime error during attachment:', lastError.message);
+                
+                // Handle specific error cases
+                if (lastError.message.includes('message channel closed') || 
+                    lastError.message.includes('receiving end does not exist')) {
+                  return reject(new Error('Content script connection lost - tab may have navigated or refreshed'));
+                }
+                
+                return reject(new Error(`Chrome runtime error: ${lastError.message}`));
+              }
+              
+              // Handle null/undefined response (content script may have crashed)
+              if (!resp) {
+                console.warn('⚠️ Received null response from content script');
+                return reject(new Error('Content script did not respond (may have crashed or been unloaded)'));
+              }
+              
+              if (resp.ok) {
+                console.log('✅ Content script confirmed successful image attachment');
+                return resolve(true);
+              }
+              
+              const errorMsg = resp.error || 'Unknown attachment error';
+              console.error('❌ Content script attachment failed:', errorMsg);
+              reject(new Error(`Content script attachment failed: ${errorMsg}`));
+            });
+          });
+        } catch (sendError) {
           clearTimeout(timeout);
-          console.log('Attachment response:', resp, 'lastError:', chrome.runtime.lastError?.message);
-          
-          if (chrome.runtime.lastError) {
-            return reject(new Error(chrome.runtime.lastError.message));
-          }
-          
-          if (resp && resp.ok) {
-            console.log('Content script confirmed successful attachment');
-            return resolve(true);
-          }
-          
-          reject(new Error(`Content script attachment failed: ${resp?.error || 'Unknown error'}`));
-        });
+          console.error('💥 Failed to send attachment message:', sendError.message);
+          reject(new Error(`Message send failed: ${sendError.message}`));
+        }
       });
 
       if (attachResult) {
-        console.log('Successfully sent image to tweet tab');
+        console.log('🎉 Successfully sent image to tweet tab');
         
         // Cleanup image generation tab
         if (snapshot.imageTabId) {
           try { 
-            console.log('Cleaning up image generation tab:', snapshot.imageTabId);
+            console.log('🧹 Cleaning up image generation tab:', snapshot.imageTabId);
             await chrome.tabs.remove(snapshot.imageTabId); 
-          } catch (e) {
-            console.warn('Failed to cleanup image tab:', e);
+          } catch (cleanupError) {
+            console.warn('⚠️ Failed to cleanup image tab:', cleanupError.message);
           }
         }
         
@@ -1299,11 +1514,50 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
         return true;
       }
     } catch (e) {
-      console.warn(`Send attempt ${i+1} failed:`, e.message);
+      console.error(`💥 Send attempt ${i+1} failed:`, {
+        error: e.message,
+        stack: e.stack,
+        attempt: i + 1,
+        maxAttempts
+      });
+      
+      // Check if this is a fatal error that shouldn't be retried
+      const fatalErrors = [
+        'Tweet tab was closed',
+        'No tab with id',
+        'Cannot access'
+      ];
+      
+      if (fatalErrors.some(fatal => e.message.includes(fatal))) {
+        console.error('🛑 Fatal error detected, aborting all retry attempts');
+        break;
+      }
+      
+      // Wait before retry with exponential backoff
+      if (i < maxAttempts - 1) {
+        const retryDelay = Math.min(2000 * Math.pow(1.5, i), 10000);
+        console.log(`⏳ Waiting ${retryDelay}ms before retry attempt ${i + 2}...`);
+        await new Promise(r => setTimeout(r, retryDelay));
+      }
     }
   }
   
-  console.error('All attempts to send image to tweet tab failed');
+  console.error('💀 All attempts to send image to tweet tab failed after', maxAttempts, 'attempts');
+  
+  // Show user a helpful message about manual attachment
+  if (typeof chrome !== 'undefined' && chrome.notifications) {
+    try {
+      await chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'Kindle Review Meter',
+        message: '画像の自動添付に失敗しました。手動で画像をX投稿に添付してください。'
+      });
+    } catch (notifError) {
+      console.warn('Failed to show notification:', notifError.message);
+    }
+  }
+  
   if (pendingXShare) {
     pendingXShare.imageSent = false;
   }
@@ -1312,15 +1566,27 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 800) {
 
 async function handleShareToXWithImage(data, tweetUrl) {
   try {
-    console.log('Starting X share with image, data:', data);
+    console.log('🚀 Starting X share with image process');
+    console.log('📊 Data:', data);
+    console.log('🔗 Tweet URL:', tweetUrl);
+    
+    // Validate inputs
+    if (!tweetUrl) {
+      throw new Error('Tweet URL is required but not provided');
+    }
+    
+    if (!data) {
+      throw new Error('Data is required but not provided');
+    }
     
     // First, open X tweet page immediately
+    console.log('🌐 Creating X tweet tab...');
     const tweetTab = await chrome.tabs.create({
       url: tweetUrl,
       active: true
     });
 
-    console.log('Opened X tweet tab:', tweetTab.id);
+    console.log('✅ Opened X tweet tab:', tweetTab.id, 'URL:', tweetTab.url);
     pendingXShare = { tweetTabId: tweetTab.id };
     
     // Then generate image in background and copy to clipboard
@@ -1391,4 +1657,34 @@ if (chrome.contextMenus && chrome.contextMenus.onClicked) {
       chrome.storage.local.set({ 'pendingUrl': info.linkUrl });
     }
   });
+}
+
+// Debug helper functions for console testing (Development only)
+if (typeof window !== 'undefined') {
+  window.debugAmazonFetch = function(url) {
+    console.log('🔍 Debug: Starting manual Amazon fetch for:', url);
+    return handleAmazonDataFetch(url)
+      .then(result => {
+        console.log('✅ Debug: Fetch succeeded:', result);
+        return result;
+      })
+      .catch(error => {
+        console.error('❌ Debug: Fetch failed:', error);
+        throw error;
+      });
+  };
+
+  window.debugProxyStats = function() {
+    const stats = proxyTracker.getStats();
+    console.log('📊 Current proxy statistics:', JSON.stringify(stats, null, 2));
+    return stats;
+  };
+
+  window.debugCacheStats = function() {
+    const stats = amazonDataCache.getStats();
+    console.log('💾 Current cache statistics:', stats);
+    return stats;
+  };
+
+  console.log('🛠️ Debug functions loaded: debugAmazonFetch(), debugProxyStats(), debugCacheStats()');
 }
