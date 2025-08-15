@@ -44,6 +44,19 @@
   let attachmentInProgress = false;
   let attachmentCompleted = false;
   let pendingDataUrl = null;
+  let attachmentAttemptId = 0; // Track attachment attempts for debugging
+  
+  // Global session state to prevent duplicate script execution
+  if (window.krmAttachmentSession) {
+    console.log('KindleReviewMeter content script already loaded, skipping duplicate execution');
+    return;
+  }
+  window.krmAttachmentSession = {
+    loaded: true,
+    timestamp: Date.now(),
+    scriptId: Math.random().toString(36).substr(2, 9),
+    attachmentButtonClicked: false // Prevent multiple button clicks globally
+  };
 
   console.log('KindleReviewMeter: X tweet auto-attach script loaded (Integrated Stable Version)');
 
@@ -192,48 +205,51 @@
    * Find and click attachment button to reveal file input
    */
   async function findAndClickAttachmentButton() {
-    // Always try to click attachment button as per commit 6ec556190c291da3123b8440ea00438051735ffe
-    console.log('Attempting to click attachment button to reveal file input');
+    // Prevent duplicate attachment button clicks globally across all script instances
+    if (window.krmAttachmentSession.attachmentButtonClicked) {
+      console.log('Attachment button already clicked globally, skipping to prevent duplicate finder dialogs');
+      return false;
+    }
     
-    const attachButtonSelectors = [
-      // Common toolbar buttons
-      '[data-testid="attachments"]',
-      '[data-testid="toolBarAttachments"]',
-      // Accessible labels (EN/JA)
-      'button[aria-label*="Add photos" i]',
-      'button[aria-label*="Add media" i]',
-      '[aria-label*="Media" i]',
-      '[aria-label*="写真" i]',
-      '[aria-label*="画像" i]',
-      '[aria-label*="メディア" i]',
-      // Fallback: toolbar container clickable
-      '[data-testid="toolBar"] [role="button"]',
-    ];
+    // CRITICAL: Do not click attachment button to prevent finder dialog opening
+    // Instead, search for existing file inputs that may already be available
+    console.log('Searching for existing file input instead of clicking attachment button to prevent finder dialog');
     
+    // Attachment button selectors (kept for reference, but not used to prevent finder dialog)
+    // const attachButtonSelectors = [
+    //   '[data-testid="attachments"]',
+    //   '[data-testid="toolBarAttachments"]',
+    //   'button[aria-label*="Add photos" i]',
+    //   'button[aria-label*="Add media" i]',
+    //   '[aria-label*="Media" i]',
+    //   '[aria-label*="写真" i]',
+    //   '[aria-label*="画像" i]',
+    //   '[aria-label*="メディア" i]',
+    //   '[data-testid="toolBar"] [role="button"]',
+    // ];
+    
+    // MODIFIED APPROACH: Search for existing file inputs instead of clicking buttons
+    // This prevents the native file picker dialog from opening
     try {
-      for (const selector of attachButtonSelectors) {
-        const button = document.querySelector(selector);
-        if (button) {
-          console.log('Found attachment button with selector:', selector);
-          try {
-            // Prefer native click; if blocked, simulate mouse event
-            if (typeof button.click === 'function') {
-              button.click();
-            } else {
-              const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-              button.dispatchEvent(evt);
-            }
-            
-            // Brief wait for UI response
-            await new Promise(r => setTimeout(r, 300));
-            return true;
-          } catch (e) {
-            console.warn('Attachment button click failed:', e);
-            continue;
-          }
+      // Search for any existing file inputs that may be available
+      const existingFileInput = document.querySelector('input[type="file"]');
+      if (existingFileInput) {
+        console.log('Found existing file input without clicking attachment button');
+        window.krmAttachmentSession.attachmentButtonClicked = true; // Mark as handled
+        return true;
+      }
+      
+      // Check if file input elements exist in shadow DOM or are hidden
+      const allInputs = document.querySelectorAll('input');
+      for (const input of allInputs) {
+        if (input.type === 'file' || input.accept) {
+          console.log('Found file input element (may be hidden):', input);
+          window.krmAttachmentSession.attachmentButtonClicked = true; // Mark as handled
+          return true;
         }
       }
-      console.log('No attachment button found');
+      
+      console.log('No file input found, skipping attachment button click to prevent finder dialog');
       return false;
     } catch (error) {
       console.error('Error in findAndClickAttachmentButton:', error);
@@ -249,30 +265,36 @@
    * Primary Image Attachment Handler - 5-Tier Strategy
    */
   async function attachViaDataUrl(dataUrl) {
+    const currentAttemptId = ++attachmentAttemptId;
     try {
-      console.log('attachViaDataUrl called with dataUrl length:', dataUrl?.length);
+      console.log(`[Attempt ${currentAttemptId}] attachViaDataUrl called with dataUrl length:`, dataUrl?.length);
       
       if (!dataUrl && pendingDataUrl) dataUrl = pendingDataUrl;
       if (!dataUrl) {
-        console.warn('No dataUrl available to attach');
+        console.warn(`[Attempt ${currentAttemptId}] No dataUrl available to attach`);
         return false;
       }
       
       // Prevent duplicate attachments
       if (attachmentInProgress) {
-        console.log('Attachment already in progress, skipping');
+        console.log(`[Attempt ${currentAttemptId}] Attachment already in progress, skipping`);
         return false;
       }
       
       if (attachmentCompleted) {
-        console.log('Attachment already completed, skipping');
+        console.log(`[Attempt ${currentAttemptId}] Attachment already completed, skipping`);
         return true;
       }
       
       attachmentInProgress = true;
       pendingDataUrl = dataUrl;
       
-      // Try to click attachment button first to reveal file input (best effort, non-fatal)
+      // DO NOT reset attachmentButtonClicked here to prevent duplicate finder dialogs
+      // attachmentButtonClicked flag should only be reset on script reload or explicit failure
+      
+      console.log(`[Attempt ${currentAttemptId}] Starting attachment process...`);
+      
+      // Search for existing file inputs without clicking buttons to prevent finder dialog
       await findAndClickAttachmentButton();
 
       // Observe DOM briefly to catch dynamically injected file inputs
@@ -306,13 +328,13 @@
         }
       }
       
-      console.log('Found elements:', { 
+      console.log(`[Attempt ${currentAttemptId}] Found elements:`, { 
         hasFileInput: !!fileInput, 
         hasComposerTextbox: !!composerTextbox 
       });
       
       const file = dataUrlToFile(dataUrl);
-      console.log('Converted dataUrl to file:', { 
+      console.log(`[Attempt ${currentAttemptId}] Converted dataUrl to file:`, { 
         name: file.name, 
         size: file.size, 
         type: file.type 
@@ -338,7 +360,7 @@
           composerTextbox?.dispatchEvent(new Event('focus', { bubbles: true }));
           document.body.dispatchEvent(new Event('click', { bubbles: true }));
           
-          console.log('Image attached via file input');
+          console.log(`[Attempt ${currentAttemptId}] Image attached via file input`);
           attachmentCompleted = true;
           return true;
         } catch (e) {
