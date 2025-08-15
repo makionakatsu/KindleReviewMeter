@@ -11,10 +11,17 @@ import messageRouter from './core/MessageRouter.js';
 import extensionStateManager from './core/ExtensionStateManager.js';
 import errorHandler from './core/ErrorHandler.js';
 
-// TODO: Import service modules (to be implemented in Phase 2)
-// import amazonScrapingService from './services/AmazonScrapingService.js';
-// import imageGenerationService from './services/ImageGenerationService.js';
-// import socialMediaService from './services/SocialMediaService.js';
+// Import service modules
+import { CacheService } from './services/CacheService.js';
+import { ProxyManagerService } from './services/ProxyManagerService.js';
+import { ImageGenerationService } from './services/ImageGenerationService.js';
+import SocialMediaService from './services/SocialMediaService.js';
+
+// Global service instances
+let cacheService;
+let proxyManagerService;
+let imageGenerationService;
+let socialMediaService;
 
 /**
  * Initialize the extension background services
@@ -27,8 +34,11 @@ async function initializeExtension() {
     extensionStateManager.initialize();
     messageRouter.initialize();
     
-    // Register temporary message handlers (from legacy code)
-    registerLegacyHandlers();
+    // Initialize services with dependency injection
+    initializeServices();
+    
+    // Register message handlers with new services
+    registerServiceHandlers();
     
     // Set up extension lifecycle handlers
     setupExtensionLifecycle();
@@ -44,40 +54,73 @@ async function initializeExtension() {
 }
 
 /**
- * Register legacy message handlers temporarily
- * These will be replaced with proper service handlers in Phase 2
- * 
- * For Phase 1, we'll revert to the original message handling approach
- * to ensure compatibility while the architecture is being built
+ * Initialize all services with proper dependency injection
  */
-function registerLegacyHandlers() {
-  console.log('📋 Setting up legacy message handlers for Phase 1 compatibility');
+function initializeServices() {
+  console.log('🔧 Initializing services...');
   
-  // Instead of dynamic imports, we'll temporarily use the old approach
-  // and gradually migrate in Phase 2
+  // Initialize services
+  cacheService = new CacheService();
+  proxyManagerService = new ProxyManagerService();
+  imageGenerationService = new ImageGenerationService();
+  socialMediaService = new SocialMediaService(extensionStateManager, errorHandler);
   
-  // Temporarily disable the new message router and fall back to direct handlers
-  console.warn('⚠️ Using legacy message handling during Phase 1 transition');
+  console.log('✅ Services initialized successfully');
+}
+
+/**
+ * Register service-based message handlers
+ */
+function registerServiceHandlers() {
+  console.log('📋 Setting up service-based message handlers');
   
-  // We'll register placeholder handlers that will be implemented in Phase 2
-  messageRouter.registerHandler('fetchAmazonData', async (request) => {
-    throw new Error('fetchAmazonData handler not implemented yet - please use legacy background.js temporarily');
-  });
-  
-  messageRouter.registerHandler('exportProgressImage', async (request) => {
-    throw new Error('exportProgressImage handler not implemented yet - please use legacy background.js temporarily');
-  });
-  
+  // X sharing with automatic image attachment
   messageRouter.registerHandler('shareToXWithImage', async (request) => {
-    throw new Error('shareToXWithImage handler not implemented yet - please use legacy background.js temporarily');
+    try {
+      console.log('🎯 Handling shareToXWithImage with SocialMediaService');
+      const result = await socialMediaService.shareToXWithImage(request.data, request.tweetUrl);
+      return { success: true, result };
+    } catch (error) {
+      console.error('❌ shareToXWithImage failed:', error);
+      throw error;
+    }
   });
   
+  // Image generation completion
   messageRouter.registerHandler('imageGenerated', async (request, sender) => {
-    console.log('imageGenerated received via MessageRouter');
-    return { success: true, message: 'Handled by MessageRouter' };
+    try {
+      console.log('🖼️ Handling imageGenerated with SocialMediaService');
+      
+      const result = await socialMediaService.handleImageGenerated(
+        request.dataUrl,
+        sender.tab?.id
+      );
+      
+      return { success: result };
+    } catch (error) {
+      console.error('❌ imageGenerated handling failed:', error);
+      return { success: false, error: error.message };
+    }
   });
   
-  console.log('📋 Legacy handler placeholders registered');
+  // Image generation service handler
+  messageRouter.registerHandler('exportProgressImage', async (request) => {
+    try {
+      console.log('🎨 Handling exportProgressImage with ImageGenerationService');
+      const result = await imageGenerationService.generateProgressImage(request.data, request.options || {});
+      return { success: true, result };
+    } catch (error) {
+      console.error('❌ exportProgressImage failed:', error);
+      throw error;
+    }
+  });
+  
+  // Amazon data fetching (placeholder for now - will use legacy background.js)
+  messageRouter.registerHandler('fetchAmazonData', async (request) => {
+    throw new Error('fetchAmazonData handler will be implemented in Phase 3 - please use legacy background.js temporarily');
+  });
+  
+  console.log('✅ Service handlers registered successfully');
 }
 
 /**

@@ -468,6 +468,60 @@ export default class SocialMediaService {
     }
   }
 
+  /**
+   * Handle image generation completion
+   * @param {string} dataUrl - Generated image data URL
+   * @param {number} imageTabId - Image generation tab ID
+   * @returns {Promise<boolean>} Success status
+   */
+  async handleImageGenerated(dataUrl, imageTabId) {
+    try {
+      console.log('🖼️ SocialMediaService handling imageGenerated:', {
+        hasDataUrl: !!dataUrl,
+        dataUrlLength: dataUrl?.length,
+        imageTabId
+      });
+      
+      if (!dataUrl) {
+        throw new Error('No image data provided');
+      }
+      
+      // Find the pending X share that matches this image tab
+      const allShares = this.stateManager.getAllPendingXShares();
+      let targetShare = null;
+      
+      for (const [tweetTabId, shareData] of allShares) {
+        if (shareData.imageTabId === imageTabId) {
+          targetShare = { tweetTabId, ...shareData };
+          break;
+        }
+      }
+      
+      if (!targetShare) {
+        console.warn('No matching pending X share found for image tab:', imageTabId);
+        // Clean up the image tab anyway
+        if (imageTabId) {
+          await this.cleanupImageTab(imageTabId);
+        }
+        return false;
+      }
+      
+      console.log('Found matching share, sending image to tweet tab:', targetShare.tweetTabId);
+      
+      // Send the image to the tweet tab
+      const result = await this.sendImageToTweetTab(
+        targetShare.tweetTabId,
+        dataUrl,
+        imageTabId
+      );
+      
+      return result;
+    } catch (error) {
+      console.error('❌ handleImageGenerated failed:', error);
+      return false;
+    }
+  }
+
   // ============================================================================
   // PUBLIC API METHODS
   // ============================================================================
