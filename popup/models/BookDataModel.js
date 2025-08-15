@@ -29,7 +29,7 @@ export default class BookDataModel {
       currentReviews: 0,
       targetReviews: null,
       associateTag: '',
-      associateEnabled: false,
+      associateEnabled: true,
       lastUpdated: null,
       extractedFrom: '',
       createdAt: null

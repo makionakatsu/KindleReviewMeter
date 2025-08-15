@@ -192,7 +192,8 @@ export default class UIManager {
     this.setInputValue('associateTag', data.associateTag || '');
     
     if (this.elements.associateEnabled) {
-      this.elements.associateEnabled.checked = data.associateEnabled || false;
+      const enabled = (data.associateEnabled !== undefined) ? data.associateEnabled : true;
+      this.elements.associateEnabled.checked = enabled;
     }
     
     // Clear any existing validation errors
