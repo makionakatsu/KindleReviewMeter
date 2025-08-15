@@ -698,18 +698,58 @@
   // CHROME EXTENSION MESSAGE HANDLING
   // ============================================================================
 
+  /**
+   * Validate Chrome extension context
+   */
+  function isValidExtensionContext() {
+    try {
+      return typeof chrome !== 'undefined' && 
+             chrome.runtime && 
+             chrome.runtime.id && 
+             typeof chrome.runtime.sendMessage === 'function';
+    } catch (e) {
+      console.warn('Chrome extension context validation failed:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Safe Chrome extension message sending
+   */
+  function safeSendMessage(message, callback) {
+    if (!isValidExtensionContext()) {
+      console.warn('Cannot send message: invalid extension context');
+      if (callback) callback({ error: 'Invalid extension context' });
+      return;
+    }
+
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('Chrome runtime error:', chrome.runtime.lastError.message);
+        }
+        if (callback) callback(response);
+      });
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      if (callback) callback({ error: error.message });
+    }
+  }
+
   // Wait for Twitter interface elements
   waitForElements().then(() => {
     console.log('X/Twitter interface detected, ready for image attachment');
     
     // Notify background that tweet page is ready to receive image
-    if (chrome?.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ action: 'xTweetPageReady' }, () => {});
-    }
+    safeSendMessage({ action: 'xTweetPageReady' }, (response) => {
+      if (response && !response.error) {
+        console.log('Successfully notified background script');
+      }
+    });
   });
 
   // Setup message listener for background script communication
-  if (chrome?.runtime?.onMessage) {
+  if (isValidExtensionContext()) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log('Content script received message:', request.action, 'at', new Date().toISOString());
       
@@ -748,8 +788,8 @@
               const attachResult = await attachViaDataUrl(request.dataUrl);
               console.log('Content script attach result:', attachResult);
               
-              // Ensure we can still send response
-              if (chrome.runtime?.id) {
+              // Ensure we can still send response with enhanced validation
+              if (isValidExtensionContext()) {
                 sendResponse({ 
                   ok: attachResult, 
                   timestamp: Date.now(),
@@ -761,8 +801,8 @@
             } catch (e) {
               console.error('Content script attach error:', e);
               
-              // Ensure we can still send response
-              if (chrome.runtime?.id) {
+              // Ensure we can still send response with enhanced validation
+              if (isValidExtensionContext()) {
                 sendResponse({ 
                   ok: false, 
                   error: e?.message || 'Unknown attachment error',
@@ -796,6 +836,10 @@
         return false; // Don't keep channel open on handler errors
       }
     });
+    
+    console.log('KindleReviewMeter: Message listener successfully setup');
+  } else {
+    console.warn('KindleReviewMeter: Cannot setup message listener - invalid extension context');
   }
 
   console.log('KindleReviewMeter: Integrated stable content script fully initialized');

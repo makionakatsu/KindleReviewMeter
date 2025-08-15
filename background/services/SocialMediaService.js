@@ -173,8 +173,43 @@ export default class SocialMediaService {
           console.warn(`⚠️ Content script not ready after 5 ping attempts, will try attachment anyway`);
         }
 
-        // Attempt image attachment
-        const attachResult = await this.attemptImageAttachment(tweetTabId, dataUrl);
+        // Attempt image attachment with connection retry
+        let attachResult = false;
+        try {
+          attachResult = await this.attemptImageAttachment(tweetTabId, dataUrl);
+        } catch (attachError) {
+          console.warn(`💥 Attachment attempt failed: ${attachError.message}`);
+          
+          // If connection failed, try to re-inject content script and retry once
+          if (attachError.message.includes('connection') || 
+              attachError.message.includes('receiving end does not exist') ||
+              attachError.message.includes('script did not respond')) {
+            console.log('🔄 Connection failed, attempting content script re-injection...');
+            
+            try {
+              // Force re-injection of content script
+              await chrome.scripting.executeScript({
+                target: { tabId: tweetTabId },
+                files: ['content-scripts/x-tweet-auto-attach.js']
+              });
+              
+              // Wait a bit for initialization
+              await new Promise(r => setTimeout(r, 2000));
+              
+              // Retry attachment once
+              console.log('🔄 Retrying attachment after content script re-injection...');
+              attachResult = await this.attemptImageAttachment(tweetTabId, dataUrl);
+            } catch (retryError) {
+              console.error('💥 Content script re-injection and retry failed:', retryError.message);
+              // Continue with the original error handling below
+            }
+          }
+          
+          if (!attachResult) {
+            // Re-throw the original error if retry didn't work
+            throw attachError;
+          }
+        }
         
         if (attachResult) {
           console.log('🎉 Successfully sent image to tweet tab');
@@ -358,10 +393,15 @@ export default class SocialMediaService {
             if (lastError) {
               console.error('💥 Chrome runtime error during attachment:', lastError.message);
               
-              // Handle specific error cases
+              // Handle specific error cases with more detailed information
               if (lastError.message.includes('message channel closed') || 
                   lastError.message.includes('receiving end does not exist')) {
-                return reject(new Error('Content script connection lost - tab may have navigated or refreshed'));
+                return reject(new Error(`Content script connection lost - tab may have navigated or refreshed (${lastError.message})`));
+              }
+              
+              if (lastError.message.includes('Extension ID') || 
+                  lastError.message.includes('specify an Extension ID')) {
+                return reject(new Error(`Content script running in wrong context - may need re-injection (${lastError.message})`));
               }
               
               return reject(new Error(`Chrome runtime error: ${lastError.message}`));
