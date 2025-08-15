@@ -12,6 +12,11 @@
  * - Data encoding and transfer optimization
  * - Multiple generation modes support
  * - Error handling and fallback strategies
+ * 
+ * Notes:
+ * - This class orchestrates browser-tab based generation and messaging only.
+ *   The actual canvas drawing lives in popup/image-generator.js.
+ * - Keep this class free of business logic (tweet text, parsing, etc.).
  */
 
 export class ImageGenerationService {

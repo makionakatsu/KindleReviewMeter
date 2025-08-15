@@ -25,6 +25,13 @@
 
 (function() {
   'use strict';
+  // Configuration flags to avoid disruptive UI actions
+  const CONFIG = {
+    // Never trigger OS file picker to avoid directory dialog popups
+    avoidNativeFileDialog: true,
+    maxNativeClickAttempts: 0
+  };
+  let nativeClickAttempts = 0;
   
   // ============================================================================
   // STATE MANAGEMENT
@@ -124,16 +131,25 @@
   // ============================================================================
 
   // Convert dataURL to File
-  function dataUrlToFile(dataUrl, filename = 'kindle-review-image.png') {
+  function dataUrlToFile(dataUrl, filename = null) {
     const arr = dataUrl.split(',');
-    const mime = arr[0].match(/:(.*?);/)[1];
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
     const bstr = atob(arr[1]);
     let n = bstr.length;
     const u8arr = new Uint8Array(n);
     while (n--) {
       u8arr[n] = bstr.charCodeAt(n);
     }
-    return new File([u8arr], filename, { type: mime });
+    // Infer extension from MIME if filename not provided or extension mismatched
+    let ext = 'png';
+    if (/jpeg|jpg/i.test(mime)) ext = 'jpg';
+    else if (/png/i.test(mime)) ext = 'png';
+    else if (/webp/i.test(mime)) ext = 'webp';
+    const base = 'kindle-review-image';
+    const inferredName = `${base}.${ext}`;
+    const finalName = (filename && filename.includes('.')) ? filename : inferredName;
+    return new File([u8arr], finalName, { type: mime });
   }
 
   // ============================================================================
@@ -147,6 +163,11 @@
    * the file input element for direct file assignment.
    */
   async function findAndClickAttachmentButton() {
+    if (CONFIG.avoidNativeFileDialog || nativeClickAttempts >= CONFIG.maxNativeClickAttempts) {
+      console.log('Skipping attachment button click to avoid native file dialog');
+      return false;
+    }
+    nativeClickAttempts++;
     const attachButtonSelectors = [
       // Common toolbar buttons
       '[data-testid="attachments"]',
@@ -252,8 +273,10 @@
       attachmentInProgress = true;
       pendingDataUrl = dataUrl;
       
-      // Try to click attachment button first to reveal file input (best effort, non-fatal)
-      await findAndClickAttachmentButton();
+      // Avoid opening native file dialogs; rely on existing inputs / DnD / paste
+      if (!CONFIG.avoidNativeFileDialog) {
+        await findAndClickAttachmentButton();
+      }
 
       // Observe DOM briefly to catch dynamically injected file inputs
       const waitForFileInputAppears = (ms = 4000) => new Promise((resolve) => {

@@ -45,4 +45,22 @@ Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可�
 
 ## ローカルで開く
 - ブラウザで `index.html` を開く（推奨: `python3 -m http.server 8000` で `http://localhost:8000/`）
+### Chrome拡張アーキテクチャ（要約）
+- 背景: `background/index.js`（サービス分割）
+  - メッセージ経路: `background/core/MessageRouter.js`
+  - 状態管理: `background/core/ExtensionStateManager.js`
+  - 例外処理: `background/core/ErrorHandler.js`
+  - 取得: `background/services/AmazonScrapingService.js`（プロキシ並列レース＋フォールバック）
+  - 画像: `background/services/ImageGenerationService.js`
+  - X連携: `background/services/SocialMediaService.js`
+- コンテンツスクリプト: `content-scripts/x-tweet-auto-attach.js`
+- ポップアップ: `popup/popup.html` + `popup/popup.js`（MVC移行中: `popup/controllers|models|views`）
+- 共有DTO: `background/types.js`（BookDataDTO）
 
+補足: `background/background.js` はレガシーな単一ファイル実装（参照用）。現在のManifestは`background/index.js`をエントリとして使用します。
+
+### 設定（開発者向け）
+- `background/config.js`
+  - `DEBUG_MODE`: 背景サービスのログ詳細度を切替（既定: false）
+  - `PROXIES`: CORSプロキシの一覧（既定は実装に合わせた順序）
+  - 値を変更してもアプリのロジックは変わりません（挙動の微調整のみ）。

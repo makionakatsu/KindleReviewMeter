@@ -16,12 +16,16 @@ import { CacheService } from './services/CacheService.js';
 import { ProxyManagerService } from './services/ProxyManagerService.js';
 import { ImageGenerationService } from './services/ImageGenerationService.js';
 import SocialMediaService from './services/SocialMediaService.js';
+import AmazonScrapingService from './services/AmazonScrapingService.js';
+import { DEBUG_MODE } from './config.js';
 
 // Global service instances
 let cacheService;
 let proxyManagerService;
 let imageGenerationService;
 let socialMediaService;
+let amazonScrapingService;
+
 
 /**
  * Initialize the extension background services
@@ -59,12 +63,23 @@ async function initializeExtension() {
 function initializeServices() {
   console.log('🔧 Initializing services...');
   
-  // Initialize services
+  // Initialize base services first
   cacheService = new CacheService();
   proxyManagerService = new ProxyManagerService();
+  
+  // Initialize dependent services
+  amazonScrapingService = new AmazonScrapingService(cacheService, proxyManagerService, errorHandler);
   imageGenerationService = new ImageGenerationService();
   socialMediaService = new SocialMediaService(extensionStateManager, errorHandler);
   
+  // Set debug mode (reduce noisy logs in production)
+  try {
+    if (amazonScrapingService?.setDebugMode) amazonScrapingService.setDebugMode(DEBUG_MODE);
+    if (socialMediaService?.setDebugMode) socialMediaService.setDebugMode(DEBUG_MODE);
+  } catch (e) {
+    console.warn('Debug mode configuration failed:', e?.message || e);
+  }
+
   console.log('✅ Services initialized successfully');
 }
 
@@ -79,7 +94,8 @@ function registerServiceHandlers() {
     try {
       console.log('🎯 Handling shareToXWithImage with SocialMediaService');
       const result = await socialMediaService.shareToXWithImage(request.data, request.tweetUrl);
-      return { success: true, result };
+      // Return raw result; MessageRouter will wrap with { success: true, data }
+      return result;
     } catch (error) {
       console.error('❌ shareToXWithImage failed:', error);
       throw error;
@@ -96,10 +112,11 @@ function registerServiceHandlers() {
         sender.tab?.id
       );
       
-      return { success: result };
+      // Return boolean; MessageRouter will wrap
+      return result;
     } catch (error) {
       console.error('❌ imageGenerated handling failed:', error);
-      return { success: false, error: error.message };
+      throw error;
     }
   });
   
@@ -108,16 +125,51 @@ function registerServiceHandlers() {
     try {
       console.log('🎨 Handling exportProgressImage with ImageGenerationService');
       const result = await imageGenerationService.generateProgressImage(request.data, request.options || {});
-      return { success: true, result };
+      return result;
     } catch (error) {
       console.error('❌ exportProgressImage failed:', error);
       throw error;
     }
   });
   
-  // Amazon data fetching (placeholder for now - will use legacy background.js)
+  // Amazon data fetching with AmazonScrapingService
   messageRouter.registerHandler('fetchAmazonData', async (request) => {
-    throw new Error('fetchAmazonData handler will be implemented in Phase 3 - please use legacy background.js temporarily');
+    try {
+      console.log('🔍 Handling fetchAmazonData with AmazonScrapingService');
+      const result = await amazonScrapingService.fetchBookData(request.url);
+      return result;
+    } catch (error) {
+      console.error('❌ fetchAmazonData failed:', error);
+      throw error;
+    }
+  });
+
+  // Content script on X compose page signals readiness
+  messageRouter.registerHandler('xTweetPageReady', async (_request, sender) => {
+    try {
+      const tabId = sender.tab?.id || null;
+      console.log('✅ xTweetPageReady acknowledged', { tabId });
+      // Optionally, we could try to resume pending share here if needed.
+      return { ready: true, tabId };
+    } catch (error) {
+      console.error('❌ xTweetPageReady handling failed:', error);
+      throw error;
+    }
+  });
+
+  // Optional clipboard copy telemetry from image generator
+  messageRouter.registerHandler('clipboardCopySuccess', async (request) => {
+    try {
+      console.log('📋 Clipboard copy result:', {
+        success: request?.success,
+        error: request?.error || null,
+        timestamp: new Date().toISOString()
+      });
+      return { acknowledged: true };
+    } catch (error) {
+      console.warn('Failed to handle clipboardCopySuccess:', error);
+      return { acknowledged: false };
+    }
   });
   
   console.log('✅ Service handlers registered successfully');
@@ -201,3 +253,21 @@ function setupGlobalErrorHandling() {
 // Initialize everything when the service worker starts
 setupGlobalErrorHandling();
 initializeExtension();
+
+// Fallback: ensure xTweetPageReady doesn't error even if router isn't ready yet
+try {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request && request.action === 'xTweetPageReady') {
+      try {
+        const tabId = sender?.tab?.id || null;
+        console.log('⚡ Fallback ACK for xTweetPageReady', { tabId });
+        sendResponse({ ok: true, tabId });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || String(e) });
+      }
+      return true;
+    }
+  });
+} catch (e) {
+  console.warn('Failed to add fallback xTweetPageReady listener:', e);
+}

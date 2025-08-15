@@ -80,6 +80,11 @@ export default class BookDataModel {
       }
     };
   }
+  /**
+   * Notes:
+   * - Model encapsulates validation and data shaping for popup only.
+   * - Keep API surface stable for controller and view; no direct DOM access.
+   */
 
   // ============================================================================
   // DATA MANAGEMENT
@@ -217,11 +222,15 @@ export default class BookDataModel {
     
     if (amazonData.currentReviews !== undefined) {
       updates.currentReviews = parseInt(amazonData.currentReviews) || 0;
+    } else if (amazonData.reviewCount !== undefined) {
+      updates.currentReviews = parseInt(amazonData.reviewCount) || 0;
     }
     
-    if (amazonData.extractedFrom || amazonData.url) {
-      updates.extractedFrom = amazonData.extractedFrom || amazonData.url;
-      updates.amazonUrl = amazonData.extractedFrom || amazonData.url;
+    // Prefer normalized URL fields from background
+    const srcUrl = amazonData.normalizedUrl || amazonData.amazonUrl || amazonData.extractedFrom || amazonData.url;
+    if (srcUrl) {
+      updates.extractedFrom = srcUrl;
+      updates.amazonUrl = srcUrl;
     }
     
     updates.lastUpdated = new Date().toISOString();
@@ -390,82 +399,29 @@ export default class BookDataModel {
    * @param {Object} options - Tweet generation options
    * @returns {string} Generated tweet text
    */
-  generateTweetText(options = {}) {
-    const {
-      includeProgress = true,
-      includeGoal = true,
-      includeUrl = this.data.associateEnabled,
-      customMessage = '',
-      maxLength = 280
-    } = options;
-    
-    let tweetText = '';
-    
-    // Custom message or default
-    if (customMessage) {
-      tweetText = customMessage;
+  generateTweetText() {
+    const title = this.data.title || '書籍';
+    const current = Number(this.data.currentReviews) || 0;
+    const target = Number(this.data.targetReviews) || 0;
+
+    let tweetContent = '';
+    if (target > 0) {
+      const remaining = Math.max(0, target - current);
+      tweetContent = `「${title}」のレビューが${current}件になりました！\nレビューを書いて著者を応援しよう！\n目標${target}件まで残り${remaining}件です📚`;
     } else {
-      // Build default message
-      const parts = [];
-      
-      if (this.data.title) {
-        parts.push(`📚「${this.data.title}」`);
-      }
-      
-      if (this.data.author) {
-        parts.push(`by ${this.data.author}`);
-      }
-      
-      // Progress information
-      if (includeProgress && this.data.currentReviews !== undefined) {
-        const progressPart = `現在のレビュー数: ${this.data.currentReviews}`;
-        
-        if (includeGoal && this.data.targetReviews) {
-          const percentage = this.getProgressPercentage();
-          const remaining = this.getRemainingReviews();
-          
-          if (this.isGoalAchieved()) {
-            parts.push(`🎉 目標達成！ ${this.data.targetReviews}レビュー達成 (100%)`);
-          } else {
-            parts.push(`${progressPart} / 目標: ${this.data.targetReviews} (${percentage}%)`);
-            parts.push(`あと${remaining}レビューで目標達成！`);
-          }
-        } else {
-          parts.push(progressPart);
-        }
-      }
-      
-      tweetText = parts.join('\n');
+      tweetContent = `「${title}」は、現在レビューを${current}件集めています📚\nレビューを書いて著者を応援しよう！`;
     }
-    
-    // Add URL if requested
-    if (includeUrl && this.data.amazonUrl) {
+
+    // URL + disclosure (if associate enabled)
+    let urlPart = '';
+    let disclosure = '';
+    if (this.data.associateEnabled) {
       const url = this.getShareableUrl();
-      tweetText += `\n\n${url}`;
+      urlPart = url ? `\n${url}` : '';
+      if (this.data.associateTag) disclosure = '\n#アマゾンアソシエイトに参加しています';
     }
-    
-    // Add hashtags
-    tweetText += '\n\n#KindleReviews #読書';
-    
-    // Truncate if too long
-    if (tweetText.length > maxLength) {
-      const urlLength = includeUrl ? this.getShareableUrl().length + 2 : 0; // +2 for \n\n
-      const hashtagLength = '\n\n#KindleReviews #読書'.length;
-      const availableLength = maxLength - urlLength - hashtagLength - 3; // -3 for "..."
-      
-      let mainText = customMessage || parts.join('\n');
-      if (mainText.length > availableLength) {
-        mainText = mainText.substring(0, availableLength) + '...';
-      }
-      
-      tweetText = mainText;
-      if (includeUrl) {
-        tweetText += '\n\n' + this.getShareableUrl();
-      }
-      tweetText += '\n\n#KindleReviews #読書';
-    }
-    
-    return tweetText.trim();
+
+    return `${tweetContent}${urlPart}\n#KindleReviewMeter${disclosure}`;
   }
 
   /**
@@ -529,7 +485,9 @@ export default class BookDataModel {
       title: this.data.title,
       author: this.data.author,
       imageUrl: this.data.imageUrl,
+      // Both fields for backward compatibility with image generator
       currentReviews: this.data.currentReviews,
+      reviewCount: this.data.currentReviews,
       targetReviews: this.data.targetReviews,
       progressPercentage: this.getProgressPercentage(),
       remainingReviews: this.getRemainingReviews(),

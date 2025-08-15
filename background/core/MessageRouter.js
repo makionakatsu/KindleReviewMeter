@@ -14,6 +14,11 @@ class MessageRouter {
     this.middleware = [];
     this.isInitialized = false;
   }
+  /**
+   * Notes:
+   * - This router wraps handler return values as `{ success: true, data }`.
+   * - Handlers should return raw payloads; errors should be thrown to be wrapped.
+   */
 
   /**
    * Initialize the message router with Chrome runtime listener

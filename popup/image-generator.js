@@ -239,23 +239,41 @@
 
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      canvas.width = 420; canvas.height = 560; // 3:4
+      // High-DPI rendering: scale up internal resolution while keeping layout code unchanged
+      const BASE_W = 420, BASE_H = 560; // 3:4 logical coordinates
+      // Determine scale: query param > devicePixelRatio (clamped) > default 2
+      const isQuick = qs.has('quickMode');
+      const qsScale = Number(qs.get('scale'));
+      const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1;
+      let scale;
+      if (isQuick) {
+        // Force a predictable 3:4 pixel size in quick mode for X attachment
+        scale = 2; // 420x560 * 2 = 840x1120
+      } else {
+        // Default higher resolution for downloads: prefer >=3x when not specified
+        scale = Number.isFinite(qsScale) && qsScale > 0
+          ? Math.min(qsScale, 4)
+          : Math.min(Math.max(dpr, 3), 4);
+      }
+      canvas.width = Math.round(BASE_W * scale);
+      canvas.height = Math.round(BASE_H * scale);
+      ctx.scale(scale, scale);
 
       // Background gradient (blue→cyan)
-      let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      let grad = ctx.createLinearGradient(0, 0, 0, BASE_H);
       grad.addColorStop(0, '#0ea5e9'); grad.addColorStop(1, '#22d3ee');
-      ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, BASE_W, BASE_H);
 
       // Subtle radial accents
-      let g1 = ctx.createRadialGradient(canvas.width*0.2, canvas.height*0.2, 0, canvas.width*0.2, canvas.height*0.2, 150);
+      let g1 = ctx.createRadialGradient(BASE_W*0.2, BASE_H*0.2, 0, BASE_W*0.2, BASE_H*0.2, 150);
       g1.addColorStop(0, 'rgba(14,165,233,0.05)'); g1.addColorStop(1, 'transparent');
-      ctx.fillStyle = g1; ctx.fillRect(0,0,canvas.width,canvas.height);
-      let g2 = ctx.createRadialGradient(canvas.width*0.8, canvas.height*0.8, 0, canvas.width*0.8, canvas.height*0.8, 150);
+      ctx.fillStyle = g1; ctx.fillRect(0,0,BASE_W,BASE_H);
+      let g2 = ctx.createRadialGradient(BASE_W*0.8, BASE_H*0.8, 0, BASE_W*0.8, BASE_H*0.8, 150);
       g2.addColorStop(0, 'rgba(34,211,238,0.05)'); g2.addColorStop(1, 'transparent');
-      ctx.fillStyle = g2; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = g2; ctx.fillRect(0,0,BASE_W,BASE_H);
 
       // White rounded card
-      const cardX = 15, cardY = 15, cardW = canvas.width - 30, cardH = canvas.height - 30;
+      const cardX = 15, cardY = 15, cardW = BASE_W - 30, cardH = BASE_H - 30;
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,0.12)'; ctx.shadowBlur = 20; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 8;
       ctx.fillStyle = 'rgba(255,255,255,0.96)';
@@ -271,7 +289,7 @@
 
       // Cover
       const coverW = 150, coverH = 225;
-      const coverX = (canvas.width - coverW) / 2;
+      const coverX = (BASE_W - coverW) / 2;
       const coverY = cardY + 40;
       if (d.imageUrl && d.imageUrl.trim()) {
         let objUrl = null;
@@ -306,16 +324,16 @@
       ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, sans-serif';
       const cg = ctx.createLinearGradient(0, y, 0, y+56); cg.addColorStop(0,'#3b82f6'); cg.addColorStop(1,'#06b6d4');
       ctx.fillStyle = cg; ctx.textAlign = 'center';
-      ctx.save(); ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(14,165,233,0.45)'; ctx.shadowBlur = 18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.fillText(String(current), canvas.width/2, y); ctx.restore();
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(current), canvas.width/2, y);
+      ctx.save(); ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(14,165,233,0.45)'; ctx.shadowBlur = 18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.fillText(String(current), BASE_W/2, y); ctx.restore();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(current), BASE_W/2, y);
 
       // Label
       ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif'; ctx.fillStyle = '#4a5568';
-      const labelY = y + 56 + 8; ctx.fillText('現在のレビュー数', canvas.width/2, labelY);
+      const labelY = y + 56 + 8; ctx.fillText('現在のレビュー数', BASE_W/2, labelY);
 
       // Progress bar + stats (only when target set)
       if (hasTarget) {
-        const barY = labelY + 28; const barW = cardW - 60; const barH = 24; const barX = (canvas.width - barW)/2;
+        const barY = labelY + 28; const barW = cardW - 60; const barH = 24; const barX = (BASE_W - barW)/2;
         ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
         roundRect(ctx, barX, barY, barW, barH, 16); ctx.fill(); ctx.stroke();
         if (percentage > 0) {
@@ -455,22 +473,24 @@
         if (quickMode) {
           try {
             console.log('Quick mode: generating image data URL');
-            let dataUrl;
-            if (blob) {
-              console.log('Converting blob to data URL, blob size:', blob.size);
-              dataUrl = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => {
-                  console.log('Blob to data URL conversion complete');
-                  resolve(reader.result);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-            } else {
-              console.log('Using canvas toDataURL fallback');
-              dataUrl = canvas.toDataURL('image/png');
-            }
+            // Prefer JPEG in quick mode to reduce payload size
+            const jpegDataUrl = await new Promise((resolve, reject) => {
+              try {
+                canvas.toBlob(async (jpegBlob) => {
+                  try {
+                    if (!jpegBlob) {
+                      // Fallback to PNG data URL
+                      return resolve(canvas.toDataURL('image/png'));
+                    }
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(jpegBlob);
+                  } catch (e) { reject(e); }
+                }, 'image/jpeg', 0.9);
+              } catch (e) { reject(e); }
+            });
+            const dataUrl = jpegDataUrl;
             
             console.log('Data URL generated, length:', dataUrl?.length);
             if (chrome?.runtime?.sendMessage) {
@@ -497,36 +517,77 @@
           setupClipboardButton(blob);
           const helpText = document.getElementById('helpText');
           if (helpText) helpText.style.display = 'block';
-          const url = URL.createObjectURL(blob);
-          triggerDownload(url);
+          const objectUrl = URL.createObjectURL(blob);
+          const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
+          if (chrome?.downloads?.download) {
+            try {
+              const downloadId = await new Promise((resolve, reject) => {
+                chrome.downloads.download({ url: objectUrl, filename, saveAs: false, conflictAction: 'uniquify' }, (id) => {
+                  if (chrome.runtime.lastError || !id) return reject(chrome.runtime.lastError || new Error('download failed'));
+                  resolve(id);
+                });
+              });
+              setTimeout(() => { try { chrome.downloads.show(downloadId); } catch {} }, 300);
+            } catch (e) {
+              console.warn('chrome.downloads failed, fallback to anchor:', e?.message || e);
+              triggerDownload(objectUrl);
+            } finally {
+              setTimeout(()=>URL.revokeObjectURL(objectUrl), 2000);
+            }
+          } else {
+            triggerDownload(objectUrl);
+            setTimeout(()=>URL.revokeObjectURL(objectUrl), 2000);
+          }
           try {
             const permission = await navigator.permissions.query({name: 'clipboard-write'});
-            if (permission.state === 'granted' || permission.state === 'prompt') {
+            const userActivated = !!(navigator.userActivation?.isActive);
+            const canAutoCopy = permission.state === 'granted' && userActivated && document.hasFocus();
+            if (canAutoCopy) {
               await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
               status.textContent = 'ダウンロードを開始しました';
               if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
+            } else {
+              // Skip auto copy silently when not allowed (no user gesture or permission)
+              console.debug('Skipping optional clipboard copy (no user activation or permission)');
             }
           } catch (clipboardError) {
-            console.warn('Optional clipboard copy failed:', clipboardError);
+            console.debug('Optional clipboard copy failed:', clipboardError);
             status.textContent = 'ダウンロードを開始しました';
             if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
-          } finally {
-            setTimeout(()=>URL.revokeObjectURL(url), 2000);
           }
         } else {
           const dataUrl = canvas.toDataURL('image/png');
-          triggerDownload(dataUrl);
+          if (chrome?.downloads?.download) {
+            try {
+              const downloadId = await new Promise((resolve, reject) => {
+                chrome.downloads.download({ url: dataUrl, filename: `kindle-review-progress-${current}-${target}-${Date.now()}.png`, saveAs: false, conflictAction: 'uniquify' }, (id) => {
+                  if (chrome.runtime.lastError || !id) return reject(chrome.runtime.lastError || new Error('download failed'));
+                  resolve(id);
+                });
+              });
+              setTimeout(() => { try { chrome.downloads.show(downloadId); } catch {} }, 300);
+            } catch (e) {
+              console.warn('chrome.downloads failed, fallback to anchor:', e?.message || e);
+              triggerDownload(dataUrl);
+            }
+          } else {
+            triggerDownload(dataUrl);
+          }
           try {
             const permission = await navigator.permissions.query({name: 'clipboard-write'});
-            if (permission.state === 'granted' || permission.state === 'prompt') {
+            const userActivated = !!(navigator.userActivation?.isActive);
+            const canAutoCopy = permission.state === 'granted' && userActivated && document.hasFocus();
+            if (canAutoCopy) {
               const resp = await fetch(dataUrl);
               const clipBlob = await resp.blob();
               await navigator.clipboard.write([ new ClipboardItem({ 'image/png': clipBlob }) ]);
               status.textContent = 'ダウンロードを開始しました';
               if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
+            } else {
+              console.debug('Skipping optional clipboard copy (no user activation or permission)');
             }
           } catch (clipboardError) {
-            console.warn('Optional clipboard copy (data URL) failed:', clipboardError);
+            console.debug('Optional clipboard copy (data URL) failed:', clipboardError);
             status.textContent = 'ダウンロードを開始しました';
             if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
           }

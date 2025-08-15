@@ -1,4 +1,8 @@
 /**
+ * [LEGACY - NOT USED BY MANIFEST]
+ * Monolithic background script kept for reference only.
+ * Current entry is `background/index.js` with services split.
+ *
  * Background Script (Service Worker) for Kindle Review Meter Chrome Extension
  * 
  * Architecture Overview:

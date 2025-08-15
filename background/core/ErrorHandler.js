@@ -27,6 +27,11 @@ class ErrorHandler {
     this.recentErrors = [];
     this.maxRecentErrors = 100;
   }
+  /**
+   * Notes:
+   * - Produces user-friendly messages; do not leak low-level details to users.
+   * - Prefer typed helpers (handleAmazonFetchError, handleXSharingError, etc.).
+   */
 
   /**
    * Handle an error with proper categorization and logging

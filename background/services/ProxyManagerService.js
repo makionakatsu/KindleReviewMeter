@@ -14,14 +14,21 @@
  * - Load balancing and failover
  */
 
+import { PROXIES } from '../config.js';
+
 export class ProxyManagerService {
   constructor() {
-    this.defaultProxies = [
-      'https://api.allorigins.win/get?url=',
+    this.defaultProxies = (Array.isArray(PROXIES) && PROXIES.length > 0) ? PROXIES.slice() : [
+      // Prefer fast, generally reliable proxies first
       'https://corsproxy.io/?',
+      'https://cors.isomorphic-git.org/',
+      'https://api.allorigins.win/raw?url=',
+      'https://api.allorigins.win/get?url=',
       'https://api.codetabs.com/v1/proxy?quest=',
       'https://thingproxy.freeboard.io/fetch/',
+      // Keep cors-anywhere last as it often requires manual enablement
       'https://cors-anywhere.herokuapp.com/'
+      // Add more proxies here if needed
     ];
     
     // Performance statistics for each proxy
