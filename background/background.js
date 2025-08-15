@@ -1400,8 +1400,8 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 600) {
               files: ['content-scripts/x-tweet-auto-attach.js']
             });
             
-            // Wait progressively longer for script initialization (balanced)
-            const initWait = Math.min(800 + (pingAttempt * 400), 2500);
+            // Wait progressively longer for script initialization
+            const initWait = Math.min(1000 + (pingAttempt * 500), 3000);
             console.log(`Waiting ${initWait}ms for content script initialization`);
             await new Promise(r => setTimeout(r, initWait));
           } catch (injectionError) {
@@ -1442,9 +1442,9 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 600) {
           break;
         }
         
-        // Balanced backoff between attempts
+        // Optimized backoff between attempts
         if (pingAttempt < 2) { // Don't wait after last attempt
-          const waitTime = Math.min(500 + (pingAttempt * 300), 1500);
+          const waitTime = Math.min(500 * Math.pow(2, pingAttempt), 2000);
           console.log(`❌ Ping failed, waiting ${waitTime}ms before retry`);
           await new Promise(r => setTimeout(r, waitTime));
         }
@@ -1459,14 +1459,14 @@ async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 600) {
       const attachResult = await new Promise((resolve, reject) => {
         let responseReceived = false;
         
-        // Progressive timeout: early attempts are faster (balanced)
+        // Progressive timeout: early attempts are faster
         let timeoutDuration;
         if (i === 0) {
           timeoutDuration = 3000; // 3 seconds for first attempt
         } else if (i <= 2) {
           timeoutDuration = 5000; // 5 seconds for attempts 2-3
         } else {
-          timeoutDuration = 7000; // 7 seconds for later attempts
+          timeoutDuration = 8000; // 8 seconds for later attempts
         }
         
         const timeout = setTimeout(() => {
