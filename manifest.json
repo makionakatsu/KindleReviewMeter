@@ -10,8 +10,8 @@
     "contextMenus",
     "tabs",
     "scripting",
-    "clipboardWrite",
-    "clipboardRead"
+    "downloads",
+    "clipboardWrite"
   ],
   
   "host_permissions": [
@@ -25,6 +25,7 @@
     "https://cors-anywhere.herokuapp.com/*",
     "https://thingproxy.freeboard.io/*",
     "https://api.codetabs.com/*",
+    "https://cors.isomorphic-git.org/*",
     "https://twitter.com/*",
     "https://x.com/*"
   ],
@@ -40,7 +41,8 @@
   },
   
   "background": {
-    "service_worker": "background/background.js"
+    "service_worker": "background/index.js",
+    "type": "module"
   },
 
   "content_scripts": [

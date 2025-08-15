@@ -33,6 +33,11 @@ class ExtensionStateManager {
     this.cleanupInterval = null;
     this.initialized = false;
   }
+  /**
+   * Notes:
+   * - Keeps transient state only (tabs, pending shares). Avoid long-term persistence here.
+   * - All operations should be idempotent across tab refreshes where possible.
+   */
 
   /**
    * Initialize the state manager

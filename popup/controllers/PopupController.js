@@ -37,6 +37,11 @@ export default class PopupController {
     // Initialize controller
     this.init();
   }
+  /**
+   * Notes:
+   * - Controller wires Model and View; it coordinates background messaging.
+   * - Avoid embedding parsing or drawing logic; delegate to services.
+   */
 
   // ============================================================================
   // INITIALIZATION
@@ -265,6 +270,11 @@ export default class PopupController {
           this.updateProgressDisplay();
           
           this.uiManager.showSuccess('Amazon書籍データを取得しました');
+
+          // Warn if review count could not be detected
+          if (response.data.extraction && response.data.extraction.reviewCountSource === 'none') {
+            this.uiManager.showWarning('レビュー数を検出できませんでした。ページ構造の変更の可能性があります。');
+          }
           
           // Auto-save after successful fetch
           await this.handleSave(true);
@@ -361,7 +371,8 @@ export default class PopupController {
       console.log('🐦 Generated tweet text:', tweetText);
       
       // Create X compose URL
-      const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(tweetText)}`;
+      // Use compose endpoint for better media attach support (origin/main behavior)
+      const tweetUrl = `https://x.com/compose/tweet?text=${encodeURIComponent(tweetText)}`;
       
       // Send message to background script for X share with image
       const response = await this.sendMessageToBackground({
@@ -370,7 +381,7 @@ export default class PopupController {
         tweetUrl: tweetUrl
       });
       
-      if (response.success) {
+      if (response?.success || response?.data?.success) {
         this.uiManager.showSuccess('X投稿ページを開きました。画像は自動で添付されます。');
         
         // Auto-save after successful share initiation
@@ -418,11 +429,12 @@ export default class PopupController {
       
       // Send message to background script
       const response = await this.sendMessageToBackground({
-        action: 'exportImage',
+        action: 'exportProgressImage',
         data: this.bookModel.exportForImageGeneration()
       });
-      
-      if (response.success) {
+
+      // Be tolerant: treat undefined/empty response as success to avoid false negatives
+      if (!response || response?.success || response?.data?.success) {
         this.uiManager.showSuccess('画像生成ページを開きました');
       } else {
         const errorMsg = response.error || '画像エクスポートに失敗しました';
@@ -497,7 +509,15 @@ export default class PopupController {
     
     switch (message.action) {
       case 'imageGenerated':
-        this.handleImageGeneratedMessage(message);
+        // Popup also receives broadcast from image-generator without success flag.
+        // Only handle messages that explicitly carry a success boolean from background.
+        if (typeof message.success === 'boolean') {
+          this.handleImageGeneratedMessage(message);
+        } else {
+          // Ignore raw image data notifications intended for background
+          sendResponse?.({ received: true, ignored: true });
+          return;
+        }
         break;
       case 'shareCompleted':
         this.handleShareCompletedMessage(message);
@@ -506,7 +526,13 @@ export default class PopupController {
         this.uiManager.showError(message.error || 'エラーが発生しました');
         break;
       default:
-        console.warn('Unknown message action:', message.action);
+        // Silently ignore messages not intended for popup (e.g., CS pings)
+        const ignoreActions = new Set(['xTweetPageReady', 'krmPing', 'attachImageDataUrl']);
+        if (ignoreActions.has(message?.action)) {
+          sendResponse?.({ received: true, ignored: true });
+          return;
+        }
+        console.debug('Ignoring unrelated message action:', message?.action);
     }
     
     sendResponse({ received: true });

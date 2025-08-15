@@ -34,6 +34,11 @@ export default class UIManager {
     // Initialize after DOM is ready
     this.init();
   }
+  /**
+   * Notes:
+   * - View layer only: no business logic here. Keep DOM concerns isolated.
+   * - Expose minimal helpers for PopupController to orchestrate actions.
+   */
 
   // ============================================================================
   // INITIALIZATION
@@ -187,7 +192,8 @@ export default class UIManager {
     this.setInputValue('associateTag', data.associateTag || '');
     
     if (this.elements.associateEnabled) {
-      this.elements.associateEnabled.checked = data.associateEnabled || false;
+      const enabled = (data.associateEnabled !== undefined) ? data.associateEnabled : true;
+      this.elements.associateEnabled.checked = enabled;
     }
     
     // Clear any existing validation errors
@@ -216,6 +222,23 @@ export default class UIManager {
     
     this.setFormData(emptyData);
     console.log('🧹 Form cleared');
+  }
+
+  // ============================================================================
+  // TOAST HELPERS
+  // ============================================================================
+
+  showSuccess(message, options = {}) {
+    try { this.toastService?.success(message, options); } catch (e) { console.warn('toast failed', e); }
+  }
+  showError(message, options = {}) {
+    try { this.toastService?.error(message, options); } catch (e) { console.warn('toast failed', e); }
+  }
+  showInfo(message, options = {}) {
+    try { this.toastService?.info(message, options); } catch (e) { console.warn('toast failed', e); }
+  }
+  showWarning(message, options = {}) {
+    try { this.toastService?.warning(message, options); } catch (e) { console.warn('toast failed', e); }
   }
 
   // ============================================================================
@@ -450,12 +473,14 @@ export default class UIManager {
     // Visual indicator for unsaved changes
     const saveBtn = this.elements.saveBtn;
     if (saveBtn) {
+      // Keep the original label without emojis/asterisks
+      const originalLabel = '保存';
       if (dirty) {
         saveBtn.classList.add('highlight');
-        saveBtn.textContent = '💾 保存*';
+        saveBtn.textContent = originalLabel;
       } else {
         saveBtn.classList.remove('highlight');
-        saveBtn.textContent = '💾 保存';
+        saveBtn.textContent = originalLabel;
       }
     }
   }

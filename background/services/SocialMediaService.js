@@ -8,6 +8,10 @@
  * - Provide fallback mechanisms for manual image attachment
  * - Implement retry logic with exponential backoff
  * 
+ * Notes:
+ * - This class should not build tweet text; it only coordinates attachment.
+ * - Avoid storing large payloads; use chrome.storage for handoff.
+ * 
  * Architecture:
  * - Dual-tab system (X compose + image generation)
  * - Direct data URL transfer bypassing clipboard restrictions
@@ -86,7 +90,7 @@ export default class SocialMediaService {
       
       // Update share state with image tab ID
       shareData.imageTabId = backgroundTab.id;
-      this.stateManager.updateXShareData(tweetTab.id, { imageTabId: backgroundTab.id });
+      this.stateManager.updatePendingXShare(tweetTab.id, { imageTabId: backgroundTab.id });
       
       return { success: true, tweetTabId: tweetTab.id, imageTabId: backgroundTab.id };
       
@@ -181,7 +185,7 @@ export default class SocialMediaService {
           }
           
           // Mark as sent and update state
-          this.stateManager.updateXShareData(tweetTabId, { imageSent: true });
+          this.stateManager.updatePendingXShare(tweetTabId, { imageSent: true });
           return true;
         }
         
@@ -214,7 +218,7 @@ export default class SocialMediaService {
     await this.showManualAttachmentNotification();
     
     // Update state to reflect failure
-    this.stateManager.updateXShareData(tweetTabId, { imageSent: false });
+    this.stateManager.updatePendingXShare(tweetTabId, { imageSent: false });
     return false;
   }
 
@@ -468,6 +472,60 @@ export default class SocialMediaService {
     }
   }
 
+  /**
+   * Handle image generation completion
+   * @param {string} dataUrl - Generated image data URL
+   * @param {number} imageTabId - Image generation tab ID
+   * @returns {Promise<boolean>} Success status
+   */
+  async handleImageGenerated(dataUrl, imageTabId) {
+    try {
+      console.log('🖼️ SocialMediaService handling imageGenerated:', {
+        hasDataUrl: !!dataUrl,
+        dataUrlLength: dataUrl?.length,
+        imageTabId
+      });
+      
+      if (!dataUrl) {
+        throw new Error('No image data provided');
+      }
+      
+      // Find the pending X share that matches this image tab
+      const allShares = this.stateManager.getAllPendingXShares();
+      let targetShare = null;
+      
+      for (const [tweetTabId, shareData] of allShares) {
+        if (shareData.imageTabId === imageTabId) {
+          targetShare = { tweetTabId, ...shareData };
+          break;
+        }
+      }
+      
+      if (!targetShare) {
+        console.warn('No matching pending X share found for image tab:', imageTabId);
+        // Clean up the image tab anyway
+        if (imageTabId) {
+          await this.cleanupImageTab(imageTabId);
+        }
+        return false;
+      }
+      
+      console.log('Found matching share, sending image to tweet tab:', targetShare.tweetTabId);
+      
+      // Send the image to the tweet tab
+      const result = await this.sendImageToTweetTab(
+        targetShare.tweetTabId,
+        dataUrl,
+        imageTabId
+      );
+      
+      return result;
+    } catch (error) {
+      console.error('❌ handleImageGenerated failed:', error);
+      return false;
+    }
+  }
+
   // ============================================================================
   // PUBLIC API METHODS
   // ============================================================================
@@ -477,7 +535,8 @@ export default class SocialMediaService {
    * @returns {Object} Service statistics
    */
   getStats() {
-    const pendingShares = this.stateManager.getAllPendingXShares();
+    const pendingSharesMap = this.stateManager.getAllPendingXShares();
+    const pendingShares = Array.from(pendingSharesMap.values());
     return {
       pendingSharesCount: pendingShares.length,
       activeShares: pendingShares.filter(share => !share.imageSent).length,
@@ -491,8 +550,15 @@ export default class SocialMediaService {
    * Clear all pending shares
    */
   clearPendingShares() {
-    this.stateManager.clearAllPendingXShares();
-    console.log('🧹 Cleared all pending X shares');
+    try {
+      const sharesMap = this.stateManager.getAllPendingXShares();
+      for (const tabId of sharesMap.keys()) {
+        this.stateManager.clearPendingXShare(tabId);
+      }
+      console.log('🧹 Cleared all pending X shares');
+    } catch (e) {
+      console.warn('Failed to clear pending X shares:', e?.message || e);
+    }
   }
 
   /**

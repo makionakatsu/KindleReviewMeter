@@ -11,10 +11,21 @@ import messageRouter from './core/MessageRouter.js';
 import extensionStateManager from './core/ExtensionStateManager.js';
 import errorHandler from './core/ErrorHandler.js';
 
-// TODO: Import service modules (to be implemented in Phase 2)
-// import amazonScrapingService from './services/AmazonScrapingService.js';
-// import imageGenerationService from './services/ImageGenerationService.js';
-// import socialMediaService from './services/SocialMediaService.js';
+// Import service modules
+import { CacheService } from './services/CacheService.js';
+import { ProxyManagerService } from './services/ProxyManagerService.js';
+import { ImageGenerationService } from './services/ImageGenerationService.js';
+import SocialMediaService from './services/SocialMediaService.js';
+import AmazonScrapingService from './services/AmazonScrapingService.js';
+import { DEBUG_MODE } from './config.js';
+
+// Global service instances
+let cacheService;
+let proxyManagerService;
+let imageGenerationService;
+let socialMediaService;
+let amazonScrapingService;
+
 
 /**
  * Initialize the extension background services
@@ -27,8 +38,11 @@ async function initializeExtension() {
     extensionStateManager.initialize();
     messageRouter.initialize();
     
-    // Register temporary message handlers (from legacy code)
-    registerLegacyHandlers();
+    // Initialize services with dependency injection
+    initializeServices();
+    
+    // Register message handlers with new services
+    registerServiceHandlers();
     
     // Set up extension lifecycle handlers
     setupExtensionLifecycle();
@@ -44,40 +58,121 @@ async function initializeExtension() {
 }
 
 /**
- * Register legacy message handlers temporarily
- * These will be replaced with proper service handlers in Phase 2
- * 
- * For Phase 1, we'll revert to the original message handling approach
- * to ensure compatibility while the architecture is being built
+ * Initialize all services with proper dependency injection
  */
-function registerLegacyHandlers() {
-  console.log('📋 Setting up legacy message handlers for Phase 1 compatibility');
+function initializeServices() {
+  console.log('🔧 Initializing services...');
   
-  // Instead of dynamic imports, we'll temporarily use the old approach
-  // and gradually migrate in Phase 2
+  // Initialize base services first
+  cacheService = new CacheService();
+  proxyManagerService = new ProxyManagerService();
   
-  // Temporarily disable the new message router and fall back to direct handlers
-  console.warn('⚠️ Using legacy message handling during Phase 1 transition');
+  // Initialize dependent services
+  amazonScrapingService = new AmazonScrapingService(cacheService, proxyManagerService, errorHandler);
+  imageGenerationService = new ImageGenerationService();
+  socialMediaService = new SocialMediaService(extensionStateManager, errorHandler);
   
-  // We'll register placeholder handlers that will be implemented in Phase 2
-  messageRouter.registerHandler('fetchAmazonData', async (request) => {
-    throw new Error('fetchAmazonData handler not implemented yet - please use legacy background.js temporarily');
-  });
+  // Set debug mode (reduce noisy logs in production)
+  try {
+    if (amazonScrapingService?.setDebugMode) amazonScrapingService.setDebugMode(DEBUG_MODE);
+    if (socialMediaService?.setDebugMode) socialMediaService.setDebugMode(DEBUG_MODE);
+  } catch (e) {
+    console.warn('Debug mode configuration failed:', e?.message || e);
+  }
+
+  console.log('✅ Services initialized successfully');
+}
+
+/**
+ * Register service-based message handlers
+ */
+function registerServiceHandlers() {
+  console.log('📋 Setting up service-based message handlers');
   
-  messageRouter.registerHandler('exportProgressImage', async (request) => {
-    throw new Error('exportProgressImage handler not implemented yet - please use legacy background.js temporarily');
-  });
-  
+  // X sharing with automatic image attachment
   messageRouter.registerHandler('shareToXWithImage', async (request) => {
-    throw new Error('shareToXWithImage handler not implemented yet - please use legacy background.js temporarily');
+    try {
+      console.log('🎯 Handling shareToXWithImage with SocialMediaService');
+      const result = await socialMediaService.shareToXWithImage(request.data, request.tweetUrl);
+      // Return raw result; MessageRouter will wrap with { success: true, data }
+      return result;
+    } catch (error) {
+      console.error('❌ shareToXWithImage failed:', error);
+      throw error;
+    }
   });
   
+  // Image generation completion
   messageRouter.registerHandler('imageGenerated', async (request, sender) => {
-    console.log('imageGenerated received via MessageRouter');
-    return { success: true, message: 'Handled by MessageRouter' };
+    try {
+      console.log('🖼️ Handling imageGenerated with SocialMediaService');
+      
+      const result = await socialMediaService.handleImageGenerated(
+        request.dataUrl,
+        sender.tab?.id
+      );
+      
+      // Return boolean; MessageRouter will wrap
+      return result;
+    } catch (error) {
+      console.error('❌ imageGenerated handling failed:', error);
+      throw error;
+    }
   });
   
-  console.log('📋 Legacy handler placeholders registered');
+  // Image generation service handler
+  messageRouter.registerHandler('exportProgressImage', async (request) => {
+    try {
+      console.log('🎨 Handling exportProgressImage with ImageGenerationService');
+      const result = await imageGenerationService.generateProgressImage(request.data, request.options || {});
+      return result;
+    } catch (error) {
+      console.error('❌ exportProgressImage failed:', error);
+      throw error;
+    }
+  });
+  
+  // Amazon data fetching with AmazonScrapingService
+  messageRouter.registerHandler('fetchAmazonData', async (request) => {
+    try {
+      console.log('🔍 Handling fetchAmazonData with AmazonScrapingService');
+      const result = await amazonScrapingService.fetchBookData(request.url);
+      return result;
+    } catch (error) {
+      console.error('❌ fetchAmazonData failed:', error);
+      throw error;
+    }
+  });
+
+  // Content script on X compose page signals readiness
+  messageRouter.registerHandler('xTweetPageReady', async (_request, sender) => {
+    try {
+      const tabId = sender.tab?.id || null;
+      console.log('✅ xTweetPageReady acknowledged', { tabId });
+      // Optionally, we could try to resume pending share here if needed.
+      return { ready: true, tabId };
+    } catch (error) {
+      console.error('❌ xTweetPageReady handling failed:', error);
+      throw error;
+    }
+  });
+
+  // Optional clipboard copy telemetry from image generator
+  messageRouter.registerHandler('clipboardCopySuccess', async (request) => {
+    try {
+      console.log('📋 Clipboard copy result:', {
+        success: request?.success,
+        error: request?.error || null,
+        timestamp: new Date().toISOString()
+      });
+      return { acknowledged: true };
+    } catch (error) {
+      console.warn('Failed to handle clipboardCopySuccess:', error);
+      return { acknowledged: false };
+    }
+  });
+  
+  console.log('✅ Service handlers registered successfully');
 }
 
 /**
@@ -158,3 +253,21 @@ function setupGlobalErrorHandling() {
 // Initialize everything when the service worker starts
 setupGlobalErrorHandling();
 initializeExtension();
+
+// Fallback: ensure xTweetPageReady doesn't error even if router isn't ready yet
+try {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request && request.action === 'xTweetPageReady') {
+      try {
+        const tabId = sender?.tab?.id || null;
+        console.log('⚡ Fallback ACK for xTweetPageReady', { tabId });
+        sendResponse({ ok: true, tabId });
+      } catch (e) {
+        sendResponse({ ok: false, error: e?.message || String(e) });
+      }
+      return true;
+    }
+  });
+} catch (e) {
+  console.warn('Failed to add fallback xTweetPageReady listener:', e);
+}
