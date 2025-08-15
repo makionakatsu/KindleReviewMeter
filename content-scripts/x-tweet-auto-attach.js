@@ -1,6 +1,9 @@
 /**
  * Content Script for X (Twitter) Tweet Intent Auto Image Attachment
  * 
+ * EMERGENCY RESTORATION: Integrated Stable Version
+ * Restored from commit 48c4a15 with latest improvements integrated
+ * 
  * Architecture Overview:
  * This content script runs on X/Twitter compose pages and handles automatic
  * image attachment for Kindle Review Meter generated progress images.
@@ -13,7 +16,7 @@
  * - Prevent duplicate attachment attempts and manage state
  * 
  * Attachment Strategy (5-tier fallback system):
- * 1. Direct file input assignment after clicking attachment button
+ * 1. Direct file input assignment (preferred method)
  * 2. Enhanced drag-and-drop simulation on multiple drop zones
  * 3. Paste event simulation with proper targeting and focus
  * 4. Hidden file input creation and propagation
@@ -21,10 +24,16 @@
  * 
  * Communication Flow:
  * Background Script → Content Script → X/Twitter Interface → User
+ * 
+ * Emergency Restoration Note:
+ * This version consolidates the proven stable functionality from commit 48c4a15
+ * with enhanced error handling and latest compatibility improvements, reverting
+ * from the fragmented service architecture to ensure reliable image attachment.
  */
 
 (function() {
   'use strict';
+  
   // Configuration flags to avoid disruptive UI actions
   const CONFIG = {
     // Never trigger OS file picker to avoid directory dialog popups
@@ -42,11 +51,7 @@
   let attachmentCompleted = false;
   let pendingDataUrl = null;
 
-  console.log('KindleReviewMeter: X tweet auto-attach script loaded');
-
-  // ============================================================================
-  // INITIALIZATION
-  // ============================================================================
+  console.log('KindleReviewMeter: X tweet auto-attach script loaded (Integrated Stable Version)');
 
   // ============================================================================
   // DOM ELEMENT DISCOVERY SERVICE
@@ -61,19 +66,22 @@
    * - Handle dynamic content loading and element changes
    * - Provide comprehensive selector coverage for UI variations
    */
-  function waitForElements(options = {}) {
+  async function waitForElements(options = {}) {
     const { requireFileInput = false, timeoutMs = 8000 } = options;
     const startedAt = Date.now();
+    
     return new Promise((resolve) => {
       const checkForElements = () => {
         console.log('Searching for X/Twitter elements...');
         
-        // Look for X/Twitter's file input or drag-drop area - updated selectors
+        // Look for X/Twitter's file input - enhanced selectors
         const fileInputSelectors = [
           'input[type="file"][accept*="image"]',
           'input[type="file"]',
           'input[data-testid*="fileInput"]',
-          'input[data-testid*="attachments"]'
+          'input[data-testid*="attachments"]',
+          'input[aria-label*="image" i]',
+          'input[aria-label*="photo" i]'
         ];
         
         let fileInput = null;
@@ -85,13 +93,16 @@
           }
         }
         
+        // Enhanced composer selectors for latest X/Twitter interface
         const composerSelectors = [
           '[data-testid="tweetTextarea_0"]',
           '[data-testid="tweetButton"]',
           '[contenteditable="true"]',
           'textarea[placeholder*="happening"]',
           '[data-testid="toolBar"]',
-          '[role="textbox"]'
+          '[role="textbox"]',
+          '[data-testid="tweet-composer"]',
+          '[data-testid="primaryColumn"] [contenteditable]'
         ];
         
         let composerTextbox = null;
@@ -113,6 +124,7 @@
         const haveComposer = !!composerTextbox;
         const haveInput = !!fileInput;
         const elapsed = Date.now() - startedAt;
+        
         if (haveComposer && (haveInput || !requireFileInput)) {
           resolve({ fileInput, composerTextbox });
         } else if (elapsed > timeoutMs && haveComposer) {
@@ -126,11 +138,34 @@
     });
   }
 
+  /**
+   * Deep search for any file input in the document
+   */
+  function findAnyFileInput() {
+    const inputs = document.querySelectorAll('input[type="file"]');
+    for (const input of inputs) {
+      if (input.offsetParent !== null || input.style.display !== 'none') {
+        console.log('Found visible file input:', input);
+        return input;
+      }
+    }
+    
+    // Also check for hidden but functionally available inputs
+    if (inputs.length > 0) {
+      console.log('Found hidden file input, using first available:', inputs[0]);
+      return inputs[0];
+    }
+    
+    return null;
+  }
+
   // ============================================================================
   // UTILITY FUNCTIONS
   // ============================================================================
 
-  // Convert dataURL to File
+  /**
+   * Convert dataURL to File object
+   */
   function dataUrlToFile(dataUrl, filename = null) {
     const arr = dataUrl.split(',');
     const mimeMatch = arr[0].match(/:(.*?);/);
@@ -141,38 +176,40 @@
     while (n--) {
       u8arr[n] = bstr.charCodeAt(n);
     }
+    
     // Infer extension from MIME if filename not provided or extension mismatched
     let ext = 'png';
     if (/jpeg|jpg/i.test(mime)) ext = 'jpg';
     else if (/png/i.test(mime)) ext = 'png';
     else if (/webp/i.test(mime)) ext = 'webp';
+    
     const base = 'kindle-review-image';
     const inferredName = `${base}.${ext}`;
     const finalName = (filename && filename.includes('.')) ? filename : inferredName;
+    
     return new File([u8arr], finalName, { type: mime });
   }
 
   // ============================================================================
-  // MODERN DATA URL-BASED ATTACHMENT SYSTEM
+  // ATTACHMENT BUTTON DISCOVERY
   // ============================================================================
   
   /**
-   * Attachment Button Discovery and Activation
-   * 
-   * Locates and clicks X/Twitter's media attachment button to reveal
-   * the file input element for direct file assignment.
+   * Find and click attachment button to reveal file input
    */
   async function findAndClickAttachmentButton() {
     if (CONFIG.avoidNativeFileDialog || nativeClickAttempts >= CONFIG.maxNativeClickAttempts) {
       console.log('Skipping attachment button click to avoid native file dialog');
       return false;
     }
+    
     nativeClickAttempts++;
+    
     const attachButtonSelectors = [
       // Common toolbar buttons
       '[data-testid="attachments"]',
       '[data-testid="toolBarAttachments"]',
-      // Possible buttons with accessible labels (EN/JA)
+      // Accessible labels (EN/JA)
       'button[aria-label*="Add photos" i]',
       'button[aria-label*="Add media" i]',
       '[aria-label*="Media" i]',
@@ -196,63 +233,35 @@
               const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
               button.dispatchEvent(evt);
             }
+            
+            // Brief wait for UI response
+            await new Promise(r => setTimeout(r, 300));
+            return true;
           } catch (e) {
             console.warn('Attachment button click failed:', e);
+            continue;
           }
-          await new Promise(resolve => setTimeout(resolve, 250)); // Wait for file input to appear
-          return true;
         }
       }
-      console.log('No attachment button found (non-fatal)');
+      console.log('No attachment button found');
       return false;
-    } catch (err) {
-      console.warn('findAndClickAttachmentButton error (non-fatal):', err);
+    } catch (error) {
+      console.error('Error in findAndClickAttachmentButton:', error);
       return false;
     }
   }
 
+  // ============================================================================
+  // PRIMARY IMAGE ATTACHMENT SYSTEM
+  // ============================================================================
+  
   /**
-   * Deep search for any file input in the document (even if hidden)
-   */
-  function findAnyFileInput() {
-    const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
-    if (inputs.length === 0) return null;
-    // Prefer inputs that accept images or are inside compose
-    const scored = inputs.map((el) => {
-      let score = 0;
-      const accept = (el.getAttribute('accept') || '').toLowerCase();
-      if (accept.includes('image')) score += 2;
-      // Heuristic: closer to tweet composer
-      let p = el.parentElement; let depth = 0;
-      while (p && depth < 5) {
-        const ds = p.getAttribute('data-testid') || '';
-        if (ds.includes('attachments') || ds.includes('toolBar')) score += 1;
-        p = p.parentElement; depth++;
-      }
-      return { el, score };
-    }).sort((a,b)=>b.score-a.score);
-    return (scored[0] && scored[0].el) || inputs[0];
-  }
-
-  /**
-   * Primary Image Attachment Handler
-   * 
-   * Responsibilities:
-   * - Coordinate the 5-tier attachment strategy
-   * - Manage attachment state to prevent duplicates
-   * - Convert data URL to File objects for DOM manipulation
-   * - Provide comprehensive error handling and fallback
-   * 
-   * Strategy Implementation:
-   * 1. Button activation → Direct file input
-   * 2. Multi-zone drag-and-drop simulation
-   * 3. Enhanced paste event targeting
-   * 4. Hidden file input propagation
-   * 5. User-friendly fallback overlay
+   * Primary Image Attachment Handler - 5-Tier Strategy
    */
   async function attachViaDataUrl(dataUrl) {
     try {
       console.log('attachViaDataUrl called with dataUrl length:', dataUrl?.length);
+      
       if (!dataUrl && pendingDataUrl) dataUrl = pendingDataUrl;
       if (!dataUrl) {
         console.warn('No dataUrl available to attach');
@@ -291,23 +300,35 @@
         setTimeout(() => { if (!resolved) { obs.disconnect(); resolve(null); } }, ms);
       });
       
-      // Do not block on missing file input; proceed with drag&drop/paste if needed
-      let { fileInput, composerTextbox } = await waitForElements({ requireFileInput: false, timeoutMs: 8000 });
+      // Get elements
+      let { fileInput, composerTextbox } = await waitForElements({ 
+        requireFileInput: false, 
+        timeoutMs: 8000 
+      });
+      
       if (!fileInput) {
         // Try deep search as a fallback
         fileInput = findAnyFileInput();
         if (fileInput) {
           console.log('Found file input via deep search');
         } else {
-          // Last try: wait a bit with MutationObserver for dynamically added inputs
+          // Last try: wait a bit with MutationObserver
           fileInput = await waitForFileInputAppears(2000);
           if (fileInput) console.log('Found file input via observer');
         }
       }
-      console.log('Found elements:', { hasFileInput: !!fileInput, hasComposerTextbox: !!composerTextbox });
+      
+      console.log('Found elements:', { 
+        hasFileInput: !!fileInput, 
+        hasComposerTextbox: !!composerTextbox 
+      });
       
       const file = dataUrlToFile(dataUrl);
-      console.log('Converted dataUrl to file:', { name: file.name, size: file.size, type: file.type });
+      console.log('Converted dataUrl to file:', { 
+        name: file.name, 
+        size: file.size, 
+        type: file.type 
+      });
 
       // Method 1: Direct file input assignment (preferred and most reliable)
       if (fileInput) {
@@ -323,6 +344,7 @@
             const event = new Event(eventType, { bubbles: true });
             fileInput.dispatchEvent(event);
           }
+          
           // Also try to click tweet area to force UI update
           if (composerTextbox && composerTextbox.focus) composerTextbox.focus();
           composerTextbox?.dispatchEvent(new Event('focus', { bubbles: true }));
@@ -336,7 +358,7 @@
         }
       }
 
-      // Method 2: Target specific drop zones
+      // Method 2: Enhanced drag-and-drop simulation on multiple zones
       const dropZoneSelectors = [
         '[data-testid="attachments"]',
         '[data-testid="toolBar"]',
@@ -347,7 +369,7 @@
         'div[contenteditable="true"]'
       ];
       
-      async function dropOn(target, file) {
+      const dropOn = async (target, file) => {
         const dt = new DataTransfer();
         dt.items.add(file);
         const dragEnterEvent = new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt });
@@ -358,7 +380,7 @@
         target.dispatchEvent(dragOverEvent);
         await new Promise(r=>setTimeout(r,80));
         target.dispatchEvent(dropEvent);
-      }
+      };
       
       for (const selector of dropZoneSelectors) {
         const dropZone = document.querySelector(selector);
@@ -375,6 +397,7 @@
           }
         }
       }
+      
       // Last-chance global drop on body/main if specific zones failed
       try {
         console.log('Attempting method 2 fallback: drag and drop on document.body');
@@ -386,7 +409,7 @@
         console.warn('Body drag-drop fallback failed:', e);
       }
 
-      // Method 3: Enhanced paste simulation with proper target
+      // Method 3: Enhanced paste simulation with proper targeting
       const pasteTargets = [
         composerTextbox,
         document.querySelector('[data-testid="tweetTextarea_0"]'),
@@ -421,7 +444,7 @@
         }
       }
 
-      // Method 4: Force trigger file dialog and inject file
+      // Method 4: Hidden file input creation and propagation
       try {
         console.log('Attempting method 4: Force file dialog trigger');
         
@@ -456,14 +479,14 @@
         console.warn('Hidden file input method failed:', e);
       }
 
-      // Method 5: Show user-friendly fallback overlay with manual options
+      // Method 5: Show user-friendly fallback overlay
       console.log('All automatic attachment methods failed, showing fallback UI');
       showFallbackOverlay(dataUrl);
       
       // Return true to indicate the process completed (even if manually)
-      // This prevents the background script from treating it as a complete failure
       attachmentCompleted = true;
       return true;
+      
     } catch (error) {
       console.error('attachViaDataUrl error:', error);
       showFallbackOverlay(dataUrl);
@@ -476,18 +499,33 @@
     }
   }
 
-  // Observe for UI readiness and retry attachment briefly
-  function setupAutoRetry(maxMs = 8000) {
+  // ============================================================================
+  // AUTO-RETRY SYSTEM
+  // ============================================================================
+
+  /**
+   * Setup auto-retry mechanism for UI changes
+   */
+  function setupAutoRetry(maxMs = 15000) {
     const start = Date.now();
     const observer = new MutationObserver(async () => {
-      if (attachmentCompleted) { observer.disconnect(); return; }
+      if (attachmentCompleted) { 
+        observer.disconnect(); 
+        return; 
+      }
+      
       const elapsed = Date.now() - start;
-      if (elapsed > maxMs) { observer.disconnect(); return; }
+      if (elapsed > maxMs) { 
+        observer.disconnect(); 
+        return; 
+      }
+      
       if (!attachmentInProgress && pendingDataUrl) {
         console.log('UI changed; retrying attachment');
         attachViaDataUrl(pendingDataUrl);
       }
     });
+    
     observer.observe(document.documentElement, { childList: true, subtree: true });
     setTimeout(() => observer.disconnect(), maxMs + 200);
   }
@@ -498,105 +536,179 @@
   
   /**
    * User-Friendly Fallback Interface
-   * 
-   * Responsibilities:
-   * - Provide manual attachment options when automatic methods fail
-   * - Display clear instructions for drag-and-drop attachment
-   * - Offer image download and new tab opening functionality
-   * - Maintain consistent branding and user experience
-   * 
-   * Features:
-   * - Beautiful gradient design matching extension theme
-   * - Auto-dismissal with manual close option
-   * - Duplicate overlay prevention
-   * - Accessibility considerations
    */
   function showFallbackOverlay(dataUrl) {
     // Remove any existing overlay first
     const existingOverlay = document.querySelector('#krm-fallback-overlay');
     if (existingOverlay) existingOverlay.remove();
     
-    const wrap = document.createElement('div');
-    wrap.id = 'krm-fallback-overlay';
-    wrap.style.cssText = `
-      position: fixed; top: 20px; right: 20px; z-index: 10000;
-      background: linear-gradient(135deg, #1d4ed8, #06b6d4); color: #fff; 
-      padding: 16px; border-radius: 12px; max-width: 300px;
-      box-shadow: 0 10px 25px rgba(0,0,0,.3); 
-      font-family: system-ui, -apple-system, sans-serif; font-size: 14px;
-      border: 1px solid rgba(255,255,255,0.2);
-    `;
-    wrap.innerHTML = `
-      <div style="display: flex; align-items: center; margin-bottom: 12px;">
-        <div style="font-size: 24px; margin-right: 8px;">📚</div>
-        <div>
-          <div style="font-weight: bold; margin-bottom: 2px;">Kindle Review Meter</div>
-          <div style="font-size: 12px; opacity: 0.9;">画像の自動添付に失敗</div>
+    console.log('Showing fallback overlay for manual attachment');
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'krm-fallback-overlay';
+    overlay.innerHTML = `
+      <div style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(8px);
+        z-index: 10000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      ">
+        <div style="
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 20px;
+          padding: 40px;
+          max-width: 500px;
+          text-align: center;
+          color: white;
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+          position: relative;
+        ">
+          <div style="font-size: 48px; margin-bottom: 20px;">📖</div>
+          <h2 style="margin: 0 0 16px 0; font-size: 24px; font-weight: 600;">
+            Kindle Review Meter
+          </h2>
+          <p style="margin: 0 0 24px 0; opacity: 0.9; line-height: 1.6;">
+            自動画像添付に失敗しました。<br>
+            以下の方法で手動で添付してください：
+          </p>
+          
+          <div style="background: rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin: 20px 0; text-align: left;">
+            <p style="margin: 0 0 12px 0; font-weight: 500;">📎 手動添付方法:</p>
+            <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+              <li>下の「画像をダウンロード」をクリック</li>
+              <li>X/Twitterの画像添付ボタンをクリック</li>
+              <li>ダウンロードした画像ファイルを選択</li>
+            </ol>
+          </div>
+          
+          <div style="margin-top: 30px;">
+            <button id="krm-download-btn" style="
+              background: rgba(255, 255, 255, 0.2);
+              border: 2px solid rgba(255, 255, 255, 0.3);
+              color: white;
+              padding: 12px 24px;
+              border-radius: 25px;
+              font-size: 16px;
+              font-weight: 500;
+              cursor: pointer;
+              margin: 0 8px;
+              transition: all 0.3s ease;
+            " onmouseover="this.style.background='rgba(255,255,255,0.3)'" 
+               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+              🔽 画像をダウンロード
+            </button>
+            
+            <button id="krm-new-tab-btn" style="
+              background: rgba(255, 255, 255, 0.2);
+              border: 2px solid rgba(255, 255, 255, 0.3);
+              color: white;
+              padding: 12px 24px;
+              border-radius: 25px;
+              font-size: 16px;
+              font-weight: 500;
+              cursor: pointer;
+              margin: 0 8px;
+              transition: all 0.3s ease;
+            " onmouseover="this.style.background='rgba(255,255,255,0.3)'" 
+               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+              🔗 新しいタブで開く
+            </button>
+          </div>
+          
+          <button id="krm-close-btn" style="
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px;
+            line-height: 1;
+          " title="閉じる">
+            ✕
+          </button>
+          
+          <p style="margin: 24px 0 0 0; font-size: 12px; opacity: 0.7;">
+            このダイアログは10秒後に自動的に閉じます
+          </p>
         </div>
       </div>
-      <div style="font-size: 13px; margin-bottom: 12px; opacity: 0.9;">
-        手動で画像を添付してください：
-      </div>
-      <div style="display:flex; gap:8px; flex-wrap: wrap;">
-        <button id="krm-open" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;font-size:12px;backdrop-filter:blur(10px);">新しいタブで開く</button>
-        <a id="krm-download" style="background:rgba(255,255,255,0.15);color:#fff;text-decoration:none;border-radius:6px;padding:8px 12px;font-size:12px;display:inline-block;" download="kindle-review-image.png">ダウンロード</a>
-      </div>
-      <div style="margin-top: 10px; font-size: 11px; opacity: 0.7;">
-        💡 画像をダウンロードして、X投稿画面にドラッグ&ドロップしてください
-      </div>
-      <button id="krm-close" style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; font-size: 16px;">×</button>
     `;
     
-    document.body.appendChild(wrap);
+    document.body.appendChild(overlay);
     
-    wrap.querySelector('#krm-open').onclick = () => {
-      window.open(dataUrl, '_blank');
-      wrap.remove();
-    };
-    wrap.querySelector('#krm-download').setAttribute('href', dataUrl);
-    wrap.querySelector('#krm-close').onclick = () => wrap.remove();
-
-    // Auto-close after 20 seconds
+    // Event handlers
+    const downloadBtn = document.getElementById('krm-download-btn');
+    const newTabBtn = document.getElementById('krm-new-tab-btn');
+    const closeBtn = document.getElementById('krm-close-btn');
+    
+    downloadBtn.addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = 'kindle-review-progress.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Show success feedback
+      downloadBtn.innerHTML = '✅ ダウンロード完了';
+      downloadBtn.style.background = 'rgba(46, 204, 113, 0.8)';
+    });
+    
+    newTabBtn.addEventListener('click', () => {
+      const newWindow = window.open();
+      const html = `
+        <html>
+          <head><title>Kindle Review Progress Image</title></head>
+          <body style="margin:0; background:#f0f0f0; display:flex; justify-content:center; align-items:center; min-height:100vh;">
+            <img src="${dataUrl}" style="max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+          </body>
+        </html>
+      `;
+      newWindow.document.write(html);
+      newWindow.document.close();
+    });
+    
+    closeBtn.addEventListener('click', () => {
+      overlay.remove();
+    });
+    
+    // Auto-dismiss after 10 seconds
     setTimeout(() => {
-      if (wrap.parentNode) wrap.remove();
-    }, 20000);
-  }
-
-  // ============================================================================
-  // MAIN EXECUTION AND MESSAGE HANDLING
-  // ============================================================================
-  
-  /**
-   * Initialization Function
-   * 
-   * Sets up the content script and notifies background that the page is ready
-   * to receive image attachment requests.
-   */
-  async function init() {
-    try {
-      console.log('Waiting for X/Twitter interface elements...');
-      await waitForElements();
-      
-      // Notify background that tweet page is ready to receive image
-      if (chrome?.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ action: 'xTweetPageReady' }, ()=>{});
+      if (overlay.parentNode) {
+        overlay.remove();
       }
-      
-      console.log('Content script initialized and ready for image attachment');
-    } catch (error) {
-      console.error('Error in content script initialization:', error);
-    }
+    }, 10000);
+    
+    // Setup enhanced retry mechanism
+    setupAutoRetry(15000);
   }
 
-  /**
-   * Background Script Communication Handler
-   * 
-   * Responsibilities:
-   * - Handle ping requests for content script availability checking
-   * - Process direct image attachment requests from background script
-   * - Provide response confirmation for attachment success/failure
-   * - Maintain communication channel reliability
-   */
+  // ============================================================================
+  // CHROME EXTENSION MESSAGE HANDLING
+  // ============================================================================
+
+  // Wait for Twitter interface elements
+  waitForElements().then(() => {
+    console.log('X/Twitter interface detected, ready for image attachment');
+    
+    // Notify background that tweet page is ready to receive image
+    if (chrome?.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ action: 'xTweetPageReady' }, () => {});
+    }
+  });
+
+  // Setup message listener for background script communication
   if (chrome?.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log('Content script received message:', request.action, 'at', new Date().toISOString());
@@ -625,12 +737,14 @@
           }
           
           pendingDataUrl = request.dataUrl;
+          
+          // Setup auto-retry
           setupAutoRetry(15000); // Increase retry time
           
           // Handle async attachment with proper error handling
           (async () => {
             try {
-              console.log('Starting async image attachment...');
+              console.log('Content script starting async image attachment...');
               const attachResult = await attachViaDataUrl(request.dataUrl);
               console.log('Content script attach result:', attachResult);
               
@@ -669,7 +783,7 @@
         return false; // Synchronous response for unknown actions
         
       } catch (handlerError) {
-        console.error('Message handler error:', handlerError);
+        console.error('Content script message handler error:', handlerError);
         try {
           sendResponse({ 
             ok: false, 
@@ -684,7 +798,6 @@
     });
   }
 
-  // Initialize the content script
-  init();
+  console.log('KindleReviewMeter: Integrated stable content script fully initialized');
 
 })();
