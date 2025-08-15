@@ -34,13 +34,7 @@
 (function() {
   'use strict';
   
-  // Configuration flags to avoid disruptive UI actions
-  const CONFIG = {
-    // Never trigger OS file picker to avoid directory dialog popups
-    avoidNativeFileDialog: true,
-    maxNativeClickAttempts: 0
-  };
-  let nativeClickAttempts = 0;
+  // Removed CONFIG restrictions to match commit 6ec556190c291da3123b8440ea00438051735ffe behavior
   
   // ============================================================================
   // STATE MANAGEMENT
@@ -198,12 +192,8 @@
    * Find and click attachment button to reveal file input
    */
   async function findAndClickAttachmentButton() {
-    if (CONFIG.avoidNativeFileDialog || nativeClickAttempts >= CONFIG.maxNativeClickAttempts) {
-      console.log('Skipping attachment button click to avoid native file dialog');
-      return false;
-    }
-    
-    nativeClickAttempts++;
+    // Always try to click attachment button as per commit 6ec556190c291da3123b8440ea00438051735ffe
+    console.log('Attempting to click attachment button to reveal file input');
     
     const attachButtonSelectors = [
       // Common toolbar buttons
@@ -282,10 +272,8 @@
       attachmentInProgress = true;
       pendingDataUrl = dataUrl;
       
-      // Avoid opening native file dialogs; rely on existing inputs / DnD / paste
-      if (!CONFIG.avoidNativeFileDialog) {
-        await findAndClickAttachmentButton();
-      }
+      // Try to click attachment button first to reveal file input (best effort, non-fatal)
+      await findAndClickAttachmentButton();
 
       // Observe DOM briefly to catch dynamically injected file inputs
       const waitForFileInputAppears = (ms = 4000) => new Promise((resolve) => {
@@ -369,7 +357,7 @@
         'div[contenteditable="true"]'
       ];
       
-      const dropOn = async (target, file) => {
+      async function dropOn(target, file) {
         const dt = new DataTransfer();
         dt.items.add(file);
         const dragEnterEvent = new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt });
@@ -380,7 +368,7 @@
         target.dispatchEvent(dragOverEvent);
         await new Promise(r=>setTimeout(r,80));
         target.dispatchEvent(dropEvent);
-      };
+      }
       
       for (const selector of dropZoneSelectors) {
         const dropZone = document.querySelector(selector);
