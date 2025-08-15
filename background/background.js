@@ -1285,7 +1285,7 @@ async function handleImageExport(data) {
 // Global variable to track pending X share requests
 let pendingXShare = null;
 
-async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
+async function trySendImageToTweetTab(maxAttempts = 12, delayMs = 600) {
   const snapshot = pendingXShare ? {
     tweetTabId: pendingXShare.tweetTabId,
     dataUrl: pendingXShare.dataUrl,
@@ -1315,8 +1315,8 @@ async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
     try {
       console.log(`Attempt ${i + 1}/${maxAttempts} to send image to tweet tab ${snapshot.tweetTabId}`);
       
-      // Progressive delay: start quickly, then increase delay
-      const currentDelay = i === 0 ? 0 : Math.min(delayMs + (i * 200), 2000);
+      // Optimized delay: shorter initial delays, capped lower
+      const currentDelay = i === 0 ? 0 : Math.min(delayMs + (i * 150), 1500);
       if (currentDelay > 0) {
         await new Promise(r => setTimeout(r, currentDelay));
       }
@@ -1352,10 +1352,10 @@ async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
         continue;
       }
       
-      // Enhanced content script injection with multiple attempts and better timing
+      // Optimized content script injection with reduced attempts
       let contentScriptReady = false;
-      for (let pingAttempt = 0; pingAttempt < 5; pingAttempt++) {
-        console.log(`Ping/inject attempt ${pingAttempt + 1}/5`);
+      for (let pingAttempt = 0; pingAttempt < 3; pingAttempt++) {
+        console.log(`Ping/inject attempt ${pingAttempt + 1}/3`);
         
         // Always try injection first (idempotent operation)
         if (chrome?.scripting?.executeScript) {
@@ -1383,12 +1383,12 @@ async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
           }
         }
         
-        // Test if content script is responsive with longer timeout
+        // Test if content script is responsive with optimized timeout
         const pingResult = await new Promise((resolve) => {
           const timeout = setTimeout(() => {
-            console.log(`Ping timeout after 5 seconds (attempt ${pingAttempt + 1})`);
+            console.log(`Ping timeout after 2 seconds (attempt ${pingAttempt + 1})`);
             resolve(false);
-          }, 5000);
+          }, 2000);
           
           chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'krmPing' }, (resp) => {
             clearTimeout(timeout);
@@ -1408,29 +1408,39 @@ async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
           break;
         }
         
-        // Exponential backoff between attempts
-        if (pingAttempt < 4) { // Don't wait after last attempt
-          const waitTime = Math.min(1000 * Math.pow(2, pingAttempt), 4000);
+        // Optimized backoff between attempts
+        if (pingAttempt < 2) { // Don't wait after last attempt
+          const waitTime = Math.min(500 * Math.pow(2, pingAttempt), 2000);
           console.log(`❌ Ping failed, waiting ${waitTime}ms before retry`);
           await new Promise(r => setTimeout(r, waitTime));
         }
       }
       
       if (!contentScriptReady) {
-        console.warn(`⚠️ Content script not ready after 5 ping attempts, will try attachment anyway`);
+        console.warn(`⚠️ Content script not ready after 3 ping attempts, will try attachment anyway`);
       }
 
-      // Attempt image attachment with enhanced error handling and connection check
+      // Attempt image attachment with progressive timeout strategy
       console.log('🎯 Attempting image attachment...');
       const attachResult = await new Promise((resolve, reject) => {
         let responseReceived = false;
         
+        // Progressive timeout: early attempts are faster
+        let timeoutDuration;
+        if (i === 0) {
+          timeoutDuration = 3000; // 3 seconds for first attempt
+        } else if (i <= 2) {
+          timeoutDuration = 5000; // 5 seconds for attempts 2-3
+        } else {
+          timeoutDuration = 8000; // 8 seconds for later attempts
+        }
+        
         const timeout = setTimeout(() => {
           if (!responseReceived) {
-            console.error('🔥 Image attachment timed out after 45 seconds');
-            reject(new Error('Image attachment timeout after 45 seconds'));
+            console.error(`🔥 Image attachment timed out after ${timeoutDuration/1000} seconds (attempt ${i + 1})`);
+            reject(new Error(`Image attachment timeout after ${timeoutDuration/1000} seconds`));
           }
-        }, 45000); // Reduced to 45 seconds for faster failure detection
+        }, timeoutDuration);
         
         try {
           // Check if tab still exists before sending message
@@ -1533,9 +1543,9 @@ async function trySendImageToTweetTab(maxAttempts = 20, delayMs = 1000) {
         break;
       }
       
-      // Wait before retry with exponential backoff
+      // Optimized retry delay with reduced backoff
       if (i < maxAttempts - 1) {
-        const retryDelay = Math.min(2000 * Math.pow(1.5, i), 10000);
+        const retryDelay = Math.min(1000 * Math.pow(1.3, i), 5000);
         console.log(`⏳ Waiting ${retryDelay}ms before retry attempt ${i + 2}...`);
         await new Promise(r => setTimeout(r, retryDelay));
       }
