@@ -1,9 +1,48 @@
-// Image generator page script (MV3 CSP-compliant: no inline scripts)
+/**
+ * Image Generator Service for Kindle Review Meter
+ * 
+ * Architecture Overview:
+ * This script runs in a dedicated tab to generate progress visualization images
+ * for social media sharing. It operates in two modes: normal (user-facing) and
+ * quick (background) mode for automated X/Twitter integration.
+ * 
+ * Key Responsibilities:
+ * - Generate beautiful progress visualization images using Canvas API
+ * - Handle data input from multiple sources (URL params, Chrome storage)
+ * - Manage different operational modes (normal, quick, silent)
+ * - Provide download functionality and clipboard integration
+ * - Coordinate with background script for cross-tab image transfer
+ * 
+ * Technical Features:
+ * - Canvas-based image rendering with custom drawing functions
+ * - Dynamic layout calculation for text wrapping and positioning
+ * - Cross-origin image loading with fallback placeholders
+ * - Multiple clipboard API methods with comprehensive error handling
+ * - Blob and DataURL conversion for various output formats
+ * 
+ * Operational Modes:
+ * - Normal: User-facing interface with preview and manual controls
+ * - Quick: Background generation for automatic social media integration
+ * - Silent: Headless generation with minimal UI interaction
+ */
 
 (function(){
+  // ============================================================================
+  // DATA LOADING AND INITIALIZATION
+  // ============================================================================
+  
   const qs = new URLSearchParams(location.search);
   let data = null;
 
+  /**
+   * Multi-Source Data Loading System
+   * 
+   * Responsibilities:
+   * - Load book data from URL parameters (primary)
+   * - Fallback to Chrome storage for data retrieval
+   * - Handle data parsing and error recovery
+   * - Support multiple data input methods
+   */
   async function loadData() {
     try {
       if (qs.has('data')) {
@@ -21,6 +60,26 @@
     return data;
   }
 
+  // ============================================================================
+  // CANVAS DRAWING UTILITIES
+  // ============================================================================
+  
+  /**
+   * Canvas Drawing Helper Functions
+   * 
+   * These utility functions provide enhanced drawing capabilities for the Canvas API,
+   * including rounded rectangles, text wrapping, and image handling.
+   */
+  
+  /**
+   * Draw rounded rectangle path
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate  
+   * @param {number} w - Width
+   * @param {number} h - Height
+   * @param {number} r - Border radius
+   */
   function roundRect(ctx, x, y, w, h, r){
     ctx.beginPath();
     ctx.moveTo(x+r, y);
@@ -110,7 +169,7 @@
   function drawBookCoverOnCanvas(ctx, imageUrl, x, y, width, height) {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      // Using object URLs from fetched blobs avoids canvas taint; crossOrigin not required
       img.onload = () => {
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -134,6 +193,36 @@
     });
   }
 
+  // Fetch remote image as Blob and return an object URL to avoid canvas taint
+  async function fetchImageObjectUrl(url) {
+    const res = await fetch(url, { credentials: 'omit', cache: 'no-cache' });
+    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    if (!blob || blob.size === 0) throw new Error('empty image blob');
+    return URL.createObjectURL(blob);
+  }
+
+  // ============================================================================
+  // MAIN IMAGE GENERATION ENGINE
+  // ============================================================================
+  
+  /**
+   * Primary Image Generation Function
+   * 
+   * Responsibilities:
+   * - Orchestrate the complete image generation process
+   * - Handle different operational modes (normal, quick, silent)
+   * - Coordinate canvas rendering, book cover loading, and text layout
+   * - Manage output formats (download, clipboard, data URL transfer)
+   * - Provide comprehensive error handling and fallback options
+   * 
+   * Process Flow:
+   * 1. Data validation and preprocessing
+   * 2. Canvas setup and background rendering
+   * 3. Book cover loading (with fallback)
+   * 4. Text layout and progress visualization
+   * 5. Output handling based on operational mode
+   */
   async function generateImage(d) {
     const status = document.getElementById('status');
     const preview = document.getElementById('preview');
@@ -185,8 +274,16 @@
       const coverX = (canvas.width - coverW) / 2;
       const coverY = cardY + 40;
       if (d.imageUrl && d.imageUrl.trim()) {
-        try { await drawBookCoverOnCanvas(ctx, d.imageUrl.trim(), coverX, coverY, coverW, coverH); }
-        catch { drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH); }
+        let objUrl = null;
+        try {
+          objUrl = await fetchImageObjectUrl(d.imageUrl.trim());
+          await drawBookCoverOnCanvas(ctx, objUrl, coverX, coverY, coverW, coverH);
+        } catch (e) {
+          console.warn('Cover fetch/draw failed, using placeholder:', e?.message || e);
+          drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH);
+        } finally {
+          if (objUrl) URL.revokeObjectURL(objUrl);
+        }
       } else {
         drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH);
       }
@@ -273,6 +370,10 @@
         console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap });
       }
 
+      // Global variables for clipboard functionality
+      let globalCanvas = canvas;
+      let globalBlob = null;
+      
       // Direct download without preview
       const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
       const triggerDownload = (href) => {
@@ -284,19 +385,171 @@
         document.body.removeChild(a);
       };
 
-      canvas.toBlob((blob)=>{
+      // Setup clipboard button with multiple methods
+      const setupClipboardButton = (blob) => {
+        const copyBtn = document.getElementById('copyToClipboard');
+        if (copyBtn) {
+          copyBtn.style.display = 'inline-flex';
+          copyBtn.onclick = async () => {
+            let success = false;
+            let lastError = null;
+            
+            // Method 1: Modern Clipboard API
+            try {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'image/png': blob
+                })
+              ]);
+              success = true;
+              console.log('Clipboard copy succeeded with modern API');
+            } catch (error) {
+              lastError = error;
+              console.warn('Modern clipboard API failed:', error);
+            }
+            
+            
+            if (success) {
+              copyBtn.textContent = 'コピー完了！';
+              copyBtn.style.background = '#10b981';
+              setTimeout(() => {
+                copyBtn.textContent = 'クリップボードにコピー';
+                copyBtn.style.background = '';
+              }, 2000);
+              
+              if (chrome?.runtime) {
+                chrome.runtime.sendMessage({
+                  action: 'clipboardCopySuccess',
+                  success: true
+                });
+              }
+            } else {
+              console.error('All clipboard copy methods failed. Last error:', {
+                name: lastError?.name,
+                message: lastError?.message,
+                code: lastError?.code,
+                stack: lastError?.stack
+              });
+              copyBtn.textContent = `コピー失敗 (${lastError?.name || 'Unknown'})`;
+              copyBtn.style.background = '#ef4444';
+              setTimeout(() => {
+                copyBtn.textContent = 'クリップボードにコピー';
+                copyBtn.style.background = '';
+              }, 3000);
+              
+              // Show detailed error to user
+              const statusEl = document.getElementById('status');
+              if (statusEl) {
+                statusEl.innerHTML = `クリップボードエラー: ${lastError?.name || 'Unknown'}<br>手動で画像をダウンロードしてX投稿画面にドラッグ&ドロップしてください。`;
+              }
+            }
+          };
+        }
+      };
+
+      canvas.toBlob(async (blob)=>{
+        const urlParams = new URLSearchParams(window.location.search);
+        const quickMode = urlParams.has('quickMode');
+
+        // Quick mode: クリップボードを使わず、データURLを背景→Xタブへ転送
+        if (quickMode) {
+          try {
+            console.log('Quick mode: generating image data URL');
+            let dataUrl;
+            if (blob) {
+              console.log('Converting blob to data URL, blob size:', blob.size);
+              dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  console.log('Blob to data URL conversion complete');
+                  resolve(reader.result);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } else {
+              console.log('Using canvas toDataURL fallback');
+              dataUrl = canvas.toDataURL('image/png');
+            }
+            
+            console.log('Data URL generated, length:', dataUrl?.length);
+            if (chrome?.runtime?.sendMessage) {
+              console.log('Sending imageGenerated message to background');
+              const response = await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl });
+              console.log('Background response:', response);
+              status.textContent = '画像データを送信しました';
+            } else {
+              console.error('Chrome runtime not available for message sending');
+            }
+          } catch (e) {
+            console.error('Quick mode send failed, falling back to download:', e);
+            const fallbackUrl = blob ? URL.createObjectURL(blob) : canvas.toDataURL('image/png');
+            triggerDownload(fallbackUrl);
+          } finally {
+            setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
+          }
+          return;
+        }
+
+        // 通常モード: 既存のダウンロード + 任意のクリップボードコピー
         if (blob) {
+          // Setup manual clipboard button
+          setupClipboardButton(blob);
+          const helpText = document.getElementById('helpText');
+          if (helpText) helpText.style.display = 'block';
           const url = URL.createObjectURL(blob);
           triggerDownload(url);
-          setTimeout(()=>URL.revokeObjectURL(url), 2000);
+          try {
+            const permission = await navigator.permissions.query({name: 'clipboard-write'});
+            if (permission.state === 'granted' || permission.state === 'prompt') {
+              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+              status.textContent = 'ダウンロードを開始しました';
+              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
+            }
+          } catch (clipboardError) {
+            console.warn('Optional clipboard copy failed:', clipboardError);
+            status.textContent = 'ダウンロードを開始しました';
+            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
+          } finally {
+            setTimeout(()=>URL.revokeObjectURL(url), 2000);
+          }
         } else {
-          // Fallback to data URL
           const dataUrl = canvas.toDataURL('image/png');
           triggerDownload(dataUrl);
+          try {
+            const permission = await navigator.permissions.query({name: 'clipboard-write'});
+            if (permission.state === 'granted' || permission.state === 'prompt') {
+              const resp = await fetch(dataUrl);
+              const clipBlob = await resp.blob();
+              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': clipBlob }) ]);
+              status.textContent = 'ダウンロードを開始しました';
+              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
+            }
+          } catch (clipboardError) {
+            console.warn('Optional clipboard copy (data URL) failed:', clipboardError);
+            status.textContent = 'ダウンロードを開始しました';
+            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
+          }
         }
-        status.textContent = 'ダウンロードを開始しました';
-        // Try to auto-close after a moment (tab was opened by the extension)
-        setTimeout(()=>{ try { window.close(); } catch(_) {} }, 1500);
+
+        // 通常モード: オートクローズ制御（既存挙動維持）
+        const silent = urlParams.has('silent');
+        if (silent) {
+          const clipboardSuccess = false;
+          if (chrome?.runtime) {
+            chrome.runtime.sendMessage({ action: 'imageGenerationComplete', success: clipboardSuccess, error: clipboardSuccess ? null : 'Clipboard copy failed' });
+          }
+          setTimeout(() => { try { window.close(); } catch(_) {} }, 1000);
+        } else {
+          const autoClose = urlParams.has('autoClose');
+          if (autoClose) {
+            setTimeout(() => {
+              const statusEl = document.getElementById('status');
+              // 自動クローズの挙動は、クリップボードには依存させない
+              try { window.close(); } catch(_) {}
+            }, 3000);
+          }
+        }
       }, 'image/png');
     } catch (e) {
       console.error(e);

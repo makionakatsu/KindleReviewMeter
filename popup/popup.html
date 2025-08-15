@@ -16,8 +16,6 @@
   <div class="main-container">
     <div id="view-settings" class="view active">
       <div class="card">
-        <h2>🖼️ 共有画像作成</h2>
-        
         <div class="form-grid">
           <div class="form-group">
             <label for="amazonUrl">Amazon書籍URL</label>
@@ -53,12 +51,27 @@
             <label for="targetReviews">目標レビュー数</label>
             <input type="number" id="targetReviews" min="1" placeholder="目標値（数値）を設定すると進捗バーが出現します">
           </div>
+
+          <div class="form-group">
+            <label for="associateTag">アソシエイトURL使用</label>
+            <div class="associate-compact-layout">
+              <input type="text" id="associateTag" placeholder="アソシエイトID（例: yourid-22）" class="associate-input-compact">
+              <div class="toggle-switch-compact">
+                <input type="checkbox" id="associateEnabled" class="toggle-input">
+                <label for="associateEnabled" class="toggle-slider-compact">
+                  <span class="toggle-knob-compact"></span>
+                </label>
+              </div>
+            </div>
+            <small class="input-description-compact">X投稿文の末尾に書籍URLを付与します。アソシエイトIDを設定するとアフィリエイトURLになります。</small>
+          </div>
         </div>
         
         <div class="btn-group">
-          <button class="btn primary" id="saveBtn">💾 保存</button>
-          <button class="btn secondary" id="clearBtn">🗑️ クリア</button>
-          <button class="btn primary" id="exportBtn">🖼️ 画像シェア</button>
+          <button class="btn primary" id="saveBtn">保存</button>
+          <button class="btn primary" id="shareToXBtn">X投稿</button>
+          <button class="btn secondary" id="exportBtn">画像DL</button>
+          <button class="btn secondary" id="clearBtn">クリア</button>
         </div>
       </div>
     </div>

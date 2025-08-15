@@ -1,68 +1,95 @@
 /**
  * Chrome Extension Popup Script for Kindle Review Meter
  * Optimized for Manifest V3 and Content Security Policy compliance
+ * 
+ * This file contains the main popup logic for the Chrome extension, handling:
+ * - User interface interactions
+ * - Amazon book data fetching and processing
+ * - Data storage and retrieval
+ * - Image generation for social media sharing
+ * - X (Twitter) posting integration
  */
 
 /**
- * StorageService - Chrome Extension Storage Service using chrome.storage API
+ * StorageService - Chrome Extension Storage Service
+ * 
+ * Responsibilities:
+ * - Manage persistent storage of book data using Chrome Storage API
+ * - Provide fallback to localStorage for testing environments
+ * - Handle storage errors gracefully
+ * - Ensure data consistency across extension components
+ * 
+ * Key Features:
+ * - Cross-platform storage abstraction
+ * - Error handling with detailed logging
+ * - Support for both Chrome extension and web contexts
  */
 class StorageService {
   constructor(key = 'kindleReviewMeter') {
     this.storageKey = key;
   }
 
+  handleStorageError(operation, error) {
+    console.error(`Storage ${operation} failed:`, error);
+    return operation === 'save' || operation === 'clear' ? false : null;
+  }
+
   async save(data) {
     try {
-      // Use Chrome Storage API for extensions
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.set({ [this.storageKey]: data });
       } else {
-        // Fallback to localStorage for testing
         localStorage.setItem(this.storageKey, JSON.stringify(data));
       }
       return true;
     } catch (error) {
-      console.error('Storage save failed:', error);
-      return false;
+      return this.handleStorageError('save', error);
     }
   }
 
   async load() {
     try {
-      // Use Chrome Storage API for extensions
       if (typeof chrome !== 'undefined' && chrome.storage) {
         const result = await chrome.storage.local.get([this.storageKey]);
         return result[this.storageKey] || null;
       } else {
-        // Fallback to localStorage for testing
         const data = localStorage.getItem(this.storageKey);
         return data ? JSON.parse(data) : null;
       }
     } catch (error) {
-      console.error('Storage load failed:', error);
-      return null;
+      return this.handleStorageError('load', error);
     }
   }
 
   async clear() {
     try {
-      // Use Chrome Storage API for extensions
       if (typeof chrome !== 'undefined' && chrome.storage) {
         await chrome.storage.local.remove([this.storageKey]);
       } else {
-        // Fallback to localStorage for testing
         localStorage.removeItem(this.storageKey);
       }
       return true;
     } catch (error) {
-      console.error('Storage clear failed:', error);
-      return false;
+      return this.handleStorageError('clear', error);
     }
   }
 }
 
 /**
- * ToastService - User notification system for popup
+ * ToastService - User Notification System
+ * 
+ * Responsibilities:
+ * - Display contextual notifications to users
+ * - Manage toast lifecycle (creation, display, dismissal)
+ * - Provide consistent UI feedback across the application
+ * - Handle different notification types (success, error, warning, info)
+ * 
+ * Key Features:
+ * - Customizable appearance and duration
+ * - Auto-dismissal with configurable timing
+ * - Manual dismissal via close button
+ * - Animation support for smooth user experience
+ * - Queue management for multiple notifications
  */
 class ToastService {
   constructor() {
@@ -183,7 +210,29 @@ class ToastService {
 }
 
 /**
- * App - Main application class for Chrome Extension popup
+ * App - Main Application Controller
+ * 
+ * Responsibilities:
+ * - Orchestrate all popup functionality and user interactions
+ * - Manage application lifecycle (initialization, data loading, cleanup)
+ * - Coordinate between StorageService and ToastService
+ * - Handle Amazon book data fetching and processing
+ * - Manage image generation and social media sharing workflows
+ * - Process user input validation and form management
+ * 
+ * Key Features:
+ * - Amazon URL normalization and validation
+ * - Automatic and manual data saving
+ * - Progress image generation for social media
+ * - X (Twitter) integration with automatic image attachment
+ * - Comprehensive error handling and user feedback
+ * - Visual feedback with animations and transitions
+ * 
+ * Data Flow:
+ * 1. User inputs Amazon URL → fetchAmazonData() → populateBookData() → auto-save
+ * 2. User clicks save → saveData() → StorageService persistence
+ * 3. User clicks export → exportProgressImage() → Background script → Image generation
+ * 4. User clicks X share → shareToX() → Background script → Image + Tweet creation
  */
 class App {
   constructor() {
@@ -251,43 +300,61 @@ class App {
   }
 
   bindEvents() {
-    // Amazon fetch button
-    const fetchBtn = document.getElementById('fetchAmazonBtn');
-    if (fetchBtn) {
-      fetchBtn.addEventListener('click', () => this.fetchAmazonData());
-      console.log('Fetch button event bound');
-    } else {
-      console.error('Fetch button not found');
+    const buttons = [
+      { id: 'fetchAmazonBtn', handler: () => this.fetchAmazonData(), name: 'Fetch' },
+      { id: 'saveBtn', handler: () => this.saveData(), name: 'Save' },
+      { id: 'clearBtn', handler: () => this.clearData(), name: 'Clear' },
+      { id: 'exportBtn', handler: () => this.exportProgressImage(), name: 'Export' },
+      { id: 'shareToXBtn', handler: () => this.shareToX(), name: 'Share to X' }
+    ];
+
+    buttons.forEach(({ id, handler, name }) => {
+      const button = document.getElementById(id);
+      if (button) {
+        button.addEventListener('click', () => {
+          console.log(`${name} button clicked`);
+          handler();
+        });
+        console.log(`${name} button event bound`);
+      } else {
+        console.error(`${name} button not found`);
+      }
+    });
+
+    // Auto-save Associate ID on input with debounce
+    const associateInput = document.getElementById('associateTag');
+    if (associateInput) {
+      const debounced = this.debounce(async () => {
+        await this.saveAssociateId(associateInput.value.trim());
+      }, 500);
+      associateInput.addEventListener('input', debounced);
+      console.log('Associate ID auto-save binding set');
     }
 
-    // Save button
-    const saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', () => this.saveData());
-      console.log('Save button event bound');
-    } else {
-      console.error('Save button not found');
-    }
-
-    // Clear button
-    const clearBtn = document.getElementById('clearBtn');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => this.clearData());
-      console.log('Clear button event bound');
-    } else {
-      console.error('Clear button not found');
-    }
-
-    // Export button
-    const exportBtn = document.getElementById('exportBtn');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', () => this.exportProgressImage());
-      console.log('Export button event bound');
-    } else {
-      console.error('Export button not found');
+    // Associate URL Toggle functionality
+    const associateToggle = document.getElementById('associateEnabled');
+    const associateContainer = document.getElementById('associateInputContainer');
+    if (associateToggle && associateContainer) {
+      associateToggle.addEventListener('change', async () => {
+        await this.handleAssociateToggle();
+      });
+      console.log('Associate toggle event bound');
     }
   }
 
+  /**
+   * Amazon Book Data Fetching
+   * 
+   * Fetches book information from Amazon product pages via background script.
+   * Includes URL validation, normalization, and automatic data saving.
+   * 
+   * Process:
+   * 1. Validate and normalize Amazon URL
+   * 2. Send fetch request to background script
+   * 3. Populate UI with retrieved data
+   * 4. Auto-save data to storage
+   * 5. Provide user feedback
+   */
   async fetchAmazonData() {
     const urlInput = document.getElementById('amazonUrl');
     const fetchBtn = document.getElementById('fetchAmazonBtn');
@@ -301,25 +368,14 @@ class App {
       return;
     }
 
-    // URL正規化を試行
-    const normalizedUrl = this.normalizeAmazonUrl(url);
-    if (!normalizedUrl) {
+    // Basic URL validation (detailed validation and normalization done in background)
+    if (!url.includes('amazon')) {
       this.toast.error('有効なAmazon書籍URLを入力してください。\n例: https://www.amazon.co.jp/dp/XXXXXXXXXX', {
         title: 'URL形式エラー',
         duration: 6000
       });
       this.animateInputError('amazonUrl');
-      console.log('URL normalization failed for:', url);
       return;
-    }
-
-    // 正規化されたURLを表示
-    if (normalizedUrl !== url) {
-      urlInput.value = normalizedUrl;
-      this.toast.info('URLを正規化しました', {
-        title: '情報',
-        duration: 3000
-      });
     }
 
     fetchBtn.classList.add('loading');
@@ -335,13 +391,26 @@ class App {
       if (typeof chrome !== 'undefined' && chrome.runtime) {
         const response = await chrome.runtime.sendMessage({
           action: 'fetchAmazonData',
-          url: normalizedUrl
+          url: url
         });
 
         if (response && response.success && response.data) {
           this.populateBookData(response.data);
-          this.toast.success(`「${response.data.title}」の情報を取得しました`, {
-            title: '取得完了',
+          
+          // Show normalized URL if different from input
+          if (response.data.normalizedUrl && response.data.normalizedUrl !== url) {
+            urlInput.value = response.data.normalizedUrl;
+            this.toast.info('URLを正規化しました', {
+              title: '情報',
+              duration: 3000
+            });
+          }
+          
+          // 自動取得完了後に自動保存
+          await this.saveData();
+          
+          this.toast.success(`「${response.data.title}」の情報を取得・保存しました`, {
+            title: '取得・保存完了',
             duration: 5000
           });
         } else {
@@ -352,167 +421,14 @@ class App {
         throw new Error('Chrome拡張機能コンテキストが必要です');
       }
     } catch (error) {
-      console.error('Amazon data fetch error:', error);
-      this.toast.error(`取得エラー: ${error.message}`, {
-        title: 'エラー',
-        duration: 8000
-      });
+      this.handleError('Amazon data fetch', error);
     } finally {
       fetchBtn.classList.remove('loading');
       fetchBtn.disabled = false;
     }
   }
 
-  normalizeAmazonUrl(url) {
-    try {
-      console.log('Attempting to normalize URL:', url, 'Type:', typeof url, 'Length:', url?.length);
-      
-      // Input validation
-      if (!url || typeof url !== 'string' || url.trim().length === 0) {
-        console.error('Invalid URL input:', url);
-        return null;
-      }
-      
-      const trimmedUrl = url.trim();
-      
-      // Add protocol if missing
-      let fullUrl = trimmedUrl;
-      if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
-        fullUrl = 'https://' + trimmedUrl;
-        console.log('Added https protocol:', fullUrl);
-      }
-      
-      const urlObj = new URL(fullUrl);
-      
-      // Amazon hostname validation
-      const amazonHosts = [
-        'amazon.co.jp', 'amazon.com', 'amazon.ca', 'amazon.co.uk',
-        'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es',
-        'www.amazon.co.jp', 'www.amazon.com', 'www.amazon.ca', 'www.amazon.co.uk',
-        'www.amazon.de', 'www.amazon.fr', 'www.amazon.it', 'www.amazon.es'
-      ];
-      
-      const isAmazonHost = amazonHosts.some(host => 
-        urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
-      );
-      
-      if (!isAmazonHost) {
-        console.log('Invalid Amazon host:', urlObj.hostname);
-        return null;
-      }
-      
-      // Extract ASIN from various URL patterns
-      const asinPatterns = [
-        /\/dp\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,           // /dp/XXXXXXXXXX
-        /\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,      // /product/XXXXXXXXXX
-        /\/gp\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,  // /gp/product/XXXXXXXXXX
-        /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i, // /exec/obidos/ASIN/XXXXXXXXXX
-        /\/o\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i       // /o/ASIN/XXXXXXXXXX
-      ];
-      
-      let asin = null;
-      for (const pattern of asinPatterns) {
-        const match = fullUrl.match(pattern);
-        if (match) {
-          asin = match[1];
-          console.log('Found ASIN:', asin, 'with pattern:', pattern.source);
-          break;
-        }
-      }
-      
-      if (!asin) {
-        console.log('No valid ASIN found in URL:', fullUrl);
-        return null;
-      }
-      
-      // Construct clean Amazon URL
-      const cleanUrl = `https://${urlObj.hostname}/dp/${asin}`;
-      
-      console.log('URL normalization successful:', {
-        original: url,
-        processed: fullUrl,
-        normalized: cleanUrl,
-        asin: asin,
-        hostname: urlObj.hostname
-      });
-      
-      return cleanUrl;
-      
-    } catch (error) {
-      console.error('URL normalization error:', error);
-      console.error('Failed URL details:', {
-        input: url,
-        type: typeof url,
-        length: url?.length,
-        charCodes: url ? Array.from(url).map(c => c.charCodeAt(0)).slice(0, 20) : null
-      });
-      return null;
-    }
-  }
 
-  isValidAmazonUrl(url) {
-    try {
-      const urlObj = new URL(url);
-      
-      // Amazon hostname patterns
-      const amazonHosts = [
-        'amazon.co.jp',
-        'amazon.com', 
-        'amazon.ca',
-        'amazon.co.uk',
-        'amazon.de',
-        'amazon.fr',
-        'amazon.it',
-        'amazon.es',
-        'www.amazon.co.jp',
-        'www.amazon.com',
-        'www.amazon.ca',
-        'www.amazon.co.uk',
-        'www.amazon.de',
-        'www.amazon.fr',
-        'www.amazon.it',
-        'www.amazon.es'
-      ];
-      
-      const isAmazonHost = amazonHosts.some(host => 
-        urlObj.hostname === host || urlObj.hostname.endsWith('.' + host)
-      );
-      
-      if (!isAmazonHost) {
-        console.log('Invalid Amazon host:', urlObj.hostname);
-        return false;
-      }
-      
-      // Amazon product URL patterns
-      const productPatterns = [
-        '/dp/',           // Digital Product
-        '/product/',      // Product
-        '/gp/product/',   // Generic Product
-        '/exec/obidos/',  // Old format
-        '/o/ASIN/'        // Old ASIN format
-      ];
-      
-      const hasProductPattern = productPatterns.some(pattern => url.includes(pattern));
-      
-      // ASIN pattern check (10 character alphanumeric)
-      const asinMatch = url.match(/\/(?:dp|product|ASIN|gp\/product)\/([A-Z0-9]{10})(?:\/|$|\?|#)/i);
-      
-      console.log('URL validation:', {
-        url,
-        hostname: urlObj.hostname,
-        isAmazonHost,
-        hasProductPattern,
-        asinMatch: !!asinMatch,
-        asin: asinMatch ? asinMatch[1] : null
-      });
-      
-      return hasProductPattern || asinMatch;
-      
-    } catch (error) {
-      console.error('URL validation error:', error);
-      return false;
-    }
-  }
 
   populateBookData(bookData) {
     const fields = [
@@ -522,14 +438,21 @@ class App {
       { id: 'reviewCount', value: bookData.currentReviews || 0 }
     ];
 
+    // Set values immediately so subsequent save sees them
+    fields.forEach((field) => {
+      const element = document.getElementById(field.id);
+      if (element) {
+        element.value = field.value;
+      }
+    });
+
+    // Then run staggered animations for visual feedback
     fields.forEach((field, index) => {
       setTimeout(() => {
         const element = document.getElementById(field.id);
         if (element) {
           element.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(52, 211, 153, 0.05))';
-          element.value = field.value;
           element.classList.add('animate-pulse');
-          
           setTimeout(() => {
             element.style.background = '';
             element.classList.remove('animate-pulse');
@@ -544,11 +467,7 @@ class App {
   }
 
   async saveData() {
-    const saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) {
-      saveBtn.classList.add('animate-wiggle');
-      setTimeout(() => saveBtn.classList.remove('animate-wiggle'), 800);
-    }
+    this.animateElement('saveBtn', 'wiggle');
 
     const data = {
       amazonUrl: document.getElementById('amazonUrl').value.trim(),
@@ -557,6 +476,8 @@ class App {
       imageUrl: document.getElementById('imageUrl').value.trim(),
       reviewCount: parseInt(document.getElementById('reviewCount').value) || 0,
       targetReviews: parseInt(document.getElementById('targetReviews').value) || 0,
+      associateTag: document.getElementById('associateTag').value.trim(),
+      associateEnabled: document.getElementById('associateEnabled')?.checked ?? true,
       savedAt: new Date().toISOString()
     };
 
@@ -582,25 +503,124 @@ class App {
   }
 
   async clearData() {
-    const confirmed = confirm('データを削除しますか？');
+    console.log('Clear button clicked - clearData method called');
+    
+    // Add visual feedback immediately to show button is working
+    this.animateElement('clearBtn', 'wiggle');
+    
+    // Check if there's any data to clear first
+    const currentData = await this.storage.load();
+    console.log('Current storage data:', currentData);
+    
+    const formFields = {
+      amazonUrl: document.getElementById('amazonUrl').value,
+      title: document.getElementById('title').value,
+      author: document.getElementById('author').value,
+      imageUrl: document.getElementById('imageUrl').value,
+      reviewCount: document.getElementById('reviewCount').value,
+      targetReviews: document.getElementById('targetReviews').value
+    };
+    
+    console.log('Current form data:', formFields);
+    
+    const hasFormData = formFields.amazonUrl ||
+                       formFields.title ||
+                       formFields.author ||
+                       formFields.imageUrl ||
+                       (formFields.reviewCount && formFields.reviewCount !== '0') ||
+                       formFields.targetReviews;
 
-    if (confirmed) {
-      if (await this.storage.clear()) {
-        document.getElementById('amazonUrl').value = '';
-        document.getElementById('title').value = '';
-        document.getElementById('author').value = '';
-        document.getElementById('imageUrl').value = '';
-        document.getElementById('reviewCount').value = '0';
-        document.getElementById('targetReviews').value = '';
-        
-        this.toast.success('データを削除しました', {
-          title: '削除完了'
-        });
-      } else {
-        this.toast.error('削除に失敗しました', {
-          title: '削除エラー'
+    console.log('Has form data:', hasFormData, 'Has storage data:', !!currentData);
+
+    if (!currentData && !hasFormData) {
+      this.toast.info('クリアするデータがありません', {
+        title: '情報',
+        duration: 3000
+      });
+      return;
+    }
+
+    // Use a custom confirmation system instead of browser confirm()
+    this.showClearConfirmation();
+  }
+
+  showClearConfirmation() {
+    const confirmToast = this.toast.show('データを削除してもよろしいですか？', 'warning', {
+      title: '確認',
+      duration: 0, // Don't auto-dismiss
+      closable: false // Don't show close button
+    });
+
+    // Generate unique IDs for buttons
+    const confirmId = `confirmClear_${Date.now()}`;
+    const cancelId = `cancelClear_${Date.now()}`;
+
+    // Add custom buttons to the toast
+    const buttonsHtml = `
+      <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
+        <button id="${confirmId}" style="background: #ef4444; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">削除する</button>
+        <button id="${cancelId}" style="background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;">キャンセル</button>
+      </div>
+    `;
+    
+    const messageDiv = confirmToast.querySelector('.toast-message');
+    if (messageDiv) {
+      messageDiv.innerHTML += buttonsHtml;
+      
+      // Add event listeners
+      const confirmBtn = document.getElementById(confirmId);
+      const cancelBtn = document.getElementById(cancelId);
+      
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', async () => {
+          this.toast.dismiss(confirmToast);
+          await this.executeClearData();
         });
       }
+      
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          this.toast.dismiss(confirmToast);
+          this.toast.info('削除をキャンセルしました', {
+            title: 'キャンセル',
+            duration: 2000
+          });
+        });
+      }
+    }
+  }
+
+  async executeClearData() {
+    try {
+      // Clear storage
+      const storageCleared = await this.storage.clear();
+      
+      // Clear form fields
+      document.getElementById('amazonUrl').value = '';
+      document.getElementById('title').value = '';
+      document.getElementById('author').value = '';
+      document.getElementById('imageUrl').value = '';
+      document.getElementById('reviewCount').value = '0';
+      document.getElementById('targetReviews').value = '';
+      
+      if (storageCleared) {
+        this.animateSuccessFlash();
+        this.toast.success('すべてのデータを削除しました', {
+          title: '削除完了',
+          duration: 4000
+        });
+      } else {
+        this.toast.warning('フォームをクリアしましたが、保存データの削除に失敗しました', {
+          title: '部分的成功',
+          duration: 5000
+        });
+      }
+    } catch (error) {
+      console.error('Clear data error:', error);
+      this.toast.error('データの削除中にエラーが発生しました', {
+        title: 'エラー',
+        duration: 5000
+      });
     }
   }
 
@@ -616,22 +636,75 @@ class App {
       document.getElementById('imageUrl').value = data.imageUrl || '';
       document.getElementById('reviewCount').value = data.reviewCount || 0;
       document.getElementById('targetReviews').value = data.targetReviews || '';
+      document.getElementById('associateTag').value = data.associateTag || '';
+      
+      // Load associate toggle state (default: true for backward compatibility)
+      const associateEnabled = data.associateEnabled !== undefined ? data.associateEnabled : true;
+      const toggle = document.getElementById('associateEnabled');
+      const container = document.getElementById('associateInputContainer');
+      const input = document.getElementById('associateTag');
+      
+      if (toggle && container && input) {
+        toggle.checked = associateEnabled;
+        if (associateEnabled) {
+          container.classList.remove('disabled');
+          input.disabled = false;
+        } else {
+          container.classList.add('disabled');
+          input.disabled = true;
+        }
+      }
+      
       console.log('Data populated to form fields');
     } else {
       console.log('No data found in storage');
+      
+      // Set default toggle state for new users
+      const toggle = document.getElementById('associateEnabled');
+      const container = document.getElementById('associateInputContainer');
+      const input = document.getElementById('associateTag');
+      
+      if (toggle && container && input) {
+        toggle.checked = true; // Default to enabled
+        container.classList.remove('disabled');
+        input.disabled = false;
+      }
+    }
+  }
+
+  animateElement(elementId, type = 'wiggle', options = {}) {
+    const element = document.getElementById(elementId) || document.querySelector(elementId);
+    if (!element) return;
+
+    const { 
+      duration = 800, 
+      borderColor = null, 
+      resetBorder = false 
+    } = options;
+
+    switch (type) {
+      case 'wiggle':
+        if (borderColor) element.style.borderColor = borderColor;
+        element.classList.add('animate-wiggle');
+        setTimeout(() => {
+          element.classList.remove('animate-wiggle');
+          if (resetBorder) element.style.borderColor = '';
+        }, duration);
+        break;
+      case 'pulse':
+        element.classList.add('animate-pulse');
+        setTimeout(() => {
+          element.classList.remove('animate-pulse');
+        }, duration);
+        break;
     }
   }
 
   animateInputError(inputId) {
-    const input = document.getElementById(inputId);
-    if (input) {
-      input.style.borderColor = 'var(--danger)';
-      input.classList.add('animate-wiggle');
-      setTimeout(() => {
-        input.classList.remove('animate-wiggle');
-        input.style.borderColor = '';
-      }, 800);
-    }
+    this.animateElement(inputId, 'wiggle', {
+      borderColor: 'var(--danger)',
+      resetBorder: true
+    });
   }
 
   animateSuccessFlash() {
@@ -656,6 +729,36 @@ class App {
         }
       }, 600);
     }
+  }
+
+  handleError(operation, error, options = {}) {
+    console.error(`${operation} error:`, error);
+    
+    let message;
+    let duration = options.duration || 8000;
+    
+    switch (operation) {
+      case 'Amazon data fetch':
+        message = `取得エラー: ${error.message}`;
+        break;
+      case 'Export':
+        message = `画像生成エラー: ${error.message}`;
+        break;
+      case 'X sharing':
+        message = `X投稿の準備でエラーが発生しました。\n画像を手動でダウンロードして X に投稿してください。\n\nエラー詳細: ${error.message}`;
+        duration = 10000; // Longer duration for important instruction
+        break;
+      case 'Chrome runtime':
+        message = 'Chrome拡張機能コンテキストが必要です';
+        break;
+      default:
+        message = `${operation}でエラーが発生しました: ${error.message}`;
+    }
+
+    this.toast.error(message, {
+      title: 'エラー',
+      duration
+    });
   }
 
   async exportProgressImage() {
@@ -697,18 +800,269 @@ class App {
           throw new Error(response?.error || '画像生成に失敗しました');
         }
       } catch (error) {
-        console.error('Export error:', error);
-        this.toast.error(`画像生成エラー: ${error.message}`, {
-          title: 'エラー',
-          duration: 8000
-        });
+        this.handleError('Export', error);
       }
     } else {
-      console.error('Chrome runtime not available');
-      this.toast.warning('Chrome拡張機能コンテキストが必要です', {
-        title: '機能制限'
+      this.handleError('Chrome runtime', new Error('Chrome runtime not available'));
+    }
+  }
+
+  /**
+   * X (Twitter) Sharing Integration
+   * 
+   * Handles sharing book review progress to X with automatically generated image.
+   * Generates contextual tweet text based on target review settings.
+   * 
+   * Process:
+   * 1. Validate stored data
+   * 2. Generate appropriate tweet text (with/without target)
+   * 3. Construct X compose URL
+   * 4. Trigger background image generation and X tab creation
+   * 5. Handle cross-tab image attachment via content script
+   */
+  async shareToX() {
+    console.log('Share to X button clicked');
+    
+    const data = await this.storage.load();
+    console.log('Loaded data for X sharing:', data);
+    
+    if (!data) {
+      this.toast.warning('シェアするデータがありません', {
+        title: 'シェア失敗'
+      });
+      return;
+    }
+
+    // 投稿文生成
+    const tweetText = this.generateTweetText(data);
+    console.log('Generated tweet text:', tweetText);
+
+    // X投稿URLを構築
+    const tweetUrl = this.buildTweetUrl(tweetText);
+    console.log('Tweet URL:', tweetUrl);
+
+    // 画像生成とX投稿画面オープンを統合処理
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime) {
+        this.toast.info('画像生成中...', {
+          title: 'X投稿準備中',
+          duration: 4000
+        });
+
+        // 新しいバックグラウンドスクリプトアクションを使用
+        const response = await chrome.runtime.sendMessage({
+          action: 'shareToXWithImage',
+          data: data,
+          tweetUrl: tweetUrl
+        });
+
+        if (response && response.success) {
+          this.toast.success('X投稿画面を開きました。画像を自動生成・添付しています...\n\n自動添付されない場合は：\n1. 画像ダウンロードボタンを使用\n2. X投稿画面にドラッグ&ドロップ\n3. Ctrl+V（Mac: Cmd+V）で貼り付け', {
+            title: 'X投稿準備完了',
+            duration: 12000
+          });
+        } else {
+          throw new Error(response?.error || 'X投稿準備に失敗しました');
+        }
+      } else {
+        // Chrome拡張機能コンテキスト外では画像なしでX投稿画面のみ開く
+        window.open(tweetUrl, '_blank');
+        this.toast.warning('画像生成にはChrome拡張機能が必要です', {
+          title: '機能制限',
+          duration: 4000
+        });
+      }
+    } catch (error) {
+      this.handleError('X sharing', error);
+    }
+  }
+
+  generateTweetText(data) {
+    const { title, reviewCount, targetReviews } = data;
+    const bookTitle = title || '書籍';
+    const currentCount = parseInt(reviewCount) || 0;
+    
+    // Check if associate URL feature is enabled
+    const isAssociateEnabled = document.getElementById('associateEnabled')?.checked ?? data.associateEnabled ?? true;
+    
+    let tweetContent = '';
+    let urlPart = '';
+    let disclosure = '';
+    
+    // Generate main tweet content
+    if (targetReviews && parseInt(targetReviews) > 0) {
+      // パターンA: 目標値設定あり
+      const target = parseInt(targetReviews);
+      const remaining = Math.max(0, target - currentCount);
+      tweetContent = `「${bookTitle}」のレビューが${currentCount}件になりました！\n目標${target}件まで残り${remaining}件です📚`;
+    } else {
+      // パターンB: 目標値設定なし
+      tweetContent = `「${bookTitle}」は、現在レビューを${currentCount}件集めています📚`;
+    }
+    
+    // Add URL only if associate feature is enabled
+    if (isAssociateEnabled) {
+      const urlForShare = this.buildBookUrlForShare(data);
+      const liveAssociateId = document.getElementById('associateTag')?.value?.trim();
+      const hasAssociate = !!(liveAssociateId || (data.associateTag || '').trim());
+      
+      urlPart = urlForShare ? `\n${urlForShare}` : '';
+      disclosure = hasAssociate ? '\n#アマゾンアソシエイトに参加しています' : '';
+    }
+    
+    return `${tweetContent}${urlPart}\n#KindleReviewMeter${disclosure}`;
+  }
+
+  buildTweetUrl(text) {
+    const encodedText = encodeURIComponent(text);
+    // Use compose endpoint for better media attach support
+    return `https://x.com/compose/tweet?text=${encodedText}`;
+  }
+
+  buildBookUrlForShare(data) {
+    try {
+      let base = (data.amazonUrl || '').trim();
+      if (!base) return '';
+      if (!/^https?:\/\//i.test(base)) base = 'https://' + base;
+      const u = new URL(base);
+      
+      // Prefer latest input value to avoid debounce timing issues
+      const liveId = document.getElementById('associateTag')?.value?.trim();
+      const rawId = liveId || (data.associateTag || '').trim();
+      
+      // Validate and sanitize Associate ID
+      const id = this.validateAndSanitizeAssociateId(rawId);
+      
+      if (id) u.searchParams.set('tag', id); else u.searchParams.delete('tag');
+      return u.toString();
+    } catch (e) {
+      console.warn('Failed to build share URL:', e);
+      return data.amazonUrl || '';
+    }
+  }
+
+  // Validate and sanitize Associate ID for security
+  validateAndSanitizeAssociateId(id) {
+    if (!id || typeof id !== 'string') return '';
+    
+    // Amazon Associate IDs should be alphanumeric with hyphens, typically 10-20 characters
+    const sanitized = id.replace(/[^\w\-]/g, '').substring(0, 30);
+    
+    // Basic format validation
+    if (!/^[\w\-]{3,30}$/.test(sanitized)) {
+      console.warn('Invalid Associate ID format:', id);
+      return '';
+    }
+    
+    return sanitized;
+  }
+
+  // Save only Associate ID to storage without requiring full Save action
+  async saveAssociateId(rawId) {
+    try {
+      // Validate input before saving
+      const validatedId = this.validateAndSanitizeAssociateId(rawId);
+      
+      const current = await this.storage.load() || {};
+      current.associateTag = validatedId;
+      await this.storage.save(current);
+      console.log('Associate ID saved:', validatedId || '(empty)');
+      
+      // Update input field if sanitization occurred
+      const inputElement = document.getElementById('associateTag');
+      if (inputElement && inputElement.value !== validatedId) {
+        inputElement.value = validatedId;
+      }
+    } catch (e) {
+      console.warn('Failed to save Associate ID:', e);
+    }
+  }
+
+  // Handle Associate URL toggle switch changes (updated for compact layout)
+  async handleAssociateToggle() {
+    const toggle = document.getElementById('associateEnabled');
+    const container = document.querySelector('.associate-compact-layout');
+    const input = document.getElementById('associateTag');
+    const toggleSwitch = document.querySelector('.toggle-switch-compact');
+    
+    if (!toggle || !container || !input) return;
+    
+    const isEnabled = toggle.checked;
+    
+    // Add bounce animation to compact switch
+    if (toggleSwitch) {
+      toggleSwitch.classList.add('animate');
+      setTimeout(() => toggleSwitch.classList.remove('animate'), 600);
+    }
+    
+    // Update UI state for compact layout
+    if (isEnabled) {
+      container.classList.remove('disabled');
+      input.disabled = false;
+      input.focus();
+      this.toast.info('アソシエイトURL機能を有効にしました', {
+        title: '設定変更',
+        duration: 3000
+      });
+    } else {
+      container.classList.add('disabled');
+      input.disabled = true;
+      this.toast.info('アソシエイトURL機能を無効にしました', {
+        title: '設定変更',
+        duration: 3000
       });
     }
+    
+    // Save toggle state to storage
+    try {
+      const current = await this.storage.load() || {};
+      current.associateEnabled = isEnabled;
+      await this.storage.save(current);
+      console.log('Associate toggle state saved:', isEnabled);
+    } catch (e) {
+      console.warn('Failed to save associate toggle state:', e);
+    }
+  }
+
+  // Enhanced debounce helper with race condition protection
+  debounce(fn, wait = 300) {
+    let timeoutId = null;
+    let lastCall = 0;
+    
+    return (...args) => {
+      const now = Date.now();
+      
+      // Clear any existing timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      
+      // Set up new timeout with race condition protection
+      timeoutId = setTimeout(async () => {
+        const callTime = Date.now();
+        lastCall = callTime;
+        
+        try {
+          await fn.apply(this, args);
+          
+          // Only log success if this is still the most recent call
+          if (lastCall === callTime) {
+            console.log('Debounced function completed successfully');
+          }
+        } catch (e) {
+          // Only log error if this is still the most recent call
+          if (lastCall === callTime) {
+            console.warn('Debounced function failed:', e);
+          }
+        } finally {
+          // Clear timeout reference
+          if (timeoutId && lastCall === callTime) {
+            timeoutId = null;
+          }
+        }
+      }, wait);
+    };
   }
 }
 

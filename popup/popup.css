@@ -534,3 +534,158 @@ body::before {
   background: var(--border-light);
   color: var(--fg-primary);
 }
+
+/* ========================================
+   COMPACT ASSOCIATE LAYOUT
+========================================= */
+
+.associate-compact-layout {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+}
+
+.associate-input-compact {
+  flex: 1;
+  min-width: 0; /* Allow shrinking */
+  padding: var(--space-sm) var(--space-md);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+.associate-input-compact:focus {
+  outline: none;
+  border-color: var(--primary-solid);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.associate-input-compact:disabled {
+  background: rgba(226, 232, 240, 0.5);
+  color: var(--fg-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Compact Toggle Switch */
+.toggle-switch-compact {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.toggle-input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider-compact {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 24px;
+  background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+  border-radius: 50px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 2px solid rgba(226, 232, 240, 0.6);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-slider-compact:hover {
+  transform: scale(1.03);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1), 
+              0 3px 8px rgba(59, 130, 246, 0.15);
+}
+
+.toggle-knob-compact {
+  position: absolute;
+  content: '';
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(135deg, #ffffff, #f8fafc);
+  border-radius: 50%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15),
+              0 1px 2px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.toggle-input:checked + .toggle-slider-compact {
+  background: var(--primary);
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1),
+              0 0 15px rgba(59, 130, 246, 0.2);
+}
+
+.toggle-input:checked + .toggle-slider-compact .toggle-knob-compact {
+  left: 22px;
+  background: linear-gradient(135deg, #ffffff, #f0f9ff);
+  box-shadow: 0 1px 6px rgba(59, 130, 246, 0.3),
+              0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-input:focus + .toggle-slider-compact {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+}
+
+/* Compact description text */
+.input-description-compact {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+  margin: var(--space-xs) 0 0 0;
+}
+
+/* Disabled state for compact layout */
+.associate-compact-layout.disabled .associate-input-compact {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Toggle Animation States */
+.toggle-switch-compact.animate {
+  animation: toggleBounceCompact 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes toggleBounceCompact {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 380px) {
+  .associate-compact-layout {
+    gap: var(--space-sm);
+  }
+  
+  .associate-input-compact {
+    font-size: 0.8rem;
+    padding: var(--space-xs) var(--space-sm);
+  }
+  
+  .toggle-slider-compact {
+    width: 36px;
+    height: 20px;
+  }
+  
+  .toggle-knob-compact {
+    width: 14px;
+    height: 14px;
+  }
+  
+  .toggle-input:checked + .toggle-slider-compact .toggle-knob-compact {
+    left: 18px;
+  }
+}
