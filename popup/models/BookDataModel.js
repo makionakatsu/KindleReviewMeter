@@ -264,10 +264,10 @@ export default class BookDataModel {
     }
     
     // Business logic validations
-    if (dataToValidate.targetReviews && dataToValidate.currentReviews > dataToValidate.targetReviews) {
+    if (dataToValidate.targetReviews && dataToValidate.targetReviews <= dataToValidate.currentReviews) {
       errors.push({
         field: 'targetReviews',
-        message: '目標レビュー数は現在のレビュー数以上を設定してください'
+        message: '目標レビュー数は現在のレビュー数より大きい必要があります'
       });
     }
     
