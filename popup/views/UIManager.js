@@ -1,20 +1,29 @@
 /**
- * UIManager - User Interface Management Class
+ * UIManager - Core User Interface Management Class
  * 
- * Responsibilities:
- * - Manage DOM element interactions and updates
- * - Handle form validation and user feedback
- * - Control visual states and loading indicators
- * - Manage toast notifications and error displays
- * - Handle responsive UI updates based on data changes
+ * Refactored Responsibilities:
+ * - Initialize and coordinate specialized UI managers
+ * - Manage DOM element caching and basic setup
+ * - Provide unified interface to delegate specific operations
+ * - Handle core UI initialization and coordination
  * 
- * Key Features:
- * - Centralized DOM manipulation
- * - Form validation with real-time feedback
- * - Loading states and progress indicators
- * - Toast notification system
- * - Keyboard shortcuts and accessibility features
+ * Delegation to Specialized Managers:
+ * - FormManager: Form data operations and validation
+ * - ValidationManager: Error display and validation logic
+ * - LoadingManager: Loading states and indicators
+ * - UIStateManager: Keyboard shortcuts and state management
+ * 
+ * Architecture Benefits:
+ * - Single Responsibility Principle adherence
+ * - Better testability through focused services
+ * - Easier maintenance and debugging
+ * - Improved code reusability
  */
+
+import { FormManager } from './FormManager.js';
+import { ValidationManager } from './ValidationManager.js';
+import { LoadingManager } from './LoadingManager.js';
+import { UIStateManager } from './UIStateManager.js';
 
 export default class UIManager {
   constructor(toastService) {
@@ -23,21 +32,21 @@ export default class UIManager {
     // DOM element cache
     this.elements = {};
     
-    // UI state
-    this.state = {
-      isLoading: false,
-      isDirty: false,
-      validationErrors: {},
-      formLocked: false
-    };
+    // Specialized managers
+    this.formManager = null;
+    this.validationManager = null;
+    this.loadingManager = null;
+    this.uiStateManager = null;
     
     // Initialize after DOM is ready
     this.init();
   }
+
   /**
    * Notes:
-   * - View layer only: no business logic here. Keep DOM concerns isolated.
-   * - Expose minimal helpers for PopupController to orchestrate actions.
+   * - Core coordination layer: delegates to specialized managers
+   * - Maintains backward compatibility through delegation methods
+   * - Single point of initialization for all UI management
    */
 
   // ============================================================================
@@ -45,17 +54,36 @@ export default class UIManager {
   // ============================================================================
 
   /**
-   * Initialize UI manager
+   * Initialize UI manager and all specialized managers
    */
   init() {
     this.cacheElements();
+    this.initializeManagers();
     this.setupEventListeners();
-    this.setupKeyboardShortcuts();
-    console.log('🎨 UIManager initialized');
+    console.log('🎨 UIManager initialized with specialized managers');
   }
 
   /**
-   * Cache frequently used DOM elements
+   * Initialize all specialized managers
+   * @private
+   */
+  initializeManagers() {
+    this.formManager = new FormManager(this.elements);
+    this.validationManager = new ValidationManager(this.elements, this.toastService);
+    this.loadingManager = new LoadingManager(this.elements);
+    this.uiStateManager = new UIStateManager(this.elements, this.toastService);
+    
+    // Setup additional functionality
+    this.uiStateManager.setupKeyboardShortcuts();
+    this.uiStateManager.setupAutoResize();
+    this.uiStateManager.setupFormChangeListeners();
+    this.validationManager.setupRealtimeValidation();
+    
+    console.log('UIManager: All specialized managers initialized');
+  }
+
+  /**
+   * Cache DOM elements for quick access
    * @private
    */
   cacheElements() {
@@ -86,7 +114,7 @@ export default class UIManager {
       .map(([key]) => key);
     
     if (missingElements.length > 0) {
-      console.error('Missing DOM elements:', missingElements);
+      console.error('UIManager: Missing DOM elements:', missingElements);
     }
   }
 
@@ -95,594 +123,267 @@ export default class UIManager {
    * @private
    */
   setupEventListeners() {
-    // Form input change tracking
-    const formInputs = [
-      'amazonUrl', 'title', 'author', 'imageUrl', 
-      'reviewCount', 'targetReviews', 'associateTag'
-    ];
-    
-    formInputs.forEach(inputName => {
-      const element = this.elements[inputName];
-      if (element) {
-        element.addEventListener('input', () => this.onFormChange());
-        element.addEventListener('blur', () => this.validateField(inputName));
-      }
-    });
-    
-    // Checkbox change tracking
-    if (this.elements.associateEnabled) {
-      this.elements.associateEnabled.addEventListener('change', () => this.onFormChange());
-    }
-    
-    // Auto-resize text areas (if any)
-    this.setupAutoResize();
-  }
-
-  /**
-   * Setup keyboard shortcuts
-   * @private
-   */
-  setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
-      // Ctrl/Cmd + S to save
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        this.triggerSave();
-      }
-      
-      // Ctrl/Cmd + Enter to share to X
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault();
-        this.triggerShareToX();
-      }
-      
-      // Escape to clear form
-      if (e.key === 'Escape') {
-        this.triggerClear();
-      }
-    });
-  }
-
-  /**
-   * Setup auto-resize for text areas
-   * @private
-   */
-  setupAutoResize() {
-    const textAreas = document.querySelectorAll('textarea');
-    textAreas.forEach(textarea => {
-      textarea.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = this.scrollHeight + 'px';
-      });
-    });
+    // Basic event listeners are now handled by specialized managers
+    console.log('UIManager: Basic event listeners delegated to specialized managers');
   }
 
   // ============================================================================
-  // FORM DATA MANAGEMENT
+  // DELEGATION TO SPECIALIZED MANAGERS
   // ============================================================================
 
   /**
-   * Get form data from UI elements
+   * Get form data (delegated to FormManager)
    * @returns {Object} Form data
    */
   getFormData() {
-    return {
-      title: this.getInputValue('title'),
-      author: this.getInputValue('author'),
-      imageUrl: this.getInputValue('imageUrl'),
-      amazonUrl: this.getInputValue('amazonUrl'),
-      currentReviews: parseInt(this.getInputValue('reviewCount')) || 0,
-      targetReviews: this.getInputValue('targetReviews') ? parseInt(this.getInputValue('targetReviews')) : null,
-      associateTag: this.getInputValue('associateTag'),
-      associateEnabled: this.elements.associateEnabled?.checked || false
-    };
+    return this.formManager.getFormData();
   }
 
   /**
-   * Set form data to UI elements
+   * Set form data (delegated to FormManager)
    * @param {Object} data - Data to populate form with
    */
   setFormData(data) {
-    this.setInputValue('title', data.title || '');
-    this.setInputValue('author', data.author || '');
-    this.setInputValue('imageUrl', data.imageUrl || '');
-    this.setInputValue('amazonUrl', data.amazonUrl || '');
-    this.setInputValue('reviewCount', data.currentReviews || 0);
-    this.setInputValue('targetReviews', data.targetReviews || '');
-    this.setInputValue('associateTag', data.associateTag || '');
-    
-    if (this.elements.associateEnabled) {
-      const enabled = (data.associateEnabled !== undefined) ? data.associateEnabled : true;
-      this.elements.associateEnabled.checked = enabled;
-    }
+    this.formManager.setFormData(data);
     
     // Clear any existing validation errors
-    this.clearValidationErrors();
+    this.validationManager.clearValidationErrors();
     
     // Mark as clean
-    this.setDirty(false);
+    this.uiStateManager.setDirty(false);
     
-    console.log('📝 Form data populated');
+    console.log('UIManager: Form data populated via FormManager');
   }
 
   /**
-   * Clear all form data
+   * Clear all form data (delegated to FormManager)
    */
   clearForm() {
-    const emptyData = {
-      title: '',
-      author: '',
-      imageUrl: '',
-      amazonUrl: '',
-      currentReviews: 0,
-      targetReviews: null,
-      associateTag: '',
-      associateEnabled: false
-    };
-    
-    this.setFormData(emptyData);
-    console.log('🧹 Form cleared');
+    this.formManager.clearForm();
+    this.validationManager.clearValidationErrors();
+    this.uiStateManager.setDirty(false);
+    console.log('UIManager: Form cleared via FormManager');
   }
 
   // ============================================================================
-  // TOAST HELPERS
-  // ============================================================================
-
-  showSuccess(message, options = {}) {
-    try { this.toastService?.success(message, options); } catch (e) { console.warn('toast failed', e); }
-  }
-  showError(message, options = {}) {
-    try { this.toastService?.error(message, options); } catch (e) { console.warn('toast failed', e); }
-  }
-  showInfo(message, options = {}) {
-    try { this.toastService?.info(message, options); } catch (e) { console.warn('toast failed', e); }
-  }
-  showWarning(message, options = {}) {
-    try { this.toastService?.warning(message, options); } catch (e) { console.warn('toast failed', e); }
-  }
-
-  // ============================================================================
-  // INPUT HANDLING UTILITIES
+  // VALIDATION AND ERROR HANDLING (Delegated to ValidationManager)
   // ============================================================================
 
   /**
-   * Get input value safely
-   * @private
-   * @param {string} inputName - Input element name
-   * @returns {string} Input value
-   */
-  getInputValue(inputName) {
-    const element = this.elements[inputName];
-    return element ? element.value.trim() : '';
-  }
-
-  /**
-   * Set input value safely
-   * @private
-   * @param {string} inputName - Input element name
-   * @param {any} value - Value to set
-   */
-  setInputValue(inputName, value) {
-    const element = this.elements[inputName];
-    if (element) {
-      element.value = value || '';
-    }
-  }
-
-  // ============================================================================
-  // VALIDATION AND ERROR HANDLING
-  // ============================================================================
-
-  /**
-   * Display validation errors
+   * Display validation errors (delegated to ValidationManager)
    * @param {Array} errors - Array of error objects
    */
   displayValidationErrors(errors) {
-    // Clear existing errors
-    this.clearValidationErrors();
-    
-    errors.forEach(error => {
-      this.showFieldError(error.field, error.message);
-    });
-    
-    // Show summary toast if multiple errors
-    if (errors.length > 1) {
-      this.toastService.show(`${errors.length}個のエラーがあります`, 'error');
-    } else if (errors.length === 1) {
-      this.toastService.show(errors[0].message, 'error');
-    }
+    this.validationManager.displayValidationErrors(errors);
   }
 
   /**
-   * Show error for specific field
-   * @private
+   * Show error for specific field (delegated to ValidationManager)
    * @param {string} fieldName - Field name
    * @param {string} message - Error message
    */
   showFieldError(fieldName, message) {
-    const element = this.elements[fieldName];
-    if (!element) return;
-    
-    // Add error class to input
-    element.classList.add('error');
-    
-    // Create or update error message element
-    let errorElement = document.getElementById(`${fieldName}-error`);
-    if (!errorElement) {
-      errorElement = document.createElement('div');
-      errorElement.id = `${fieldName}-error`;
-      errorElement.className = 'field-error';
-      element.parentNode.appendChild(errorElement);
-    }
-    
-    errorElement.textContent = message;
-    errorElement.style.display = 'block';
-    
-    // Store in state
-    this.state.validationErrors[fieldName] = message;
+    this.validationManager.showFieldError(fieldName, message);
   }
 
   /**
-   * Clear error for specific field
-   * @private
+   * Clear error for specific field (delegated to ValidationManager)
    * @param {string} fieldName - Field name
    */
   clearFieldError(fieldName) {
-    const element = this.elements[fieldName];
-    if (element) {
-      element.classList.remove('error');
-    }
-    
-    const errorElement = document.getElementById(`${fieldName}-error`);
-    if (errorElement) {
-      errorElement.style.display = 'none';
-    }
-    
-    delete this.state.validationErrors[fieldName];
+    this.validationManager.clearFieldError(fieldName);
   }
 
   /**
-   * Clear all validation errors
+   * Clear all validation errors (delegated to ValidationManager)
    */
   clearValidationErrors() {
-    Object.keys(this.state.validationErrors).forEach(fieldName => {
-      this.clearFieldError(fieldName);
-    });
-    this.state.validationErrors = {};
+    this.validationManager.clearValidationErrors();
   }
 
   /**
-   * Validate individual field (called on blur)
-   * @private
+   * Validate individual field (delegated to ValidationManager)
    * @param {string} fieldName - Field name to validate
    */
   validateField(fieldName) {
-    // This will be implemented when connected to the model
-    console.log(`Validating field: ${fieldName}`);
+    return this.validationManager.validateField(fieldName);
   }
 
   // ============================================================================
-  // LOADING STATES AND PROGRESS
+  // LOADING STATES (Delegated to LoadingManager)
   // ============================================================================
 
   /**
-   * Set loading state for the entire form
-   * @param {boolean} loading - Whether form is loading
-   * @param {string} message - Optional loading message
-   */
-  setLoading(loading, message = 'Loading...') {
-    this.state.isLoading = loading;
-    
-    // Disable/enable form elements
-    this.setFormEnabled(!loading);
-    
-    if (loading) {
-      this.showLoadingIndicator(message);
-    } else {
-      this.hideLoadingIndicator();
-    }
-  }
-
-  /**
-   * Set loading state for specific button
-   * @param {string} buttonName - Button element name
-   * @param {boolean} loading - Whether button is loading
-   * @param {string} loadingText - Text to show while loading
-   */
-  setButtonLoading(buttonName, loading, loadingText = 'Loading...') {
-    const button = this.elements[buttonName];
-    if (!button) return;
-    
-    if (loading) {
-      button.dataset.originalText = button.textContent;
-      button.textContent = loadingText;
-      button.disabled = true;
-      button.classList.add('loading');
-    } else {
-      button.textContent = button.dataset.originalText || button.textContent;
-      button.disabled = false;
-      button.classList.remove('loading');
-    }
-  }
-
-  /**
-   * Show loading indicator
-   * @private
+   * Set global loading state (delegated to LoadingManager)
+   * @param {boolean} loading - Loading state
    * @param {string} message - Loading message
    */
-  showLoadingIndicator(message) {
-    let indicator = document.getElementById('loading-indicator');
-    if (!indicator) {
-      indicator = document.createElement('div');
-      indicator.id = 'loading-indicator';
-      indicator.className = 'loading-indicator';
-      document.body.appendChild(indicator);
-    }
-    
-    indicator.innerHTML = `
-      <div class="loading-content">
-        <div class="spinner"></div>
-        <div class="loading-message">${message}</div>
-      </div>
-    `;
-    indicator.style.display = 'flex';
+  setLoading(loading, message = 'Loading...') {
+    this.loadingManager.setLoading(loading, message);
   }
 
   /**
-   * Hide loading indicator
-   * @private
+   * Set button loading state (delegated to LoadingManager)
+   * @param {string} buttonName - Button name
+   * @param {boolean} loading - Loading state
+   * @param {string} loadingText - Loading text
    */
-  hideLoadingIndicator() {
-    const indicator = document.getElementById('loading-indicator');
-    if (indicator) {
-      indicator.style.display = 'none';
-    }
+  setButtonLoading(buttonName, loading, loadingText = 'Loading...') {
+    this.loadingManager.setButtonLoading(buttonName, loading, loadingText);
   }
 
-  // ============================================================================
-  // FORM STATE MANAGEMENT
-  // ============================================================================
-
   /**
-   * Enable/disable form elements
+   * Enable/disable form (delegated to LoadingManager)
    * @param {boolean} enabled - Whether form should be enabled
    */
   setFormEnabled(enabled) {
-    const formElements = [
-      'amazonUrl', 'title', 'author', 'imageUrl', 
-      'reviewCount', 'targetReviews', 'associateTag', 'associateEnabled'
-    ];
-    
-    formElements.forEach(elementName => {
-      const element = this.elements[elementName];
-      if (element) {
-        element.disabled = !enabled;
-      }
-    });
-    
-    this.state.formLocked = !enabled;
+    this.loadingManager.setFormEnabled(enabled);
   }
 
+  // ============================================================================
+  // UI STATE MANAGEMENT (Delegated to UIStateManager)
+  // ============================================================================
+
   /**
-   * Set dirty state (unsaved changes)
+   * Set dirty state (delegated to UIStateManager)
    * @param {boolean} dirty - Whether form has unsaved changes
    */
   setDirty(dirty) {
-    this.state.isDirty = dirty;
-    
-    // Visual indicator for unsaved changes
-    const saveBtn = this.elements.saveBtn;
-    if (saveBtn) {
-      // Keep the original label without emojis/asterisks
-      const originalLabel = '保存';
-      if (dirty) {
-        saveBtn.classList.add('highlight');
-        saveBtn.textContent = originalLabel;
-      } else {
-        saveBtn.classList.remove('highlight');
-        saveBtn.textContent = originalLabel;
-      }
-    }
+    this.uiStateManager.setDirty(dirty);
   }
 
   /**
-   * Handle form change event
-   * @private
-   */
-  onFormChange() {
-    this.setDirty(true);
-    this.clearValidationErrors(); // Clear errors on change
-  }
-
-  // ============================================================================
-  // PROGRESS DISPLAY
-  // ============================================================================
-
-  /**
-   * Update progress display based on book data
+   * Update progress display (delegated to UIStateManager)
    * @param {Object} progressData - Progress information
    */
   updateProgressDisplay(progressData) {
-    const {
-      currentReviews,
-      targetReviews,
-      progressPercentage,
-      remainingReviews,
-      isGoalAchieved
-    } = progressData;
-    
-    // Create or update progress section
-    let progressSection = document.getElementById('progress-section');
-    if (!progressSection && targetReviews) {
-      progressSection = this.createProgressSection();
-    }
-    
-    if (!progressSection) return;
-    
-    if (targetReviews && targetReviews > 0) {
-      // Show progress
-      progressSection.style.display = 'block';
-      
-      const progressBar = progressSection.querySelector('.progress-bar-fill');
-      const progressText = progressSection.querySelector('.progress-text');
-      const remainingText = progressSection.querySelector('.remaining-text');
-      
-      if (progressBar) {
-        progressBar.style.width = `${progressPercentage}%`;
-        progressBar.className = `progress-bar-fill ${isGoalAchieved ? 'completed' : ''}`;
-      }
-      
-      if (progressText) {
-        progressText.textContent = `${currentReviews} / ${targetReviews} reviews (${progressPercentage}%)`;
-      }
-      
-      if (remainingText) {
-        if (isGoalAchieved) {
-          remainingText.textContent = '🎉 目標達成！';
-          remainingText.className = 'remaining-text completed';
-        } else {
-          remainingText.textContent = `あと${remainingReviews}レビューで目標達成`;
-          remainingText.className = 'remaining-text';
-        }
-      }
-    } else {
-      // Hide progress
-      progressSection.style.display = 'none';
-    }
+    this.uiStateManager.updateProgressDisplay(progressData);
   }
 
   /**
-   * Create progress section HTML
-   * @private
-   * @returns {HTMLElement} Progress section element
+   * Handle form change (delegated to UIStateManager)
    */
-  createProgressSection() {
-    const progressHTML = `
-      <div id="progress-section" class="progress-section">
-        <div class="progress-header">
-          <span class="progress-text">0 / 0 reviews (0%)</span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-bar-fill" style="width: 0%"></div>
-        </div>
-        <div class="remaining-text">目標を設定してください</div>
-      </div>
-    `;
-    
-    // Insert after target reviews input
-    const targetInput = this.elements.targetReviews;
-    if (targetInput && targetInput.parentNode) {
-      const progressSection = document.createElement('div');
-      progressSection.innerHTML = progressHTML;
-      targetInput.parentNode.insertAdjacentElement('afterend', progressSection.firstElementChild);
-      return document.getElementById('progress-section');
-    }
-    
-    return null;
+  onFormChange() {
+    this.uiStateManager.onFormChange();
   }
 
   // ============================================================================
-  // EVENT TRIGGERS (to be connected to controller)
+  // INPUT HANDLING UTILITIES (Delegated to FormManager)
   // ============================================================================
 
   /**
-   * Trigger save action
+   * Get input value safely (delegated to FormManager)
+   * @param {string} inputName - Input element name
+   * @returns {string} Input value
    */
-  triggerSave() {
-    console.log('🔄 Save triggered via UI');
-    // This will be connected to controller
+  getInputValue(inputName) {
+    return this.formManager.getInputValue(inputName);
   }
 
   /**
-   * Trigger share to X action
+   * Set input value safely (delegated to FormManager)
+   * @param {string} inputName - Input element name
+   * @param {any} value - Value to set
    */
-  triggerShareToX() {
-    console.log('🔄 Share to X triggered via UI');
-    // This will be connected to controller
-  }
-
-  /**
-   * Trigger clear action
-   */
-  triggerClear() {
-    console.log('🔄 Clear triggered via UI');
-    // This will be connected to controller
-  }
-
-  /**
-   * Trigger Amazon fetch action
-   */
-  triggerAmazonFetch() {
-    console.log('🔄 Amazon fetch triggered via UI');
-    // This will be connected to controller
+  setInputValue(inputName, value) {
+    this.formManager.setInputValue(inputName, value);
   }
 
   // ============================================================================
-  // UTILITY METHODS
+  // TOAST HELPERS (Delegated to ToastService)
   // ============================================================================
 
   /**
-   * Scroll to element smoothly
-   * @param {string} elementId - Element ID to scroll to
+   * Show success message (delegated to ToastService)
    */
-  scrollToElement(elementId) {
-    const element = document.getElementById(elementId);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+  showSuccess(message, options = {}) {
+    try { this.toastService?.show(message, 'success', options); } catch (e) { console.warn('toast failed', e); }
   }
 
   /**
-   * Focus on specific input field
-   * @param {string} fieldName - Field name to focus
+   * Show error message (delegated to ToastService)
    */
-  focusField(fieldName) {
-    const element = this.elements[fieldName];
-    if (element) {
-      element.focus();
-      if (element.select) {
-        element.select();
-      }
-    }
+  showError(message, options = {}) {
+    try { this.toastService?.show(message, 'error', options); } catch (e) { console.warn('toast failed', e); }
   }
 
   /**
-   * Get current UI state
-   * @returns {Object} Current UI state
+   * Show info message (delegated to ToastService)
+   */
+  showInfo(message, options = {}) {
+    try { this.toastService?.show(message, 'info', options); } catch (e) { console.warn('toast failed', e); }
+  }
+
+  /**
+   * Show warning message (delegated to ToastService)
+   */
+  showWarning(message, options = {}) {
+    try { this.toastService?.show(message, 'warning', options); } catch (e) { console.warn('toast failed', e); }
+  }
+
+  // ============================================================================
+  // STATE ACCESS
+  // ============================================================================
+
+  /**
+   * Get current state from all managers
+   * @returns {Object} Combined state
    */
   getState() {
-    return { ...this.state };
+    return {
+      form: this.formManager?.getFormData() || {},
+      validation: this.validationManager?.getValidationState() || {},
+      loading: this.loadingManager?.getLoadingState() || {},
+      ui: this.uiStateManager?.getState() || {}
+    };
   }
 
   /**
    * Check if form has unsaved changes
-   * @returns {boolean} Whether form is dirty
+   * @returns {boolean} True if dirty
    */
   isDirty() {
-    return this.state.isDirty;
+    return this.uiStateManager?.isDirty() || false;
+  }
+
+  // ============================================================================
+  // UTILITY METHODS (Delegated to UIStateManager)
+  // ============================================================================
+
+  /**
+   * Scroll to element (delegated to UIStateManager)
+   * @param {string} elementId - Element ID
+   */
+  scrollToElement(elementId) {
+    this.uiStateManager.scrollToElement(elementId);
   }
 
   /**
-   * Show success message
-   * @param {string} message - Success message
+   * Focus field (delegated to UIStateManager)
+   * @param {string} fieldName - Field name
    */
-  showSuccess(message) {
-    this.toastService.show(message, 'success');
+  focusField(fieldName) {
+    this.uiStateManager.focusField(fieldName);
   }
 
   /**
-   * Show error message
-   * @param {string} message - Error message
+   * Trigger save action (delegated to UIStateManager)
    */
-  showError(message) {
-    this.toastService.show(message, 'error');
+  triggerSave() {
+    this.uiStateManager.triggerSave();
   }
 
   /**
-   * Show info message
-   * @param {string} message - Info message
+   * Trigger share to X action (delegated to UIStateManager)
    */
-  showInfo(message) {
-    this.toastService.show(message, 'info');
+  triggerShareToX() {
+    this.uiStateManager.triggerShareToX();
+  }
+
+  /**
+   * Trigger clear action (delegated to UIStateManager)
+   */
+  triggerClear() {
+    this.uiStateManager.triggerClear();
   }
 }
