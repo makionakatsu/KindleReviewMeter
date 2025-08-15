@@ -11,8 +11,7 @@
     "tabs",
     "scripting",
     "downloads",
-    "clipboardWrite",
-    "clipboardRead"
+    "clipboardWrite"
   ],
   
   "host_permissions": [
