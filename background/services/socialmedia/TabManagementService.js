@@ -62,7 +62,7 @@ export default class TabManagementService {
     
     // Create image generation page URL
     const encodedData = encodeURIComponent(JSON.stringify(data));
-    const imagePageUrl = chrome.runtime.getURL(`popup/image-generator.html?data=${encodedData}&quickMode=true`);
+    const imagePageUrl = chrome.runtime.getURL(`popup/image-generator.html?data=${encodedData}&quickMode=true&tweetTabId=${tweetTabId}`);
     
     // Create image generation tab in background
     const backgroundTab = await chrome.tabs.create({

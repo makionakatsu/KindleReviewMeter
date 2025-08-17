@@ -262,12 +262,15 @@ chrome.runtime.onConnect.addListener((port) => {
         if (!msg || msg.type !== 'image' || !msg.buffer) return;
         const imageTabId = port.sender?.tab?.id;
         try {
-          const share = socialMediaService?.workflowService?.tabManager?.findShareByImageTab(imageTabId);
-          if (!share) {
-            console.warn('Pending share not found for image tab:', imageTabId);
-            return;
+          let tweetTabId = Number(msg.tweetTabId) || null;
+          if (!tweetTabId) {
+            const share = socialMediaService?.workflowService?.tabManager?.findShareByImageTab(imageTabId);
+            if (!share) {
+              console.warn('Pending share not found for image tab and no tweetTabId provided:', imageTabId);
+              return;
+            }
+            tweetTabId = share.tweetTabId;
           }
-          const tweetTabId = share.tweetTabId;
           pendingImageStore.set(tweetTabId, {
             buffer: msg.buffer,
             mime: msg.mime || 'image/jpeg',

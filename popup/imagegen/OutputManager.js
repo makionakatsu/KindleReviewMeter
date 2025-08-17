@@ -87,6 +87,7 @@
    */
   Output.handleQuickMode = async function handleQuickMode(canvas, statusEl) {
     const urlParams = new URLSearchParams(window.location.search);
+    const tweetTabId = Number(urlParams.get('tweetTabId')) || null;
     try {
       console.log('Quick mode: generating image binary');
       const { buffer, mime } = await new Promise((resolve, reject) => {
@@ -110,7 +111,7 @@
       // Primary path: Port + Transferable (binary, no base64)
       try {
         const port = chrome.runtime.connect({ name: 'krm_image_gen' });
-        port.postMessage({ type: 'image', mime, buffer }, [buffer]);
+        port.postMessage({ type: 'image', mime, buffer, tweetTabId }, [buffer]);
         console.log('Sent image via Port (binary)');
         if (statusEl) statusEl.textContent = '画像データを送信しました';
       } catch (portError) {
