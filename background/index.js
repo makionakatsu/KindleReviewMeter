@@ -361,19 +361,50 @@ async function trySendImageToTweetTab(maxAttempts = 12) {
   if (!snapshot?.tweetTabId || !snapshot?.dataUrl) return false;
   if (snapshot.imageSent) return true;
 
+  // Helper: find any open X compose tab as fallback when the original tab closed
+  const findComposeTab = async () => {
+    return new Promise((resolve) => {
+      try {
+        chrome.tabs.query({
+          url: [
+            'https://x.com/compose/tweet*',
+            'https://twitter.com/compose/tweet*',
+            'https://mobile.twitter.com/compose/tweet*'
+          ]
+        }, (tabs) => {
+          if (chrome.runtime.lastError || !tabs) return resolve(null);
+          // Prefer active tab, else the most recently opened
+          const active = tabs.find(t => t.active);
+          if (active) return resolve(active);
+          if (tabs.length > 0) return resolve(tabs.sort((a,b)=> (b.id||0)-(a.id||0))[0]);
+          resolve(null);
+        });
+      } catch (_) { resolve(null); }
+    });
+  };
+
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const delay = i === 0 ? 0 : Math.min(600 + (i * 150), 1500);
       if (delay > 0) await new Promise(r => setTimeout(r, delay));
 
       // Ensure tab exists and is ready
-      const tab = await new Promise((resolve) => {
+      let tab = await new Promise((resolve) => {
         chrome.tabs.get(snapshot.tweetTabId, (t) => {
           if (chrome.runtime.lastError) return resolve(null);
           resolve(t);
         });
       });
-      if (!tab) continue;
+      if (!tab) {
+        // Try to find any compose tab and update pending share mapping
+        const alt = await findComposeTab();
+        if (alt?.id) {
+          pendingXShare.tweetTabId = alt.id;
+          tab = alt;
+        } else {
+          continue;
+        }
+      }
       if (tab.status === 'loading') continue;
       if (!/^https:\/\/(?:mobile\.)?(?:x|twitter)\.com\//.test(tab.url)) continue;
 
@@ -406,9 +437,9 @@ async function trySendImageToTweetTab(maxAttempts = 12) {
         if (i === 0) timeoutDuration = 2000; else if (i <= 2) timeoutDuration = 4000; else timeoutDuration = 6000;
         const to = setTimeout(() => { if (!responseReceived) reject(new Error('timeout')); }, timeoutDuration);
         try {
-          chrome.tabs.get(snapshot.tweetTabId, () => {
+          chrome.tabs.get(pendingXShare.tweetTabId, () => {
             if (chrome.runtime.lastError) { clearTimeout(to); return reject(new Error('tab closed')); }
-            chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'attachImageDataUrl', dataUrl: snapshot.dataUrl }, (resp) => {
+            chrome.tabs.sendMessage(pendingXShare.tweetTabId, { action: 'attachImageDataUrl', dataUrl: snapshot.dataUrl }, (resp) => {
               responseReceived = true; clearTimeout(to);
               if (chrome.runtime.lastError || !resp) return reject(new Error(chrome.runtime.lastError?.message || 'no response'));
               if (resp.ok) return resolve(true);
@@ -421,7 +452,15 @@ async function trySendImageToTweetTab(maxAttempts = 12) {
       if (ok) {
         pendingXShare.imageSent = true;
         // cleanup image tab if exists
-        try { if (snapshot.imageTabId) chrome.tabs.remove(snapshot.imageTabId); } catch {}
+        try {
+          if (snapshot.imageTabId) {
+            chrome.tabs.get(snapshot.imageTabId, (t) => {
+              if (!chrome.runtime.lastError && t) {
+                try { chrome.tabs.remove(snapshot.imageTabId); } catch {}
+              }
+            });
+          }
+        } catch {}
         console.log('✅ Legacy push-model attachment succeeded');
         return true;
       }
