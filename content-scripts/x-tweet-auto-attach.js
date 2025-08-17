@@ -144,6 +144,11 @@
   
   /**
    * Primary Image Attachment Handler - 5-Tier Strategy
+   * Notes: 最速ロジック固定（dataURL push＋背景集中制御）。
+   * - 待機値/順序は過去最速時の値を維持
+   * - 実ボタンクリックで file input を確実に出現
+   * - DnD は 80ms ウェイトで安定化
+   * - paste/hidden input/フォールバックは最後に控える
    */
   async function attachViaDataUrl(dataUrl) {
     const currentAttemptId = ++attachmentAttemptId;
@@ -389,6 +394,7 @@
 
   /**
    * Attachment using a prebuilt File object (binary path)
+   * Notes: Port/Binary 経路は無効化済。互換のため残置（動作は dataURL と同等）。
    */
   async function attachViaFile(file) {
     const currentAttemptId = ++attachmentAttemptId;
