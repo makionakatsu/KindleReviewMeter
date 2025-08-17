@@ -1,6 +1,6 @@
 # Kindle Review Meter
 
-[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue)](https://makionakatsu.github.io/KindleReviewMeter/) [![Chrome Extension](https://img.shields.io/badge/Extension-In%20Development-orange)](#chrome-extension)
+[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue)](https://makionakatsu.github.io/KindleReviewMeter/) [![Chrome Extension](https://img.shields.io/badge/Extension-In%20Development-orange)](#chrome-拡張機能の使い方)
 
 Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化・共有するツールです。
 
@@ -13,7 +13,7 @@ Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可�
 - ブラウザで直接利用可能
 - **デモ**: [https://makionakatsu.github.io/KindleReviewMeter/](https://makionakatsu.github.io/KindleReviewMeter/)
 
-### 🔧 Chrome拡張機能版 (feature/chrome-extension ブランチ)
+### 🔧 Chrome拡張機能版（開発は  ブランチ）
 - Manifest V3対応
 - Service Worker実装
 - Context Menu統合
