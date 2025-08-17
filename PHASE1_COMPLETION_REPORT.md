@@ -131,6 +131,14 @@ The Phase 1 refactoring has been **highly successful**, achieving:
 - **Significantly improved maintainability** through specialized services
 - **Foundation for future phases** with clean service interfaces
 
+### Update (X 投稿経路の最速ロジック固定)
+- 転送: dataURL push（imageGenerated）を一次経路に固定
+- 背景: pendingXShare＋trySendImageToTweetTab（注入→ping→送信、2s/4s/6s, 最大12回）
+- CS: 添付ボタンは実クリック、DnD待機は80ms（最速時の安定値）
+- リファクタは「構造のみ」適用（上記ロジックは変更せず、TwitterSelectorService/ImageAttachmentService/TwitterUIFallbackServiceに委譲して保守性を向上）
+
+エビデンス強度: 高（過去最速記録時の実装を踏襲。挙動計測パラメータ・順序・待機は全て据え置き、責務分離のみ）
+
 The codebase is now well-positioned for Phase 2 (Background Services) and Phase 3 (Configuration Management) with a solid architectural foundation.
 
 ---

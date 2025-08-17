@@ -222,6 +222,16 @@ EOF
 # 新サービスの import と初期化のみ残す
 
 ## Step 7: 機能テスト (180分)
+```
+
+### 進捗アップデート（実装済み・挙動不変）
+- Selector 移譲: findAndClickAttachmentButton（実ボタンクリック）を TwitterSelectorService に実装（最速ロジックの1:1移植）
+- Attachment 移譲: drag&drop（80ms待機）/ paste / dataURL→File を ImageAttachmentService に集約、CSから委譲
+- Fallback 委譲: auto-retry / overlay は TwitterUIFallbackService を既に使用（呼び出し点を明示化）
+- CS本体: x-tweet-auto-attach.js はオーケストラ化（メッセージ受信→サービス呼び出し）。タイミング・パラメータは不変
+
+エビデンス強度: 高（既存ロジックをそのままサービスへ移植・委譲。パラメータ・順序・待機は全て据え置き）
+
 # 詳細テスト手順:
 1. Chrome拡張を開発者モードで再読み込み
 2. Amazon書籍ページでデータ取得テスト

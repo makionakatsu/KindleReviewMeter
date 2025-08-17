@@ -6,6 +6,13 @@
   'use strict';
 
   class ImageAttachmentService {
+    /**
+     * Convert data URL string to a File object.
+     * Behavior: 1:1 移植（拡張子・MIME 推定を保持）
+     * @param {string} dataUrl
+     * @param {string|null} filename
+     * @returns {File}
+     */
     /** Convert data URL to File (moved from original CS) */
     dataUrlToFile(dataUrl, filename = null) {
       const arr = dataUrl.split(',');
@@ -25,7 +32,11 @@
       return new File([u8arr], finalName, { type: mime });
     }
 
-    /** Drag and drop helper */
+    /**
+     * Drag & Drop シミュレーション（安定待機 80ms を維持）
+     * @param {Element} target
+     * @param {File} file
+     */
     async dropOn(target, file) {
       const dt = new DataTransfer();
       dt.items.add(file);
@@ -40,8 +51,11 @@
     }
 
     /**
-     * Simulate paste of an image File onto a target element.
-     * Mirrors existing inline logic (behavior unchanged).
+     * 画像 File の貼り付け（paste）イベントをシミュレート
+     * 既存ロジックの 1:1 移植（挙動不変）
+     * @param {Element} target
+     * @param {File} file
+     * @returns {Promise<boolean>} 成功時 true
      */
     async simulatePaste(target, file) {
       try {

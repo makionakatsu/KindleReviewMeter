@@ -10,6 +10,8 @@
     /**
      * Locate composer and (optionally) file input with timeout and retries.
      * Mirrors original behavior from x-tweet-auto-attach.js
+     * @param {{requireFileInput?: boolean, timeoutMs?: number}} options
+     * @returns {Promise<{fileInput: (HTMLInputElement|null), composerTextbox: (HTMLElement|null)}>} 
      */
     async waitForElements(options = {}) {
       const { requireFileInput = false, timeoutMs = 8000 } = options;
@@ -65,6 +67,7 @@
 
     /**
      * Deep search for any file input in the document
+     * @returns {HTMLInputElement|null}
      */
     findAnyFileInput() {
       const inputs = document.querySelectorAll('input[type="file"]');
@@ -78,9 +81,9 @@
     }
 
     /**
-     * Ensure Twitter's file input is available by clicking attachment UI.
-     * Mirrors stable content-script behavior (no timing changes).
-     * @returns {Promise<boolean>} true if a file input is present
+     * 添付 UI を実クリックし、file input を確実に出現させる
+     * 最速ロジックの 1:1 移植（待機・順序は不変）
+     * @returns {Promise<boolean>} file input が存在すれば true
      */
     async findAndClickAttachmentButton() {
       // If already present, succeed fast
