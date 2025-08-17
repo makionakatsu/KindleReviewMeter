@@ -61,22 +61,58 @@ function updateProgressContent(progressSection, data) {
     isGoalAchieved
   } = data;
 
-  const statusEmoji = isGoalAchieved ? '🎉' : '📈';
-  const statusText = isGoalAchieved ? '目標達成！' : `あと${remainingReviews}件`;
-  const statusColor = isGoalAchieved ? '#27ae60' : '#3498db';
+  // Enhanced progress styling for different achievement levels
+  const percentage = progressPercentage || 0;
+  
+  let statusEmoji, statusText, statusColor, progressBarStyle;
+  
+  if (percentage > 100) {
+    // Over 100% - Super achievement with colorful gradient
+    statusEmoji = '✨';
+    statusText = `目標超過達成！ (${percentage}%)`;
+    statusColor = '#ff6b6b';
+    progressBarStyle = `
+      background: linear-gradient(90deg, 
+        #ffeb3b 0%, #ff9800 25%, #e91e63 50%, #9c27b0 75%, #3f51b5 100%);
+    `;
+  } else if (percentage === 100) {
+    // Exactly 100% - Goal achieved
+    statusEmoji = '🎉';
+    statusText = '目標達成！';
+    statusColor = '#27ae60';
+    progressBarStyle = `background: ${statusColor};`;
+  } else if (percentage >= 0) {
+    // Under 100% - Normal progress with blue-green gradient
+    statusEmoji = '📈';
+    statusText = `あと${remainingReviews}件`;
+    statusColor = '#3498db';
+    progressBarStyle = `
+      background: linear-gradient(90deg, #4fc3f7 0%, #81c784 100%);
+    `;
+  } else {
+    // Fallback for invalid data
+    statusEmoji = '📊';
+    statusText = 'データを確認中...';
+    statusColor = '#95a5a6';
+    progressBarStyle = `background: ${statusColor};`;
+  }
 
-  const pctText = (typeof progressPercentage === 'number')
-    ? `${progressPercentage.toFixed(1)}%` : '0%';
+  // Show accurate percentage in text (can exceed 100%)
+  const pctText = (typeof progressPercentage === 'number' && progressPercentage >= 0)
+    ? `${progressPercentage}%` : '0%';
+
+  // Cap visual progress bar at 100% but show full percentage in text
+  const visualProgress = Math.min(Math.max(percentage, 0), 100);
 
   progressSection.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
       <span style="font-weight: 500; color: #2c3e50;">進捗状況</span>
       <span style="color: ${statusColor}; font-weight: 500;">${statusEmoji} ${statusText}</span>
     </div>
-    <div style="background: #ecf0f1; border-radius: 10px; height: 8px; overflow: hidden; margin-bottom: 8px;">
-      <div style="background: ${statusColor}; height: 100%; width: ${progressPercentage || 0}%; transition: width 0.3s ease;"></div>
+    <div style="background: #ecf0f1; border-radius: 10px; height: 10px; overflow: hidden; margin-bottom: 8px;">
+      <div style="${progressBarStyle} height: 100%; width: ${visualProgress}%; border-radius: 10px;"></div>
     </div>
-    <div style="font-size: 12px; color: #7f8c8d;">
+    <div style="font-size: 12px; color: #7f8c8d; ${percentage > 100 ? 'font-weight: 500;' : ''}">
       ${currentReviews || 0} / ${targetReviews || 0} レビュー (${pctText})
     </div>
   `;

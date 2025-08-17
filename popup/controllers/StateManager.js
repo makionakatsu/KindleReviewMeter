@@ -14,7 +14,7 @@
  * making state handling more reliable and easier to test.
  */
 
-export class StateManager {
+export default class StateManager {
   constructor(actionHandler) {
     this.actionHandler = actionHandler;
     

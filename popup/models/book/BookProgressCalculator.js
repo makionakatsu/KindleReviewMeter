@@ -18,7 +18,7 @@ export default class BookProgressCalculator {
    * Calculate progress percentage based on current and target reviews
    * @param {number} currentReviews - Current number of reviews
    * @param {number|null} targetReviews - Target number of reviews
-   * @returns {number|null} Progress percentage (0-100) or null if no target
+   * @returns {number|null} Progress percentage (can exceed 100%) or null if no target
    */
   getProgressPercentage(currentReviews, targetReviews) {
     if (!targetReviews || targetReviews <= 0) {
@@ -26,7 +26,7 @@ export default class BookProgressCalculator {
     }
     
     const progress = (currentReviews / targetReviews) * 100;
-    return Math.min(100, Math.max(0, Math.round(progress)));
+    return Math.max(0, Math.round(progress)); // Allow progress over 100%
   }
 
   /**

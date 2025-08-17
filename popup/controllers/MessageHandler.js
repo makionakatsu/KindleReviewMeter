@@ -14,7 +14,7 @@
  * making communication more reliable and easier to test.
  */
 
-export class MessageHandler {
+export default class MessageHandler {
   constructor(uiManager) {
     this.uiManager = uiManager;
     this.pendingMessages = new Map(); // Track pending messages

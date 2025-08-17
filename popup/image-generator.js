@@ -83,7 +83,11 @@
       const targetRaw = Number(d.targetReviews);
       const hasTarget = Number.isFinite(targetRaw) && targetRaw > 0;
       const target = hasTarget ? targetRaw : 0;
-      const percentage = hasTarget ? Math.min(Math.round((current / target) * 100), 100) : 0;
+      // 進捗・超過の指標
+      const progress = hasTarget ? (current / target) : 0;
+      const clampedPercent = hasTarget ? Math.min(Math.round(progress * 100), 100) : 0;
+      const overflowRatio = hasTarget ? Math.max(progress - 1, 0) : 0; // 1.0を超えた分
+      const overflowPercent = Math.round(overflowRatio * 100);
       const remaining = hasTarget ? Math.max(target - current, 0) : 0;
 
       const canvas = document.createElement('canvas');
@@ -108,18 +112,49 @@
       canvas.height = Math.round(BASE_H * scale);
       ctx.scale(scale, scale);
 
-      // Background gradient (blue→cyan)
-      let grad = ctx.createLinearGradient(0, 0, 0, BASE_H);
-      grad.addColorStop(0, '#0ea5e9'); grad.addColorStop(1, '#22d3ee');
-      ctx.fillStyle = grad; ctx.fillRect(0, 0, BASE_W, BASE_H);
+      // Background gradient (color changes by achievement) - diagonal (↘︎)
+      let grad = ctx.createLinearGradient(0, 0, BASE_W, BASE_H);
+      if (hasTarget && current >= target) {
+        if (current === target) {
+          // 100%: ゴールド系（薄いゴールド追加で“光り感”）
+          grad.addColorStop(0.0, '#f59e0b');
+          grad.addColorStop(0.5, '#fde68a');
+          grad.addColorStop(1.0, '#fbbf24');
+        } else {
+          // >100%: ロイヤルアメジスト（高貴・祝祭）
+          grad.addColorStop(0.0, '#7c3aed');   // deep purple
+          grad.addColorStop(0.6, '#a78bfa');   // lavender
+          grad.addColorStop(1.0, '#f0abfc');   // light pink-purple
+        }
+      } else {
+        // 通常: 青→シアン
+        grad.addColorStop(0, '#0ea5e9');
+        grad.addColorStop(1, '#22d3ee');
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, BASE_W, BASE_H);
 
-      // Subtle radial accents
+      // Subtle radial accents (neutral to fit any background)
       let g1 = ctx.createRadialGradient(BASE_W*0.2, BASE_H*0.2, 0, BASE_W*0.2, BASE_H*0.2, 150);
-      g1.addColorStop(0, 'rgba(14,165,233,0.05)'); g1.addColorStop(1, 'transparent');
+      g1.addColorStop(0, 'rgba(255,255,255,0.06)'); g1.addColorStop(1, 'transparent');
       ctx.fillStyle = g1; ctx.fillRect(0,0,BASE_W,BASE_H);
       let g2 = ctx.createRadialGradient(BASE_W*0.8, BASE_H*0.8, 0, BASE_W*0.8, BASE_H*0.8, 150);
-      g2.addColorStop(0, 'rgba(34,211,238,0.05)'); g2.addColorStop(1, 'transparent');
+      g2.addColorStop(0, 'rgba(255,255,255,0.06)'); g2.addColorStop(1, 'transparent');
       ctx.fillStyle = g2; ctx.fillRect(0,0,BASE_W,BASE_H);
+
+      // Extra sheen for >100% (Royal Amethyst): diagonal soft-light band
+      if (hasTarget && current > target) {
+        ctx.save();
+        ctx.translate(BASE_W/2, BASE_H/2);
+        ctx.rotate(-15 * Math.PI / 180);
+        const sheen = ctx.createLinearGradient(-BASE_W, 0, BASE_W, 0);
+        sheen.addColorStop(0.00, 'rgba(255,255,255,0.00)');
+        sheen.addColorStop(0.50, 'rgba(255,255,255,0.14)');
+        sheen.addColorStop(1.00, 'rgba(255,255,255,0.00)');
+        ctx.fillStyle = sheen;
+        ctx.fillRect(-BASE_W, -BASE_H, BASE_W*2, BASE_H*2);
+        ctx.restore();
+      }
 
       // White rounded card
       const cardX = 15, cardY = 15, cardW = BASE_W - 30, cardH = BASE_H - 30;
@@ -128,7 +163,11 @@
       ctx.fillStyle = 'rgba(255,255,255,0.96)';
       roundRect(ctx, cardX, cardY, cardW, cardH, 24); ctx.fill();
       ctx.restore();
-      ctx.strokeStyle = 'rgba(226,232,240,0.8)'; ctx.lineWidth = 1; roundRect(ctx, cardX, cardY, cardW, cardH, 24); ctx.stroke();
+      // カード外枠は従来色（変更なし）
+      ctx.strokeStyle = 'rgba(226,232,240,0.8)';
+      ctx.lineWidth = 1;
+      roundRect(ctx, cardX, cardY, cardW, cardH, 24);
+      ctx.stroke();
 
       // Decorative dot
       ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.beginPath(); ctx.arc(cardX+cardW-20, cardY+20, 6, 0, 2*Math.PI); ctx.fill();
@@ -155,6 +194,8 @@
         drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH);
       }
 
+      // 書影外枠の色変更は行わない（従来どおり）
+
       // Title / Author (centered and bounded)
       const centerX = (left + right)/2;
       const titleTop = coverY + coverH + 20;
@@ -169,11 +210,29 @@
       // Evidence logs
       console.log('[ImageGen] wrap metrics:', { titleLines, authorLines, titleTop, titleLast, authorTop, authorLast, yStartForNumber: y });
 
-      // Current number (centered)
+      // Current number (centered) - 配色: 通常/達成(ゴールド)/超過(より派手)
       ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, sans-serif';
-      const cg = ctx.createLinearGradient(0, y, 0, y+56); cg.addColorStop(0,'#3b82f6'); cg.addColorStop(1,'#06b6d4');
+      const cg = ctx.createLinearGradient(0, y, 0, y+56);
+      if (!hasTarget || current < target) {
+        // 通常: 青→シアン
+        cg.addColorStop(0,'#3b82f6'); cg.addColorStop(1,'#06b6d4');
+      } else if (current === target) {
+        // 100%ちょうど: ゴールド系
+        cg.addColorStop(0.0,'#f59e0b');
+        cg.addColorStop(0.5,'#fde68a');
+        cg.addColorStop(1.0,'#fbbf24');
+      } else {
+        // 超過: ロイヤルアメジスト系（濃紫→紅紫→コーラル）
+        cg.addColorStop(0.0,'#6d28d9');
+        cg.addColorStop(0.5,'#a21caf');
+        cg.addColorStop(1.0,'#fb7185');
+      }
       ctx.fillStyle = cg; ctx.textAlign = 'center';
-      ctx.save(); ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(14,165,233,0.45)'; ctx.shadowBlur = 18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.fillText(String(current), BASE_W/2, y); ctx.restore();
+      ctx.save(); ctx.textBaseline = 'top';
+      const numShadow = (!hasTarget || current < target)
+        ? 'rgba(14,165,233,0.45)'
+        : (current === target ? 'rgba(245,158,11,0.45)' : 'rgba(124,58,237,0.45)'); // deep purple glow for >100%
+      ctx.shadowColor = numShadow; ctx.shadowBlur = 18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.fillText(String(current), BASE_W/2, y); ctx.restore();
       ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(current), BASE_W/2, y);
 
       // Label
@@ -185,11 +244,51 @@
         const barY = labelY + 28; const barW = cardW - 60; const barH = 24; const barX = (BASE_W - barW)/2;
         ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
         roundRect(ctx, barX, barY, barW, barH, 16); ctx.fill(); ctx.stroke();
-        if (percentage > 0) {
-          const fillW = Math.max((barW * percentage)/100, 10);
+        if (clampedPercent > 0) {
+          const fillW = Math.max((barW * clampedPercent)/100, 10);
           const pg = ctx.createLinearGradient(barX, barY, barX+barW, barY+barH);
-          pg.addColorStop(0.0,'#3b82f6'); pg.addColorStop(0.6,'#06b6d4'); pg.addColorStop(1.0,'#10b981');
+          if (current < target) {
+            // 通常: 青→シアン→緑
+            pg.addColorStop(0.0,'#3b82f6'); pg.addColorStop(0.6,'#06b6d4'); pg.addColorStop(1.0,'#10b981');
+          } else if (current === target) {
+            // 100%: ゴールド系
+            pg.addColorStop(0.0,'#f59e0b');
+            pg.addColorStop(0.5,'#fde68a');
+            pg.addColorStop(1.0,'#fbbf24');
+          } else {
+            // 超過: ロイヤルアメジスト
+            pg.addColorStop(0.0,'#6d28d9');
+            pg.addColorStop(0.5,'#a21caf');
+            pg.addColorStop(1.0,'#fb7185');
+          }
           ctx.fillStyle = pg; roundRect(ctx, barX, barY, fillW, barH, 16); ctx.fill();
+
+          // Gloss highlight overlay (upper half) for shine
+          ctx.save();
+          roundRect(ctx, barX, barY, fillW, barH, 16);
+          ctx.clip();
+          const gloss = ctx.createLinearGradient(barX, barY, barX, barY + barH);
+          // Stronger highlight for >100% (royal amethyst), subtle for others
+          const topAlpha = (current > target) ? 0.28 : 0.18;
+          gloss.addColorStop(0.00, `rgba(255,255,255,${topAlpha})`);
+          gloss.addColorStop(0.55, 'rgba(255,255,255,0.00)');
+          ctx.fillStyle = gloss;
+          ctx.fillRect(barX, barY, fillW, barH);
+
+          // Specular glint near the right edge when >100%
+          if (current > target) {
+            const cx = Math.min(barX + fillW - 6, barX + barW - 10);
+            const cy = barY + barH * 0.45;
+            const r = 9;
+            const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+            rg.addColorStop(0.0, 'rgba(255,255,255,0.55)');
+            rg.addColorStop(1.0, 'rgba(255,255,255,0.00)');
+            ctx.fillStyle = rg;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
         }
         // Center percentage text vertically and horizontally on the bar
         ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -199,7 +298,9 @@
         ctx.save();
         const prevBaseline = ctx.textBaseline;
         ctx.textBaseline = 'middle';
-        ctx.fillText(`${percentage}%`, percentX, barY + barH / 2);
+        // 実際の値を表示（101%以上もそのまま表示）
+        const basePercentText = `${hasTarget ? Math.round(progress * 100) : 0}%`;
+        ctx.fillText(basePercentText, percentX, barY + barH / 2);
         ctx.textBaseline = prevBaseline;
         ctx.restore();
 
@@ -234,7 +335,7 @@
         ctx.restore();
         // Evidence: assert no overlap
         const overlap = statsY < (barY + barH);
-        console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap });
+        console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap, progress, overflowPercent });
       }
 
       const quickMode = qs.has('quickMode');

@@ -81,6 +81,7 @@
         ctx.shadowOffsetY = 8;
         roundRect(ctx, x, y, width, height, 16);
         ctx.clip();
+        // 元のロジック: そのままフィット描画（色変更以外の挙動を変えない）
         ctx.drawImage(img, x, y, width, height);
         ctx.restore();
         ctx.save();

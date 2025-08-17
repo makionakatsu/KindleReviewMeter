@@ -14,7 +14,7 @@
  * improving maintainability and making event handling more testable.
  */
 
-export class EventHandlerManager {
+export default class EventHandlerManager {
   constructor(actionHandler, elements) {
     this.actionHandler = actionHandler;
     this.elements = elements;

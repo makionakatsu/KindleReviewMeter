@@ -72,12 +72,9 @@ export default class BookDataValidator {
     }
     
     // Business logic validations
-    if (dataToValidate.targetReviews && dataToValidate.targetReviews <= dataToValidate.currentReviews) {
-      errors.push({
-        field: 'targetReviews',
-        message: '目標レビュー数は現在のレビュー数より大きい必要があります'
-      });
-    }
+    // Note: targetReviews can be any positive number (smaller than current is also valid)
+    // This allows for flexible goal setting and progress tracking beyond 100%
+    // No additional validation needed - basic number validation is sufficient
     
     return {
       isValid: errors.length === 0,

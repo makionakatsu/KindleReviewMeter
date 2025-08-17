@@ -180,7 +180,7 @@
       // Get elements
       let { fileInput, composerTextbox } = await waitForElements({ 
         requireFileInput: false, 
-        timeoutMs: 8000 
+        timeoutMs: 1000 
       });
       
       if (!fileInput) {
@@ -189,9 +189,9 @@
         if (fileInput) {
           console.log('Found file input via deep search');
         } else {
-          // Last try: wait a bit with MutationObserver
-          fileInput = await waitForFileInputAppears(2000);
-          if (fileInput) console.log('Found file input via observer');
+          // Short observer to avoid blocking the first attempt
+          fileInput = await waitForFileInputAppears(200);
+          if (fileInput) console.log('Found file input via short observer');
         }
       }
       
@@ -256,9 +256,9 @@
         const dragOverEvent  = new DragEvent('dragover',  { bubbles: true, cancelable: true, dataTransfer: dt });
         const dropEvent      = new DragEvent('drop',      { bubbles: true, cancelable: true, dataTransfer: dt });
         target.dispatchEvent(dragEnterEvent);
-        await new Promise(r=>setTimeout(r,80));
+        await new Promise(r=>setTimeout(r,15));
         target.dispatchEvent(dragOverEvent);
-        await new Promise(r=>setTimeout(r,80));
+        await new Promise(r=>setTimeout(r,15));
         target.dispatchEvent(dropEvent);
       }
       
@@ -462,7 +462,7 @@
     }
   }
 
-  // Wait for Twitter interface elements
+  // Wait for Twitter interface elements then notify background
   waitForElements().then(() => {
     console.log('X/Twitter interface detected, ready for image attachment');
     

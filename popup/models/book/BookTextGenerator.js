@@ -29,8 +29,15 @@ export default class BookTextGenerator {
 
     let tweetContent = '';
     if (target > 0) {
-      const remaining = Math.max(0, target - current);
-      tweetContent = `「${title}」のレビューが${current}件になりました！\nレビューを書いて著者を応援しよう！\n目標${target}件まで残り${remaining}件です📚`;
+      const percentage = Math.round((current / target) * 100);
+      
+      if (current >= target) {
+        // 100%ちょうど/超過の両方とも、達成メッセージや(%表示)は入れずにシンプルに通知
+        tweetContent = `「${title}」のレビューが${current}件になりました！🎉\nレビューを書いて著者を応援しよう！📚`;
+      } else {
+        const remaining = target - current;
+        tweetContent = `「${title}」のレビューが${current}件になりました！\nレビューを書いて著者を応援しよう！\n目標${target}件まで残り${remaining}件です📚 (${percentage}%)`;
+      }
     } else {
       tweetContent = `「${title}」は、現在レビューを${current}件集めています📚\nレビューを書いて著者を応援しよう！`;
     }

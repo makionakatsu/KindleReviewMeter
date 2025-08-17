@@ -37,11 +37,14 @@ export function normalizeUrl(url) {
       const m = withProtocol.match(rx);
       if (m) { asin = m[1]; break; }
     }
-    if (!asin) return null;
+    if (!asin) {
+      // 旧実装互換: ASINが取れなくてもAmazonドメインであれば元URLを正規化して返す
+      // → 後段のHTMLフェッチとメタ抽出でASIN/データを取得する（機能維持）
+      return `${u.protocol}//${u.hostname}${u.pathname}`;
+    }
 
     return `${u.protocol}//${u.hostname}/dp/${asin}`;
   } catch (e) {
     return null;
   }
 }
-
