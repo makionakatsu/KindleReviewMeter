@@ -120,7 +120,21 @@
     if (selectorService && selectorService.findAndClickAttachmentButton) {
       return selectorService.findAndClickAttachmentButton();
     }
-    // Minimal fallback
+    // Click attachment UI to ensure <input type="file"> is present
+    const candidates = [
+      '[data-testid="attachments"]',
+      '[data-testid="toolBar"] [role="button"]',
+      'button[aria-label*="画像" i]', 'button[aria-label*="写真" i]',
+      'button[aria-label*="Add" i]', 'button[aria-label*="Media" i]'
+    ];
+    for (const sel of candidates) {
+      const btn = document.querySelector(sel);
+      if (btn) {
+        try { btn.click(); } catch {}
+      }
+      const input = document.querySelector('input[type="file"]');
+      if (input) return true;
+    }
     return !!document.querySelector('input[type="file"]');
   }
 
@@ -256,9 +270,9 @@
         const dragOverEvent  = new DragEvent('dragover',  { bubbles: true, cancelable: true, dataTransfer: dt });
         const dropEvent      = new DragEvent('drop',      { bubbles: true, cancelable: true, dataTransfer: dt });
         target.dispatchEvent(dragEnterEvent);
-        await new Promise(r=>setTimeout(r,15));
+        await new Promise(r=>setTimeout(r,80));
         target.dispatchEvent(dragOverEvent);
-        await new Promise(r=>setTimeout(r,15));
+        await new Promise(r=>setTimeout(r,80));
         target.dispatchEvent(dropEvent);
       }
       

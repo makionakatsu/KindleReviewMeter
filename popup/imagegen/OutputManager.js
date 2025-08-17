@@ -89,43 +89,12 @@
     const urlParams = new URLSearchParams(window.location.search);
     const tweetTabId = Number(urlParams.get('tweetTabId')) || null;
     try {
-      console.log('Quick mode: generating image binary');
-      const { buffer, mime } = await new Promise((resolve, reject) => {
-        try {
-          canvas.toBlob(async (jpegBlob) => {
-            try {
-              if (!jpegBlob) {
-                const pngDataUrl = canvas.toDataURL('image/png');
-                const resp = await fetch(pngDataUrl);
-                const pngBlob = await resp.blob();
-                const ab = await pngBlob.arrayBuffer();
-                return resolve({ buffer: ab, mime: 'image/png' });
-              }
-              const ab = await jpegBlob.arrayBuffer();
-              resolve({ buffer: ab, mime: 'image/jpeg' });
-            } catch (e) { reject(e); }
-          }, 'image/jpeg', 0.9);
-        } catch (e) { reject(e); }
-      });
-
-      // Primary path: Port + Transferable (binary, no base64)
-      try {
-        const port = chrome.runtime.connect({ name: 'krm_image_gen' });
-        port.postMessage({ type: 'image', mime, buffer, tweetTabId }, [buffer]);
-        console.log('Sent image via Port (binary)');
-        if (statusEl) statusEl.textContent = '画像データを送信しました';
-      } catch (portError) {
-        console.warn('Port transfer failed, fallback to data URL:', portError);
-        // Fallback: data URL (legacy)
-        const fallbackDataUrl = (() => {
-          try { return canvas.toDataURL('image/jpeg', 0.9); } catch { return canvas.toDataURL('image/png'); }
-        })();
-        try {
-          await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl: fallbackDataUrl });
-        } catch (e) {
-          console.error('Fallback sendMessage failed:', e);
-        }
-      }
+      console.log('Quick mode: generating image data URL (legacy push path)');
+      const dataUrl = (() => {
+        try { return canvas.toDataURL('image/jpeg', 0.9); } catch { return canvas.toDataURL('image/png'); }
+      })();
+      await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl, tweetTabId });
+      if (statusEl) statusEl.textContent = '画像データを送信しました';
     } catch (e) {
       console.error('Quick mode send failed, falling back to download:', e);
       const fallbackUrl = canvas.toDataURL('image/png');

@@ -24,6 +24,9 @@ let cacheService;
 let proxyManagerService;
 let imageGenerationService;
 let socialMediaService;
+
+// Legacy push-model pending share (dataURL based)
+let pendingXShare = null; // { tweetTabId, imageTabId, dataUrl, imageSent }
 let amazonScrapingService;
 
 // Priority-1: Pending image store for binary transfer
@@ -118,7 +121,14 @@ function registerServiceHandlers() {
     try {
       console.log('🎯 Handling shareToXWithImage with SocialMediaService');
       const result = await socialMediaService.shareToXWithImage(request.data, request.tweetUrl);
-      // Return raw result; MessageRouter will wrap with { success: true, data }
+      // Initialize legacy push-model pending share state
+      pendingXShare = {
+        tweetTabId: result?.tweetTabId || null,
+        imageTabId: result?.imageTabId || null,
+        dataUrl: null,
+        imageSent: false
+      };
+      console.log('🧭 Pending X share initialized:', pendingXShare);
       return result;
     } catch (error) {
       console.error('❌ shareToXWithImage failed:', error);
@@ -129,15 +139,13 @@ function registerServiceHandlers() {
   // Image generation completion
   messageRouter.registerHandler('imageGenerated', async (request, sender) => {
     try {
-      console.log('🖼️ Handling imageGenerated with SocialMediaService');
-      
-      const result = await socialMediaService.handleImageGenerated(
-        request.dataUrl,
-        sender.tab?.id
-      );
-      
-      // Return boolean; MessageRouter will wrap
-      return result;
+      console.log('🖼️ Handling imageGenerated (legacy push model)');
+      if (!request?.dataUrl) throw new Error('No image data');
+      if (!pendingXShare?.tweetTabId) throw new Error('No pending X share');
+      pendingXShare.dataUrl = request.dataUrl;
+      // Attempt to send immediately
+      trySendImageToTweetTab();
+      return true;
     } catch (error) {
       console.error('❌ imageGenerated handling failed:', error);
       throw error;
@@ -173,7 +181,11 @@ function registerServiceHandlers() {
     try {
       const tabId = sender.tab?.id || null;
       console.log('✅ xTweetPageReady acknowledged', { tabId });
-      // Optionally, we could try to resume pending share here if needed.
+      // Resume pending push-model share if we have data
+      if (pendingXShare?.tweetTabId === tabId && pendingXShare?.dataUrl && !pendingXShare?.imageSent) {
+        console.log('🔁 Tweet tab ready and pending image exists; trying to send now');
+        trySendImageToTweetTab();
+      }
       return { ready: true, tabId };
     } catch (error) {
       console.error('❌ xTweetPageReady handling failed:', error);
@@ -321,6 +333,100 @@ chrome.runtime.onConnect.addListener((port) => {
     console.error('onConnect handler error:', e);
   }
 });
+
+// ----------------------------------------------------------------------------
+// Legacy push-model sender: replicate fastest-record behavior
+// ----------------------------------------------------------------------------
+async function trySendImageToTweetTab(maxAttempts = 12) {
+  const snapshot = pendingXShare ? {
+    tweetTabId: pendingXShare.tweetTabId,
+    dataUrl: pendingXShare.dataUrl,
+    imageTabId: pendingXShare.imageTabId,
+    imageSent: !!pendingXShare.imageSent,
+  } : null;
+
+  console.log('trySendImageToTweetTab:', {
+    hasPending: !!pendingXShare,
+    tweetTabId: snapshot?.tweetTabId,
+    hasDataUrl: !!snapshot?.dataUrl,
+    imageSent: !!snapshot?.imageSent
+  });
+
+  if (!snapshot?.tweetTabId || !snapshot?.dataUrl) return false;
+  if (snapshot.imageSent) return true;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const delay = i === 0 ? 0 : Math.min(600 + (i * 150), 1500);
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
+
+      // Ensure tab exists and is ready
+      const tab = await new Promise((resolve) => {
+        chrome.tabs.get(snapshot.tweetTabId, (t) => {
+          if (chrome.runtime.lastError) return resolve(null);
+          resolve(t);
+        });
+      });
+      if (!tab) continue;
+      if (tab.status === 'loading') continue;
+      if (!/^https:\/\/(?:mobile\.)?(?:x|twitter)\.com\//.test(tab.url)) continue;
+
+      // Inject CS (idempotent) then ping up to 3 times
+      let ready = false;
+      for (let pingAttempt = 0; pingAttempt < 3; pingAttempt++) {
+        try {
+          if (chrome?.scripting?.executeScript) {
+            await chrome.scripting.executeScript({ target: { tabId: snapshot.tweetTabId }, files: ['content-scripts/x-tweet-auto-attach.js'] });
+            const initWait = Math.min(500 + (pingAttempt * 300), 1500);
+            await new Promise(r => setTimeout(r, initWait));
+          }
+        } catch {}
+
+        const ping = await new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(false), 2000);
+          chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'krmPing' }, (resp) => {
+            clearTimeout(timeout);
+            resolve(!chrome.runtime.lastError && resp?.pong);
+          });
+        });
+        if (ping) { ready = true; break; }
+        if (pingAttempt < 2) await new Promise(r => setTimeout(r, Math.min(300 + (pingAttempt * 200), 1000)));
+      }
+
+      // Send attachment message with progressive timeout
+      const ok = await new Promise((resolve, reject) => {
+        let responseReceived = false;
+        let timeoutDuration;
+        if (i === 0) timeoutDuration = 2000; else if (i <= 2) timeoutDuration = 4000; else timeoutDuration = 6000;
+        const to = setTimeout(() => { if (!responseReceived) reject(new Error('timeout')); }, timeoutDuration);
+        try {
+          chrome.tabs.get(snapshot.tweetTabId, () => {
+            if (chrome.runtime.lastError) { clearTimeout(to); return reject(new Error('tab closed')); }
+            chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'attachImageDataUrl', dataUrl: snapshot.dataUrl }, (resp) => {
+              responseReceived = true; clearTimeout(to);
+              if (chrome.runtime.lastError || !resp) return reject(new Error(chrome.runtime.lastError?.message || 'no response'));
+              if (resp.ok) return resolve(true);
+              return reject(new Error(resp.error || 'attach failed'));
+            });
+          });
+        } catch (e) { clearTimeout(to); reject(e); }
+      });
+
+      if (ok) {
+        pendingXShare.imageSent = true;
+        // cleanup image tab if exists
+        try { if (snapshot.imageTabId) chrome.tabs.remove(snapshot.imageTabId); } catch {}
+        console.log('✅ Legacy push-model attachment succeeded');
+        return true;
+      }
+    } catch (e) {
+      console.warn(`Attempt ${i + 1} failed:`, e?.message || e);
+      continue;
+    }
+  }
+  console.error('❌ Failed to attach image after attempts');
+  return false;
+}
 
 /**
  * Handle unhandled errors globally
