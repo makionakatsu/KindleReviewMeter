@@ -222,6 +222,16 @@ EOF
 # 新サービスの import と初期化のみ残す
 
 ## Step 7: 機能テスト (180分)
+```
+
+### 進捗アップデート（実装済み・挙動不変）
+- Selector 移譲: findAndClickAttachmentButton（実ボタンクリック）を TwitterSelectorService に実装（最速ロジックの1:1移植）
+- Attachment 移譲: drag&drop（80ms待機）/ paste / dataURL→File を ImageAttachmentService に集約、CSから委譲
+- Fallback 委譲: auto-retry / overlay は TwitterUIFallbackService を既に使用（呼び出し点を明示化）
+- CS本体: x-tweet-auto-attach.js はオーケストラ化（メッセージ受信→サービス呼び出し）。タイミング・パラメータは不変
+
+エビデンス強度: 高（既存ロジックをそのままサービスへ移植・委譲。パラメータ・順序・待機は全て据え置き）
+
 # 詳細テスト手順:
 1. Chrome拡張を開発者モードで再読み込み
 2. Amazon書籍ページでデータ取得テスト
@@ -358,12 +368,22 @@ fi
 2. CanvasRenderer.js - Canvas描画・ユーティリティ  
 3. ImageProcessor.js - 画像処理・レイアウト計算
 4. OutputManager.js - ダウンロード・クリップボード
+# 進捗: 完了（構造分割のみ・機能変更なし）
+# 検証: 通常/quickMode/autoClose/silent/メッセージ受信の既存挙動を保持
+# リスク対処: HTML読み込み順固定、Entryでnamespace存在チェック追加
 ```
 
 #### Day 8-9: Background Services 最適化
 ```bash
-# AmazonScrapingService.js → 2ファイル分離
-# SocialMediaService.js → 3ファイル分離
+# AmazonScrapingService.js → 2ファイル分離（予定）
+# SocialMediaService.js → 3ファイル分離（完了・挙動不変）
+# 追加ファイル:
+# - background/services/socialmedia/ContentScriptManager.js
+# - background/services/socialmedia/AttachmentManager.js
+# - background/services/socialmedia/TabUtils.js
+# SocialMediaService は新マネージャへ委譲。旧実装は薄いラッパー化（段階的削除前の安全策）。
+# リスク対処: メッセージ契約(resp.ok/resp.error)、タイムアウト、ログ、リトライ模式を厳密踏襲。
+# 次段: 手動回帰確認後に旧ラッパーを削除してLFRを更に低減。
 ```
 
 #### Day 10: Phase 2 完了・統合テスト

@@ -1,6 +1,6 @@
 # Kindle Review Meter
 
-[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue)](https://makionakatsu.github.io/KindleReviewMeter/) [![Chrome Extension](https://img.shields.io/badge/Extension-In%20Development-orange)](#chrome-extension)
+[![GitHub Pages](https://img.shields.io/badge/Demo-GitHub%20Pages-blue)](https://makionakatsu.github.io/KindleReviewMeter/) [![Chrome Extension](https://img.shields.io/badge/Extension-In%20Development-orange)](#chrome-拡張機能の使い方)
 
 Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可視化・共有するツールです。
 
@@ -13,7 +13,7 @@ Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可�
 - ブラウザで直接利用可能
 - **デモ**: [https://makionakatsu.github.io/KindleReviewMeter/](https://makionakatsu.github.io/KindleReviewMeter/)
 
-### 🔧 Chrome拡張機能版 (feature/chrome-extension ブランチ)
+### 🔧 Chrome拡張機能版（開発は  ブランチ）
 - Manifest V3対応
 - Service Worker実装
 - Context Menu統合
@@ -53,11 +53,26 @@ Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可�
   - 取得: `background/services/AmazonScrapingService.js`（プロキシ並列レース＋フォールバック）
   - 画像: `background/services/ImageGenerationService.js`
   - X連携: `background/services/SocialMediaService.js`
-- コンテンツスクリプト: `content-scripts/x-tweet-auto-attach.js`
-- ポップアップ: `popup/popup.html` + `popup/popup.js`（MVC移行中: `popup/controllers|models|views`）
+- コンテンツスクリプト: `content-scripts/x-tweet-auto-attach.js`（オーケストレーター）
+  - サービス: `content-scripts/twitter/services/{TwitterSelectorService, ImageAttachmentService, TwitterUIFallbackService}.js`
+- ポップアップ: `popup/popup.html` + `popup/main.js`（MVC: `popup/controllers|models|views`）
 - 共有DTO: `background/types.js`（BookDataDTO）
 
 補足: `background/background.js` はレガシーな単一ファイル実装（参照用）。現在のManifestは`background/index.js`をエントリとして使用します。
+
+### X画像添付の最速ロジック（固定方針）
+- 転送: image generator → background へ dataURL（`imageGenerated`）でpush
+- 背景: `pendingXShare` に保持し、注入→ping→送信（タイムアウト 2s/4s/6s、最大12回）でCSへ集中送信
+- CS: 添付ボタンを実クリックして `<input type="file">` を確実に出現、DnD待機は80ms（安定値）
+- ロバスト性:
+  - 送信先タブが閉じられていた場合、開いているcomposeタブを探索して自動再バインド
+  - CSは`attachImageDataUrl`受信時に即応答（fire-and-forget）し、添付は非同期継続
+
+### 便利な使い方（コンテキストメニュー）
+- Amazonの商品リンクを右クリック →「Kindle Review Meter で分析」を選択
+  - 背景がリンクURLを一時保存し、ポップアップを開きます
+  - ポップアップ側では Amazon URL フィールドが安全にプリフィルされます（読み取り後は即クリア）
+  - 自動でフェッチは行いません。内容を確認してから手動で「取得」を実行してください
 
 ### 設定（開発者向け）
 - `background/config.js`

@@ -34,172 +34,21 @@
   const qs = new URLSearchParams(location.search);
   let data = null;
 
-  /**
-   * Multi-Source Data Loading System
-   * 
-   * Responsibilities:
-   * - Load book data from URL parameters (primary)
-   * - Fallback to Chrome storage for data retrieval
-   * - Handle data parsing and error recovery
-   * - Support multiple data input methods
-   */
-  async function loadData() {
-    try {
-      if (qs.has('data')) {
-        data = JSON.parse(decodeURIComponent(qs.get('data')));
-      }
-    } catch (e) {
-      console.warn('Failed to parse data from query:', e);
-    }
-
-    if (!data && chrome?.storage?.local) {
-      const res = await chrome.storage.local.get(['pendingImageData']);
-      data = res.pendingImageData || null;
-    }
-
-    return data;
-  }
-
   // ============================================================================
   // CANVAS DRAWING UTILITIES
   // ============================================================================
   
-  /**
-   * Canvas Drawing Helper Functions
-   * 
-   * These utility functions provide enhanced drawing capabilities for the Canvas API,
-   * including rounded rectangles, text wrapping, and image handling.
-   */
-  
-  /**
-   * Draw rounded rectangle path
-   * @param {CanvasRenderingContext2D} ctx - Canvas context
-   * @param {number} x - X coordinate
-   * @param {number} y - Y coordinate  
-   * @param {number} w - Width
-   * @param {number} h - Height
-   * @param {number} r - Border radius
-   */
-  function roundRect(ctx, x, y, w, h, r){
-    ctx.beginPath();
-    ctx.moveTo(x+r, y);
-    ctx.lineTo(x+w-r, y);
-    ctx.quadraticCurveTo(x+w, y, x+w, y+r);
-    ctx.lineTo(x+w, y+h-r);
-    ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-    ctx.lineTo(x+r, y+h);
-    ctx.quadraticCurveTo(x, y+h, x, y+h-r);
-    ctx.lineTo(x, y+r);
-    ctx.quadraticCurveTo(x, y, x+r, y);
-    ctx.closePath();
-  }
+  // Import helpers from KRMImage namespaces
+  const { roundRect, wrapTextBoundedCenter } = (window.KRMImage?.Canvas || {});
+  const {
+    drawBookPlaceholder,
+    drawBookCoverOnCanvas,
+    fetchImageObjectUrl
+  } = (window.KRMImage?.ImageProcessing || {});
 
-  function wrapTextBoundedCenter(ctx, text, centerX, top, left, right, lineHeight) {
-    const maxWidth = Math.max(0, right - left);
-    const originalAlign = ctx.textAlign;
-    const originalBaseline = ctx.textBaseline;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-
-    // Grapheme segmentation for robust wrapping (handles Japanese and emoji)
-    let graphemes;
-    try {
-      const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
-      graphemes = Array.from(seg.segment(text), s => s.segment);
-    } catch {
-      graphemes = Array.from(text);
-    }
-
-    const isWs = (ch) => ch === ' ' || ch === '\u3000' || /\s/.test(ch);
-    const lines = [];
-    let line = '';
-    for (let i = 0; i < graphemes.length; i++) {
-      const ch = graphemes[i];
-      // Collapse leading whitespace of a new line
-      const glyph = (isWs(ch) && line.length === 0) ? '' : ch;
-      const test = line + glyph;
-      const w = ctx.measureText(test).width;
-      if (w > maxWidth && line) {
-        lines.push(line.replace(/\s+$/,'').replace(/^\s+/,''));
-        line = isWs(ch) ? '' : ch; // start next line without leading space
-      } else {
-        line = test;
-      }
-    }
-    if (line) lines.push(line.replace(/\s+$/,'').replace(/^\s+/,''));
-
-    let y = top;
-    for (const l of lines) {
-      ctx.fillText(l, centerX, y);
-      y += lineHeight;
-    }
-    ctx.textAlign = originalAlign;
-    ctx.textBaseline = originalBaseline;
-    return y - lineHeight;
-  }
-
-  function drawBookPlaceholder(ctx, x, y, width, height) {
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 15;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 8;
-    const gradient = ctx.createLinearGradient(x, y, x, y + height);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
-    ctx.fillStyle = gradient;
-    roundRect(ctx, x, y, width, height, 16);
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 2;
-    roundRect(ctx, x, y, width, height, 16);
-    ctx.stroke();
-    ctx.font = '48px Inter, system-ui';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.textAlign = 'center';
-    ctx.fillText('📚', x + width / 2, y + height / 2 + 10);
-    ctx.font = '12px Inter, system-ui';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.fillText('画像なし', x + width / 2, y + height / 2 + 35);
-  }
-
-  function drawBookCoverOnCanvas(ctx, imageUrl, x, y, width, height) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      // Using object URLs from fetched blobs avoids canvas taint; crossOrigin not required
-      img.onload = () => {
-        ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-        ctx.shadowBlur = 15;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 8;
-        roundRect(ctx, x, y, width, height, 16);
-        ctx.clip();
-        ctx.drawImage(img, x, y, width, height);
-        ctx.restore();
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 3;
-        roundRect(ctx, x, y, width, height, 16);
-        ctx.stroke();
-        ctx.restore();
-        resolve();
-      };
-      img.onerror = reject;
-      img.src = imageUrl;
-    });
-  }
-
-  // Fetch remote image as Blob and return an object URL to avoid canvas taint
-  async function fetchImageObjectUrl(url) {
-    const res = await fetch(url, { credentials: 'omit', cache: 'no-cache' });
-    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
-    const blob = await res.blob();
-    if (!blob || blob.size === 0) throw new Error('empty image blob');
-    return URL.createObjectURL(blob);
+  // Fallback guards: ensure helpers exist
+  if (!roundRect || !wrapTextBoundedCenter || !drawBookPlaceholder || !drawBookCoverOnCanvas || !fetchImageObjectUrl) {
+    console.error('Image generator helpers missing. Ensure imagegen/*.js are loaded before image-generator.js');
   }
 
   // ============================================================================
@@ -234,7 +83,11 @@
       const targetRaw = Number(d.targetReviews);
       const hasTarget = Number.isFinite(targetRaw) && targetRaw > 0;
       const target = hasTarget ? targetRaw : 0;
-      const percentage = hasTarget ? Math.min(Math.round((current / target) * 100), 100) : 0;
+      // 進捗・超過の指標
+      const progress = hasTarget ? (current / target) : 0;
+      const clampedPercent = hasTarget ? Math.min(Math.round(progress * 100), 100) : 0;
+      const overflowRatio = hasTarget ? Math.max(progress - 1, 0) : 0; // 1.0を超えた分
+      const overflowPercent = Math.round(overflowRatio * 100);
       const remaining = hasTarget ? Math.max(target - current, 0) : 0;
 
       const canvas = document.createElement('canvas');
@@ -259,18 +112,49 @@
       canvas.height = Math.round(BASE_H * scale);
       ctx.scale(scale, scale);
 
-      // Background gradient (blue→cyan)
-      let grad = ctx.createLinearGradient(0, 0, 0, BASE_H);
-      grad.addColorStop(0, '#0ea5e9'); grad.addColorStop(1, '#22d3ee');
-      ctx.fillStyle = grad; ctx.fillRect(0, 0, BASE_W, BASE_H);
+      // Background gradient (color changes by achievement) - diagonal (↘︎)
+      let grad = ctx.createLinearGradient(0, 0, BASE_W, BASE_H);
+      if (hasTarget && current >= target) {
+        if (current === target) {
+          // 100%: ゴールド系（薄いゴールド追加で“光り感”）
+          grad.addColorStop(0.0, '#f59e0b');
+          grad.addColorStop(0.5, '#fde68a');
+          grad.addColorStop(1.0, '#fbbf24');
+        } else {
+          // >100%: ロイヤルアメジスト（高貴・祝祭）
+          grad.addColorStop(0.0, '#7c3aed');   // deep purple
+          grad.addColorStop(0.6, '#a78bfa');   // lavender
+          grad.addColorStop(1.0, '#f0abfc');   // light pink-purple
+        }
+      } else {
+        // 通常: 青→シアン
+        grad.addColorStop(0, '#0ea5e9');
+        grad.addColorStop(1, '#22d3ee');
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, BASE_W, BASE_H);
 
-      // Subtle radial accents
+      // Subtle radial accents (neutral to fit any background)
       let g1 = ctx.createRadialGradient(BASE_W*0.2, BASE_H*0.2, 0, BASE_W*0.2, BASE_H*0.2, 150);
-      g1.addColorStop(0, 'rgba(14,165,233,0.05)'); g1.addColorStop(1, 'transparent');
+      g1.addColorStop(0, 'rgba(255,255,255,0.06)'); g1.addColorStop(1, 'transparent');
       ctx.fillStyle = g1; ctx.fillRect(0,0,BASE_W,BASE_H);
       let g2 = ctx.createRadialGradient(BASE_W*0.8, BASE_H*0.8, 0, BASE_W*0.8, BASE_H*0.8, 150);
-      g2.addColorStop(0, 'rgba(34,211,238,0.05)'); g2.addColorStop(1, 'transparent');
+      g2.addColorStop(0, 'rgba(255,255,255,0.06)'); g2.addColorStop(1, 'transparent');
       ctx.fillStyle = g2; ctx.fillRect(0,0,BASE_W,BASE_H);
+
+      // Extra sheen for >100% (Royal Amethyst): diagonal soft-light band
+      if (hasTarget && current > target) {
+        ctx.save();
+        ctx.translate(BASE_W/2, BASE_H/2);
+        ctx.rotate(-15 * Math.PI / 180);
+        const sheen = ctx.createLinearGradient(-BASE_W, 0, BASE_W, 0);
+        sheen.addColorStop(0.00, 'rgba(255,255,255,0.00)');
+        sheen.addColorStop(0.50, 'rgba(255,255,255,0.14)');
+        sheen.addColorStop(1.00, 'rgba(255,255,255,0.00)');
+        ctx.fillStyle = sheen;
+        ctx.fillRect(-BASE_W, -BASE_H, BASE_W*2, BASE_H*2);
+        ctx.restore();
+      }
 
       // White rounded card
       const cardX = 15, cardY = 15, cardW = BASE_W - 30, cardH = BASE_H - 30;
@@ -279,7 +163,11 @@
       ctx.fillStyle = 'rgba(255,255,255,0.96)';
       roundRect(ctx, cardX, cardY, cardW, cardH, 24); ctx.fill();
       ctx.restore();
-      ctx.strokeStyle = 'rgba(226,232,240,0.8)'; ctx.lineWidth = 1; roundRect(ctx, cardX, cardY, cardW, cardH, 24); ctx.stroke();
+      // カード外枠は従来色（変更なし）
+      ctx.strokeStyle = 'rgba(226,232,240,0.8)';
+      ctx.lineWidth = 1;
+      roundRect(ctx, cardX, cardY, cardW, cardH, 24);
+      ctx.stroke();
 
       // Decorative dot
       ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.beginPath(); ctx.arc(cardX+cardW-20, cardY+20, 6, 0, 2*Math.PI); ctx.fill();
@@ -306,6 +194,8 @@
         drawBookPlaceholder(ctx, coverX, coverY, coverW, coverH);
       }
 
+      // 書影外枠の色変更は行わない（従来どおり）
+
       // Title / Author (centered and bounded)
       const centerX = (left + right)/2;
       const titleTop = coverY + coverH + 20;
@@ -320,11 +210,29 @@
       // Evidence logs
       console.log('[ImageGen] wrap metrics:', { titleLines, authorLines, titleTop, titleLast, authorTop, authorLast, yStartForNumber: y });
 
-      // Current number (centered)
+      // Current number (centered) - 配色: 通常/達成(ゴールド)/超過(より派手)
       ctx.font = 'bold 56px -apple-system, BlinkMacSystemFont, sans-serif';
-      const cg = ctx.createLinearGradient(0, y, 0, y+56); cg.addColorStop(0,'#3b82f6'); cg.addColorStop(1,'#06b6d4');
+      const cg = ctx.createLinearGradient(0, y, 0, y+56);
+      if (!hasTarget || current < target) {
+        // 通常: 青→シアン
+        cg.addColorStop(0,'#3b82f6'); cg.addColorStop(1,'#06b6d4');
+      } else if (current === target) {
+        // 100%ちょうど: ゴールド系
+        cg.addColorStop(0.0,'#f59e0b');
+        cg.addColorStop(0.5,'#fde68a');
+        cg.addColorStop(1.0,'#fbbf24');
+      } else {
+        // 超過: ロイヤルアメジスト系（濃紫→紅紫→コーラル）
+        cg.addColorStop(0.0,'#6d28d9');
+        cg.addColorStop(0.5,'#a21caf');
+        cg.addColorStop(1.0,'#fb7185');
+      }
       ctx.fillStyle = cg; ctx.textAlign = 'center';
-      ctx.save(); ctx.textBaseline = 'top'; ctx.shadowColor = 'rgba(14,165,233,0.45)'; ctx.shadowBlur = 18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.fillText(String(current), BASE_W/2, y); ctx.restore();
+      ctx.save(); ctx.textBaseline = 'top';
+      const numShadow = (!hasTarget || current < target)
+        ? 'rgba(14,165,233,0.45)'
+        : (current === target ? 'rgba(245,158,11,0.45)' : 'rgba(124,58,237,0.45)'); // deep purple glow for >100%
+      ctx.shadowColor = numShadow; ctx.shadowBlur = 18; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.fillText(String(current), BASE_W/2, y); ctx.restore();
       ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(current), BASE_W/2, y);
 
       // Label
@@ -336,11 +244,51 @@
         const barY = labelY + 28; const barW = cardW - 60; const barH = 24; const barX = (BASE_W - barW)/2;
         ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
         roundRect(ctx, barX, barY, barW, barH, 16); ctx.fill(); ctx.stroke();
-        if (percentage > 0) {
-          const fillW = Math.max((barW * percentage)/100, 10);
+        if (clampedPercent > 0) {
+          const fillW = Math.max((barW * clampedPercent)/100, 10);
           const pg = ctx.createLinearGradient(barX, barY, barX+barW, barY+barH);
-          pg.addColorStop(0.0,'#3b82f6'); pg.addColorStop(0.6,'#06b6d4'); pg.addColorStop(1.0,'#10b981');
+          if (current < target) {
+            // 通常: 青→シアン→緑
+            pg.addColorStop(0.0,'#3b82f6'); pg.addColorStop(0.6,'#06b6d4'); pg.addColorStop(1.0,'#10b981');
+          } else if (current === target) {
+            // 100%: ゴールド系
+            pg.addColorStop(0.0,'#f59e0b');
+            pg.addColorStop(0.5,'#fde68a');
+            pg.addColorStop(1.0,'#fbbf24');
+          } else {
+            // 超過: ロイヤルアメジスト
+            pg.addColorStop(0.0,'#6d28d9');
+            pg.addColorStop(0.5,'#a21caf');
+            pg.addColorStop(1.0,'#fb7185');
+          }
           ctx.fillStyle = pg; roundRect(ctx, barX, barY, fillW, barH, 16); ctx.fill();
+
+          // Gloss highlight overlay (upper half) for shine
+          ctx.save();
+          roundRect(ctx, barX, barY, fillW, barH, 16);
+          ctx.clip();
+          const gloss = ctx.createLinearGradient(barX, barY, barX, barY + barH);
+          // Stronger highlight for >100% (royal amethyst), subtle for others
+          const topAlpha = (current > target) ? 0.28 : 0.18;
+          gloss.addColorStop(0.00, `rgba(255,255,255,${topAlpha})`);
+          gloss.addColorStop(0.55, 'rgba(255,255,255,0.00)');
+          ctx.fillStyle = gloss;
+          ctx.fillRect(barX, barY, fillW, barH);
+
+          // Specular glint near the right edge when >100%
+          if (current > target) {
+            const cx = Math.min(barX + fillW - 6, barX + barW - 10);
+            const cy = barY + barH * 0.45;
+            const r = 9;
+            const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+            rg.addColorStop(0.0, 'rgba(255,255,255,0.55)');
+            rg.addColorStop(1.0, 'rgba(255,255,255,0.00)');
+            ctx.fillStyle = rg;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
         }
         // Center percentage text vertically and horizontally on the bar
         ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -350,7 +298,9 @@
         ctx.save();
         const prevBaseline = ctx.textBaseline;
         ctx.textBaseline = 'middle';
-        ctx.fillText(`${percentage}%`, percentX, barY + barH / 2);
+        // 実際の値を表示（101%以上もそのまま表示）
+        const basePercentText = `${hasTarget ? Math.round(progress * 100) : 0}%`;
+        ctx.fillText(basePercentText, percentX, barY + barH / 2);
         ctx.textBaseline = prevBaseline;
         ctx.restore();
 
@@ -385,233 +335,16 @@
         ctx.restore();
         // Evidence: assert no overlap
         const overlap = statsY < (barY + barH);
-        console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap });
+        console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap, progress, overflowPercent });
       }
 
-      // Global variables for clipboard functionality
-      let globalCanvas = canvas;
-      let globalBlob = null;
-      
-      // Direct download without preview
-      const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
-      const triggerDownload = (href) => {
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      };
+      const quickMode = qs.has('quickMode');
+      if (quickMode) {
+        await (window.KRMImage?.Output?.handleQuickMode?.(canvas, status));
+        return;
+      }
 
-      // Setup clipboard button with multiple methods
-      const setupClipboardButton = (blob) => {
-        const copyBtn = document.getElementById('copyToClipboard');
-        if (copyBtn) {
-          copyBtn.style.display = 'inline-flex';
-          copyBtn.onclick = async () => {
-            let success = false;
-            let lastError = null;
-            
-            // Method 1: Modern Clipboard API
-            try {
-              await navigator.clipboard.write([
-                new ClipboardItem({
-                  'image/png': blob
-                })
-              ]);
-              success = true;
-              console.log('Clipboard copy succeeded with modern API');
-            } catch (error) {
-              lastError = error;
-              console.warn('Modern clipboard API failed:', error);
-            }
-            
-            
-            if (success) {
-              copyBtn.textContent = 'コピー完了！';
-              copyBtn.style.background = '#10b981';
-              setTimeout(() => {
-                copyBtn.textContent = 'クリップボードにコピー';
-                copyBtn.style.background = '';
-              }, 2000);
-              
-              if (chrome?.runtime) {
-                chrome.runtime.sendMessage({
-                  action: 'clipboardCopySuccess',
-                  success: true
-                });
-              }
-            } else {
-              console.error('All clipboard copy methods failed. Last error:', {
-                name: lastError?.name,
-                message: lastError?.message,
-                code: lastError?.code,
-                stack: lastError?.stack
-              });
-              copyBtn.textContent = `コピー失敗 (${lastError?.name || 'Unknown'})`;
-              copyBtn.style.background = '#ef4444';
-              setTimeout(() => {
-                copyBtn.textContent = 'クリップボードにコピー';
-                copyBtn.style.background = '';
-              }, 3000);
-              
-              // Show detailed error to user
-              const statusEl = document.getElementById('status');
-              if (statusEl) {
-                statusEl.innerHTML = `クリップボードエラー: ${lastError?.name || 'Unknown'}<br>手動で画像をダウンロードしてX投稿画面にドラッグ&ドロップしてください。`;
-              }
-            }
-          };
-        }
-      };
-
-      canvas.toBlob(async (blob)=>{
-        const urlParams = new URLSearchParams(window.location.search);
-        const quickMode = urlParams.has('quickMode');
-
-        // Quick mode: クリップボードを使わず、データURLを背景→Xタブへ転送
-        if (quickMode) {
-          try {
-            console.log('Quick mode: generating image data URL');
-            // Prefer JPEG in quick mode to reduce payload size
-            const jpegDataUrl = await new Promise((resolve, reject) => {
-              try {
-                canvas.toBlob(async (jpegBlob) => {
-                  try {
-                    if (!jpegBlob) {
-                      // Fallback to PNG data URL
-                      return resolve(canvas.toDataURL('image/png'));
-                    }
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(jpegBlob);
-                  } catch (e) { reject(e); }
-                }, 'image/jpeg', 0.9);
-              } catch (e) { reject(e); }
-            });
-            const dataUrl = jpegDataUrl;
-            
-            console.log('Data URL generated, length:', dataUrl?.length);
-            if (chrome?.runtime?.sendMessage) {
-              console.log('Sending imageGenerated message to background');
-              const response = await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl });
-              console.log('Background response:', response);
-              status.textContent = '画像データを送信しました';
-            } else {
-              console.error('Chrome runtime not available for message sending');
-            }
-          } catch (e) {
-            console.error('Quick mode send failed, falling back to download:', e);
-            const fallbackUrl = blob ? URL.createObjectURL(blob) : canvas.toDataURL('image/png');
-            triggerDownload(fallbackUrl);
-          } finally {
-            setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
-          }
-          return;
-        }
-
-        // 通常モード: 既存のダウンロード + 任意のクリップボードコピー
-        if (blob) {
-          // Setup manual clipboard button
-          setupClipboardButton(blob);
-          const helpText = document.getElementById('helpText');
-          if (helpText) helpText.style.display = 'block';
-          const objectUrl = URL.createObjectURL(blob);
-          const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
-          if (chrome?.downloads?.download) {
-            try {
-              const downloadId = await new Promise((resolve, reject) => {
-                chrome.downloads.download({ url: objectUrl, filename, saveAs: false, conflictAction: 'uniquify' }, (id) => {
-                  if (chrome.runtime.lastError || !id) return reject(chrome.runtime.lastError || new Error('download failed'));
-                  resolve(id);
-                });
-              });
-              setTimeout(() => { try { chrome.downloads.show(downloadId); } catch {} }, 300);
-            } catch (e) {
-              console.warn('chrome.downloads failed, fallback to anchor:', e?.message || e);
-              triggerDownload(objectUrl);
-            } finally {
-              setTimeout(()=>URL.revokeObjectURL(objectUrl), 2000);
-            }
-          } else {
-            triggerDownload(objectUrl);
-            setTimeout(()=>URL.revokeObjectURL(objectUrl), 2000);
-          }
-          try {
-            const permission = await navigator.permissions.query({name: 'clipboard-write'});
-            const userActivated = !!(navigator.userActivation?.isActive);
-            const canAutoCopy = permission.state === 'granted' && userActivated && document.hasFocus();
-            if (canAutoCopy) {
-              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
-              status.textContent = 'ダウンロードを開始しました';
-              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
-            } else {
-              // Skip auto copy silently when not allowed (no user gesture or permission)
-              console.debug('Skipping optional clipboard copy (no user activation or permission)');
-            }
-          } catch (clipboardError) {
-            console.debug('Optional clipboard copy failed:', clipboardError);
-            status.textContent = 'ダウンロードを開始しました';
-            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
-          }
-        } else {
-          const dataUrl = canvas.toDataURL('image/png');
-          if (chrome?.downloads?.download) {
-            try {
-              const downloadId = await new Promise((resolve, reject) => {
-                chrome.downloads.download({ url: dataUrl, filename: `kindle-review-progress-${current}-${target}-${Date.now()}.png`, saveAs: false, conflictAction: 'uniquify' }, (id) => {
-                  if (chrome.runtime.lastError || !id) return reject(chrome.runtime.lastError || new Error('download failed'));
-                  resolve(id);
-                });
-              });
-              setTimeout(() => { try { chrome.downloads.show(downloadId); } catch {} }, 300);
-            } catch (e) {
-              console.warn('chrome.downloads failed, fallback to anchor:', e?.message || e);
-              triggerDownload(dataUrl);
-            }
-          } else {
-            triggerDownload(dataUrl);
-          }
-          try {
-            const permission = await navigator.permissions.query({name: 'clipboard-write'});
-            const userActivated = !!(navigator.userActivation?.isActive);
-            const canAutoCopy = permission.state === 'granted' && userActivated && document.hasFocus();
-            if (canAutoCopy) {
-              const resp = await fetch(dataUrl);
-              const clipBlob = await resp.blob();
-              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': clipBlob }) ]);
-              status.textContent = 'ダウンロードを開始しました';
-              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
-            } else {
-              console.debug('Skipping optional clipboard copy (no user activation or permission)');
-            }
-          } catch (clipboardError) {
-            console.debug('Optional clipboard copy (data URL) failed:', clipboardError);
-            status.textContent = 'ダウンロードを開始しました';
-            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
-          }
-        }
-
-        // 通常モード: オートクローズ制御（既存挙動維持）
-        const silent = urlParams.has('silent');
-        if (silent) {
-          const clipboardSuccess = false;
-          if (chrome?.runtime) {
-            chrome.runtime.sendMessage({ action: 'imageGenerationComplete', success: clipboardSuccess, error: clipboardSuccess ? null : 'Clipboard copy failed' });
-          }
-          setTimeout(() => { try { window.close(); } catch(_) {} }, 1000);
-        } else {
-          const autoClose = urlParams.has('autoClose');
-          if (autoClose) {
-            setTimeout(() => {
-              const statusEl = document.getElementById('status');
-              // 自動クローズの挙動は、クリップボードには依存させない
-              try { window.close(); } catch(_) {}
-            }, 3000);
-          }
-        }
-      }, 'image/png');
+      await (window.KRMImage?.Output?.handleNormalMode?.(canvas, status, current, target));
     } catch (e) {
       console.error(e);
       document.getElementById('status').textContent = '画像生成に失敗しました: ' + e.message;
@@ -620,7 +353,7 @@
 
   // Initialize
   document.addEventListener('DOMContentLoaded', async () => {
-    const d = await loadData();
+    const d = await (window.KRMImage?.DataLoader?.loadData?.() || Promise.resolve(null));
     await generateImage(d);
 
     // Also support message-based injection from background (fallback)

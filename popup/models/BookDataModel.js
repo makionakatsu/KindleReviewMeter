@@ -1,24 +1,30 @@
 /**
- * BookDataModel - Book Data Management Model
+ * BookDataModel - Book Data Management Model (Modularized)
  * 
- * Responsibilities:
- * - Manage book data state and validation
+ * Core Responsibilities:
+ * - Manage book data state and persistence
+ * - Coordinate between specialized service modules
  * - Handle data transformation and normalization
- * - Provide business logic for book data operations
- * - Validate Amazon URLs and book information
- * - Calculate progress metrics and sharing content
+ * - Provide unified API for book data operations
  * 
- * Key Features:
- * - Data validation with detailed error messages
- * - URL normalization for Amazon links
- * - Progress calculation algorithms
- * - Tweet text generation with customization options
- * - Associate ID integration for affiliate links
+ * Service Delegation:
+ * - Validation logic delegated to BookDataValidator
+ * - Progress calculations delegated to BookProgressCalculator  
+ * - Text generation delegated to BookTextGenerator
  */
+
+import BookDataValidator from './book/BookDataValidator.js';
+import BookProgressCalculator from './book/BookProgressCalculator.js';
+import BookTextGenerator from './book/BookTextGenerator.js';
 
 export default class BookDataModel {
   constructor(storageService) {
     this.storageService = storageService;
+    
+    // Initialize service modules
+    this.validator = new BookDataValidator();
+    this.progressCalculator = new BookProgressCalculator();
+    this.textGenerator = new BookTextGenerator();
     
     // Default book data structure
     this.defaultData = {
@@ -37,48 +43,6 @@ export default class BookDataModel {
     
     // Current book data state
     this.data = { ...this.defaultData };
-    
-    // Validation rules
-    this.validationRules = {
-      title: {
-        required: true,
-        minLength: 1,
-        maxLength: 200,
-        message: 'タイトルは必須です（1-200文字）'
-      },
-      author: {
-        required: true,
-        minLength: 1,
-        maxLength: 100,
-        message: '著者名は必須です（1-100文字）'
-      },
-      currentReviews: {
-        required: true,
-        min: 0,
-        max: 999999,
-        type: 'number',
-        message: 'レビュー数は0以上の数値で入力してください'
-      },
-      targetReviews: {
-        required: false,
-        min: 1,
-        max: 999999,
-        type: 'number',
-        message: '目標レビュー数は1以上の数値で入力してください'
-      },
-      amazonUrl: {
-        required: false,
-        pattern: /^https?:\/\/(?:www\.)?amazon\.co\.jp\/(?:dp\/|gp\/product\/)([A-Z0-9]{10})(?:\/|$|\?)/i,
-        message: '有効なAmazon.co.jpのURLを入力してください'
-      },
-      associateTag: {
-        required: false,
-        pattern: /^[a-z0-9-]+$/i,
-        minLength: 3,
-        maxLength: 50,
-        message: 'アソシエイトIDは3-50文字の英数字とハイフンで入力してください'
-      }
-    };
   }
   /**
    * Notes:
@@ -253,107 +217,11 @@ export default class BookDataModel {
    * @returns {Object} Validation result with errors
    */
   validateData(data) {
-    const errors = [];
-    const dataToValidate = { ...this.data, ...data };
-    
-    // Validate each field according to rules
-    for (const [field, rules] of Object.entries(this.validationRules)) {
-      const value = dataToValidate[field];
-      const fieldErrors = this.validateField(field, value, rules);
-      errors.push(...fieldErrors);
-    }
-    
-    // Business logic validations
-    if (dataToValidate.targetReviews && dataToValidate.targetReviews <= dataToValidate.currentReviews) {
-      errors.push({
-        field: 'targetReviews',
-        message: '目標レビュー数は現在のレビュー数より大きい必要があります'
-      });
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors: errors
-    };
+    return this.validator.validateData(data, this.data);
   }
 
-  /**
-   * Validate individual field
-   * @private
-   * @param {string} field - Field name
-   * @param {any} value - Field value
-   * @param {Object} rules - Validation rules
-   * @returns {Array} Array of error objects
-   */
-  validateField(field, value, rules) {
-    const errors = [];
-    
-    // Required check
-    if (rules.required && (value === null || value === undefined || value === '')) {
-      errors.push({
-        field: field,
-        message: rules.message || `${field} is required`
-      });
-      return errors; // Skip other validations if required field is empty
-    }
-    
-    // Skip other validations if field is empty and not required
-    if (!rules.required && (value === null || value === undefined || value === '')) {
-      return errors;
-    }
-    
-    // Type validation
-    if (rules.type === 'number') {
-      const numValue = Number(value);
-      if (isNaN(numValue)) {
-        errors.push({
-          field: field,
-          message: rules.message || `${field} must be a number`
-        });
-        return errors;
-      }
-      value = numValue; // Use numeric value for range checks
-    }
-    
-    // Length validations
-    if (rules.minLength && String(value).length < rules.minLength) {
-      errors.push({
-        field: field,
-        message: rules.message || `${field} must be at least ${rules.minLength} characters`
-      });
-    }
-    
-    if (rules.maxLength && String(value).length > rules.maxLength) {
-      errors.push({
-        field: field,
-        message: rules.message || `${field} must be no more than ${rules.maxLength} characters`
-      });
-    }
-    
-    // Range validations for numbers
-    if (rules.min !== undefined && value < rules.min) {
-      errors.push({
-        field: field,
-        message: rules.message || `${field} must be at least ${rules.min}`
-      });
-    }
-    
-    if (rules.max !== undefined && value > rules.max) {
-      errors.push({
-        field: field,
-        message: rules.message || `${field} must be no more than ${rules.max}`
-      });
-    }
-    
-    // Pattern validation
-    if (rules.pattern && !rules.pattern.test(String(value))) {
-      errors.push({
-        field: field,
-        message: rules.message || `${field} format is invalid`
-      });
-    }
-    
-    return errors;
+  validateField(field, value) {
+    return this.validator.validateField(field, value);
   }
 
   // ============================================================================
@@ -365,33 +233,15 @@ export default class BookDataModel {
    * @returns {number|null} Progress percentage (0-100) or null if no target
    */
   getProgressPercentage() {
-    if (!this.data.targetReviews || this.data.targetReviews <= 0) {
-      return null;
-    }
-    
-    const progress = (this.data.currentReviews / this.data.targetReviews) * 100;
-    return Math.min(100, Math.max(0, Math.round(progress)));
+    return this.progressCalculator.getProgressPercentage(this.data.currentReviews, this.data.targetReviews);
   }
 
-  /**
-   * Get remaining reviews needed
-   * @returns {number|null} Remaining reviews or null if no target
-   */
   getRemainingReviews() {
-    if (!this.data.targetReviews || this.data.targetReviews <= 0) {
-      return null;
-    }
-    
-    return Math.max(0, this.data.targetReviews - this.data.currentReviews);
+    return this.progressCalculator.getRemainingReviews(this.data.currentReviews, this.data.targetReviews);
   }
 
-  /**
-   * Check if goal is achieved
-   * @returns {boolean} Whether goal is achieved
-   */
   isGoalAchieved() {
-    const remaining = this.getRemainingReviews();
-    return remaining !== null && remaining === 0;
+    return this.progressCalculator.isGoalAchieved(this.data.currentReviews, this.data.targetReviews);
   }
 
   /**
@@ -400,72 +250,17 @@ export default class BookDataModel {
    * @returns {string} Generated tweet text
    */
   generateTweetText() {
-    const title = this.data.title || '書籍';
-    const current = Number(this.data.currentReviews) || 0;
-    const target = Number(this.data.targetReviews) || 0;
-
-    let tweetContent = '';
-    if (target > 0) {
-      const remaining = Math.max(0, target - current);
-      tweetContent = `「${title}」のレビューが${current}件になりました！\nレビューを書いて著者を応援しよう！\n目標${target}件まで残り${remaining}件です📚`;
-    } else {
-      tweetContent = `「${title}」は、現在レビューを${current}件集めています📚\nレビューを書いて著者を応援しよう！`;
-    }
-
-    // URL + disclosure (if associate enabled)
-    let urlPart = '';
-    let disclosure = '';
-    if (this.data.associateEnabled) {
-      const url = this.getShareableUrl();
-      urlPart = url ? `\n${url}` : '';
-      if (this.data.associateTag) disclosure = '\n#アマゾンアソシエイトに参加しています';
-    }
-
-    return `${tweetContent}${urlPart}\n#KindleReviewMeter${disclosure}`;
+    const progressData = this.progressCalculator.getProgressSummary(this.data.currentReviews, this.data.targetReviews);
+    return this.textGenerator.generateTweetText(this.data, progressData);
   }
 
-  /**
-   * Get shareable Amazon URL (with associate tag if enabled)
-   * @returns {string} Shareable URL
-   */
   getShareableUrl() {
-    if (!this.data.amazonUrl) {
-      return '';
-    }
-    
-    let url = this.data.amazonUrl;
-    
-    // Add associate tag if enabled and configured
-    if (this.data.associateEnabled && this.data.associateTag) {
-      const separator = url.includes('?') ? '&' : '?';
-      url += `${separator}tag=${this.data.associateTag}`;
-    }
-    
-    return url;
+    return this.textGenerator.getShareableUrl(this.data);
   }
 
-  // ============================================================================
-  // UTILITY METHODS
-  // ============================================================================
-
-  /**
-   * Get data summary for logging
-   * @returns {Object} Data summary
-   */
   getSummary() {
-    const progress = this.getProgressPercentage();
-    const remaining = this.getRemainingReviews();
-    
-    return {
-      title: this.data.title ? `"${this.data.title.substring(0, 30)}..."` : 'No title',
-      author: this.data.author || 'No author',
-      reviews: `${this.data.currentReviews}/${this.data.targetReviews || '?'}`,
-      progress: progress !== null ? `${progress}%` : 'No target',
-      remaining: remaining !== null ? `${remaining} left` : 'No target',
-      hasImage: !!this.data.imageUrl,
-      hasUrl: !!this.data.amazonUrl,
-      associateEnabled: this.data.associateEnabled
-    };
+    const progressData = this.progressCalculator.getProgressSummary(this.data.currentReviews, this.data.targetReviews);
+    return this.textGenerator.getSummary(this.data, progressData);
   }
 
   /**

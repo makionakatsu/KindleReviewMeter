@@ -22,10 +22,10 @@
 
 import BookDataModel from '../models/BookDataModel.js';
 import UIManager from '../views/UIManager.js';
-import { EventHandlerManager } from './EventHandlerManager.js';
-import { MessageHandler } from './MessageHandler.js';
-import { ActionHandler } from './ActionHandler.js';
-import { StateManager } from './StateManager.js';
+import EventHandlerManager from './EventHandlerManager.js';
+import MessageHandler from './MessageHandler.js';
+import ActionHandler from './ActionHandler.js';
+import StateManager from './StateManager.js';
 
 export default class PopupController {
   constructor(storageService, toastService) {

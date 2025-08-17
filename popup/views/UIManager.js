@@ -24,6 +24,7 @@ import { FormManager } from './FormManager.js';
 import { ValidationManager } from './ValidationManager.js';
 import { LoadingManager } from './LoadingManager.js';
 import { UIStateManager } from './UIStateManager.js';
+import { updateProgressDisplay as renderProgress } from './ProgressView.js';
 
 export default class UIManager {
   constructor(toastService) {
@@ -257,7 +258,8 @@ export default class UIManager {
    * @param {Object} progressData - Progress information
    */
   updateProgressDisplay(progressData) {
-    this.uiStateManager.updateProgressDisplay(progressData);
+    // Delegate rendering to ProgressView to reduce UIStateManager responsibilities
+    renderProgress(this.elements, progressData);
   }
 
   /**
