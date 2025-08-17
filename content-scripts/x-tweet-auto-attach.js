@@ -315,24 +315,18 @@
       for (const target of pasteTargets) {
         try {
           console.log('Attempting method 3: paste simulation on', target.tagName);
-          
-          // Focus the target first
-          if (target.focus) target.focus();
-          
-          // Create a more realistic clipboard event
-          const clipboardData = new DataTransfer();
-          clipboardData.items.add(file);
-          
-          const pasteEvent = new ClipboardEvent('paste', { 
-            bubbles: true, 
-            cancelable: true,
-            clipboardData: clipboardData 
-          });
-          
-          target.dispatchEvent(pasteEvent);
-          console.log('Image attached via paste simulation');
-          attachmentCompleted = true;
-          return true;
+          if (imageService && typeof imageService.simulatePaste === 'function') {
+            const ok = await imageService.simulatePaste(target, file);
+            if (ok) { attachmentCompleted = true; return true; }
+          } else {
+            // Fallback inline simulation (behavior unchanged)
+            if (target.focus) target.focus();
+            const clipboardData = new DataTransfer();
+            clipboardData.items.add(file);
+            const pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData });
+            target.dispatchEvent(pasteEvent);
+            attachmentCompleted = true; return true;
+          }
         } catch (e) {
           console.warn('Paste simulation failed:', e);
         }
@@ -462,10 +456,15 @@
       const targets = [document.querySelector('[data-testid="tweetTextarea_0"]'), document.querySelector('[role="textbox"]'), document.activeElement, document.body].filter(Boolean);
       for (const t of targets) {
         try {
-          t.focus?.();
-          const dt = new DataTransfer(); dt.items.add(file);
-          const pe = new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData: dt });
-          t.dispatchEvent(pe); attachmentCompleted = true; return true;
+          if (imageService && typeof imageService.simulatePaste === 'function') {
+            const ok = await imageService.simulatePaste(t, file);
+            if (ok) { attachmentCompleted = true; return true; }
+          } else {
+            t.focus?.();
+            const dt = new DataTransfer(); dt.items.add(file);
+            const pe = new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData: dt });
+            t.dispatchEvent(pe); attachmentCompleted = true; return true;
+          }
         } catch {}
       }
 

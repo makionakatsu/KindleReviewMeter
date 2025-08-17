@@ -38,6 +38,27 @@
       await new Promise(r=>setTimeout(r,80));
       target.dispatchEvent(dropEvent);
     }
+
+    /**
+     * Simulate paste of an image File onto a target element.
+     * Mirrors existing inline logic (behavior unchanged).
+     */
+    async simulatePaste(target, file) {
+      try {
+        if (target && target.focus) target.focus();
+        const clipboardData = new DataTransfer();
+        clipboardData.items.add(file);
+        const pasteEvent = new ClipboardEvent('paste', {
+          bubbles: true,
+          cancelable: true,
+          clipboardData
+        });
+        target.dispatchEvent(pasteEvent);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
   }
 
   window.ImageAttachmentService = ImageAttachmentService;
