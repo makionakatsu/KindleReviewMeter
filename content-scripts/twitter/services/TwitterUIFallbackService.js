@@ -5,7 +5,17 @@
 (function(){
   'use strict';
 
+  /**
+   * TwitterUIFallbackService
+   * - 自動添付が失敗した際のフォールバックUIおよび簡易リトライ監視を提供
+   * - 挙動は既存CSのインライン実装と同一（構造分離のみ）
+   */
   class TwitterUIFallbackService {
+    /**
+     * DOM変化を一定時間監視し、変化検知のたびにretryFnを呼ぶ（最大 maxMs）
+     * @param {number} maxMs 監視最大時間（ms）
+     * @param {Function} retryFn 変化検知時のリトライ関数
+     */
     setupAutoRetry(maxMs = 15000, retryFn) {
       const start = Date.now();
       const observer = new MutationObserver(async () => {
@@ -16,6 +26,10 @@
       setTimeout(() => observer.disconnect(), maxMs + 200);
     }
 
+    /**
+     * フォールバック用のオーバーレイを表示（ダウンロードリンクと閉じるボタン）
+     * @param {string} dataUrl 画像のdata URL（任意）
+     */
     showFallbackOverlay(dataUrl) {
       const existing = document.querySelector('#krm-fallback-overlay');
       if (existing) existing.remove();
