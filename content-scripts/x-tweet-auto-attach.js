@@ -435,14 +435,17 @@
         } catch (_) {}
       }
 
-      // Method 2: Drag-and-drop
+      // Method 2: Drag-and-drop (delegate to ImageAttachmentService when available)
       const dropOn = async (target, f) => {
+        if (imageService && typeof imageService.dropOn === 'function') {
+          return imageService.dropOn(target, f);
+        }
         const dt = new DataTransfer(); dt.items.add(f);
         const de = new DragEvent('dragenter', { bubbles:true, cancelable:true, dataTransfer:dt });
         const dover = new DragEvent('dragover', { bubbles:true, cancelable:true, dataTransfer:dt });
         const dd = new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt });
-        target.dispatchEvent(de); await new Promise(r=>setTimeout(r,15));
-        target.dispatchEvent(dover); await new Promise(r=>setTimeout(r,15));
+        target.dispatchEvent(de); await new Promise(r=>setTimeout(r,80));
+        target.dispatchEvent(dover); await new Promise(r=>setTimeout(r,80));
         target.dispatchEvent(dd);
       };
       const zones = [
