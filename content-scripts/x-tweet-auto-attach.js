@@ -642,44 +642,17 @@
           }
           
           pendingDataUrl = request.dataUrl;
-          
-          // Setup auto-retry
-          setupAutoRetry(15000); // Increase retry time
-          
-          // Handle async attachment with proper error handling
-          (async () => {
-            try {
-              console.log('Content script starting async image attachment...');
-              const attachResult = await attachViaDataUrl(request.dataUrl);
-              console.log('Content script attach result:', attachResult);
-              
-              // Ensure we can still send response with enhanced validation
-              if (isValidExtensionContext()) {
-                sendResponse({ 
-                  ok: attachResult, 
-                  timestamp: Date.now(),
-                  method: attachResult ? 'success' : 'fallback'
-                });
-              } else {
-                console.warn('Extension context invalidated, cannot send response');
-              }
-            } catch (e) {
-              console.error('Content script attach error:', e);
-              
-              // Ensure we can still send response with enhanced validation
-              if (isValidExtensionContext()) {
-                sendResponse({ 
-                  ok: false, 
-                  error: e?.message || 'Unknown attachment error',
-                  timestamp: Date.now()
-                });
-              } else {
-                console.warn('Extension context invalidated during error, cannot send response');
-              }
-            }
-          })();
-          
-          return true; // Indicate async response
+          // Setup auto-retry (non-blocking)
+          setupAutoRetry(15000);
+
+          // Fire-and-forget attachment to avoid background timeout
+          Promise.resolve()
+            .then(() => attachViaDataUrl(request.dataUrl))
+            .catch(e => console.error('Content script attach error:', e));
+
+          // Immediately acknowledge receipt to keep fastest path responsive
+          sendResponse({ ok: true, accepted: true, timestamp: Date.now() });
+          return false; // Synchronous response completed
         }
         
         // Unknown action
