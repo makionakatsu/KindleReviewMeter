@@ -194,7 +194,7 @@
       // Get elements
       let { fileInput, composerTextbox } = await waitForElements({ 
         requireFileInput: false, 
-        timeoutMs: 1000 
+        timeoutMs: 8000 
       });
       
       if (!fileInput) {
@@ -203,9 +203,9 @@
         if (fileInput) {
           console.log('Found file input via deep search');
         } else {
-          // Short observer to avoid blocking the first attempt
-          fileInput = await waitForFileInputAppears(200);
-          if (fileInput) console.log('Found file input via short observer');
+          // Wait a bit with MutationObserver to catch late injection
+          fileInput = await waitForFileInputAppears(2000);
+          if (fileInput) console.log('Found file input via observer');
         }
       }
       
@@ -412,7 +412,7 @@
         setTimeout(() => { if (!resolved) { obs.disconnect(); resolve(null); } }, ms);
       });
 
-      let { fileInput, composerTextbox } = await waitForElements({ requireFileInput: false, timeoutMs: 1000 });
+      let { fileInput, composerTextbox } = await waitForElements({ requireFileInput: false, timeoutMs: 8000 });
       if (!fileInput) {
         fileInput = document.querySelector('input[type="file"]') || await waitForFileInputAppears(500);
       }
