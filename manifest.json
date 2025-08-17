@@ -52,9 +52,6 @@
         "https://x.com/compose/tweet*"
       ],
       "js": [
-        "content-scripts/twitter/services/TwitterSelectorService.js",
-        "content-scripts/twitter/services/ImageAttachmentService.js", 
-        "content-scripts/twitter/services/TwitterUIFallbackService.js",
         "content-scripts/x-tweet-auto-attach.js"
       ],
       "run_at": "document_idle"

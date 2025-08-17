@@ -217,19 +217,37 @@ function registerServiceHandlers() {
 function setupExtensionLifecycle() {
   const createOrUpdateContextMenu = () => {
     if (!chrome.contextMenus) return;
-    try { chrome.contextMenus.remove('kindle-review-meter'); } catch {}
+    const createMenu = () => {
+      try {
+        chrome.contextMenus.create({
+          id: 'kindle-review-meter',
+          title: 'Kindleレビューメーターで分析',
+          contexts: ['link', 'page', 'selection']
+        });
+      } catch (e) {
+        console.warn('Failed to (re)create context menu:', e?.message || e);
+      }
+    };
+
     try {
-      chrome.contextMenus.create({
-        id: 'kindle-review-meter',
-        title: 'Kindleレビューメーターで分析',
-        contexts: ['link'],
-        targetUrlPatterns: [
-          '*://*.amazon.co.jp/dp/*', '*://*.amazon.co.jp/gp/product/*',
-          '*://*.amazon.com/dp/*',   '*://*.amazon.com/gp/product/*'
-        ]
-      });
-    } catch (e) {
-      console.warn('Failed to (re)create context menu:', e?.message || e);
+      if (typeof chrome.contextMenus.removeAll === 'function') {
+        // Safely remove all existing items for this extension, then recreate
+        chrome.contextMenus.removeAll(() => {
+          // Ignore lastError if any and proceed to create
+          createMenu();
+        });
+      } else if (typeof chrome.contextMenus.remove === 'function') {
+        // Fallback: remove by id with callback to avoid unhandled promise rejection
+        chrome.contextMenus.remove('kindle-review-meter', () => {
+          // Ignore lastError if any and proceed to create
+          createMenu();
+        });
+      } else {
+        createMenu();
+      }
+    } catch (_) {
+      // If anything goes wrong during removal, still try to create the menu
+      createMenu();
     }
   };
   // Installation handler
@@ -255,29 +273,83 @@ function setupExtensionLifecycle() {
   
   // Context menu click handler
   if (chrome.contextMenus) {
+    const isAmazonProductUrl = (url) => {
+      try {
+        const u = new URL(url);
+        const host = u.hostname;
+        if (!/amazon\.(co\.jp|com)$/i.test(host) && !/\.amazon\.(co\.jp|com)$/i.test(host)) return false;
+        // match dp, -/dp, gp/product, gp/aw/d
+        return (/\/dp\//.test(u.pathname) ||
+                /\/-\/dp\//.test(u.pathname) ||
+                /\/gp\/product\//.test(u.pathname) ||
+                /\/gp\/aw\/d\//.test(u.pathname));
+      } catch (_) { return false; }
+    };
+
+    const extractAmazonUrlFromText = (text) => {
+      if (!text) return null;
+      try {
+        // Find first URL-like substring
+        const matches = text.match(/https?:\/\/[\w.-]*amazon\.(?:co\.jp|com)[^\s)"']+/i);
+        if (matches && matches[0] && isAmazonProductUrl(matches[0])) {
+          return matches[0];
+        }
+      } catch (_) {}
+      return null;
+    };
+
     chrome.contextMenus.onClicked.addListener((info, tab) => {
       try {
-        if (info.menuItemId === 'kindle-review-meter' && info.linkUrl) {
-          // Store pending URL then open popup after storage completes
+        if (info.menuItemId === 'kindle-review-meter') {
+          let candidateUrl = info.linkUrl || extractAmazonUrlFromText(info.selectionText) || tab?.url || '';
+          let hasValidAmazon = candidateUrl && isAmazonProductUrl(candidateUrl);
+
           (async () => {
             try {
-              if (chrome.storage?.session && chrome.storage.session.set) {
-                await chrome.storage.session.set({ pendingAmazonUrl: info.linkUrl });
-              } else if (chrome.storage?.local && chrome.storage.local.set) {
-                await chrome.storage.local.set({ pendingAmazonUrl: info.linkUrl });
+              // If not valid yet, try to extract canonical/og:url from the page DOM
+              if (!hasValidAmazon && tab?.id && chrome?.scripting?.executeScript) {
+                try {
+                  const [{ result: domUrl } = {}] = await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: () => {
+                      try {
+                        const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
+                        const og = document.querySelector('meta[property="og:url"]')?.content || '';
+                        return canonical || og || location.href;
+                      } catch (_) {
+                        return location.href;
+                      }
+                    }
+                  });
+                  if (domUrl && typeof domUrl === 'string' && isAmazonProductUrl(domUrl)) {
+                    candidateUrl = domUrl;
+                    hasValidAmazon = true;
+                  }
+                } catch (_) {
+                  // ignore DOM extraction errors
+                }
+              }
+
+              if (hasValidAmazon) {
+                if (chrome.storage?.session && chrome.storage.session.set) {
+                  await chrome.storage.session.set({ pendingAmazonUrl: candidateUrl });
+                } else if (chrome.storage?.local && chrome.storage.local.set) {
+                  await chrome.storage.local.set({ pendingAmazonUrl: candidateUrl });
+                }
               }
             } catch (_) {
               // ignore storage errors, still open popup
             } finally {
               chrome.action.openPopup();
-              console.log('Context menu clicked for URL (stored for popup):', info.linkUrl);
+              console.log('Context menu clicked. Stored URL:', hasValidAmazon ? candidateUrl : '(none)');
             }
           })();
         }
       } catch (error) {
         errorHandler.handle(error, 'CONTEXT_MENU', {
           operation: 'context_menu_click',
-          linkUrl: info.linkUrl
+          linkUrl: info.linkUrl,
+          pageUrl: tab?.url
         });
       }
     });

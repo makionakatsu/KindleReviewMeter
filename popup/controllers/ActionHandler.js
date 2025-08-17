@@ -144,9 +144,18 @@ export default class ActionHandler {
     try {
       const pendingUrl = await this.messageHandler.checkPendingUrl();
       if (pendingUrl) {
-        // Set URL and trigger fetch
-        document.getElementById('amazonUrl').value = pendingUrl;
-        await this.handleAmazonFetch();
+        // Set URL only (自動フェッチは行わない)
+        const input = document.getElementById('amazonUrl');
+        if (input) {
+          input.value = pendingUrl;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        // 要望により自動取得ボタン相当の処理を実行
+        try {
+          await this.handleAmazonFetch();
+        } catch (e) {
+          console.warn('ActionHandler: Auto-fetch after pending URL failed:', e);
+        }
       }
     } catch (error) {
       console.warn('ActionHandler: Failed to check pending URL:', error);

@@ -13,9 +13,21 @@ export class ValidationManager {
   displayValidationErrors(errors = []) {
     errors.forEach(err => this.showFieldError(err.field, err.message));
     if (errors.length > 1) {
-      this.toast?.error?.(`${errors.length}個のエラーがあります`);
+      const summary = errors.slice(0, 2).map(e => e.message).join(' / ');
+      this.toast?.error?.(`${errors.length}個のエラーがあります: ${summary}`);
     } else if (errors.length === 1) {
       this.toast?.error?.(errors[0].message);
+    }
+    // フォーカス＆軽いアニメーションで場所を示す
+    if (errors.length > 0) {
+      const first = errors[0];
+      const input = this.el[first.field];
+      if (input && typeof input.focus === 'function') {
+        try { input.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+        input.focus();
+        input.classList.add('animate-wiggle');
+        setTimeout(() => input.classList.remove('animate-wiggle'), 800);
+      }
     }
   }
 
