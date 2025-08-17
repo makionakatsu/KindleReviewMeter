@@ -96,30 +96,22 @@
   // UTILITY FUNCTIONS
   // ============================================================================
 
-  /**
-   * Convert dataURL to File object
-   */
+  // Image service delegation (safe wrapper)
+  const imageService = new (window.ImageAttachmentService || function(){})();
   function dataUrlToFile(dataUrl, filename = null) {
+    if (imageService && typeof imageService.dataUrlToFile === 'function') {
+      return imageService.dataUrlToFile(dataUrl, filename);
+    }
+    // Fallback local implementation
     const arr = dataUrl.split(',');
     const mimeMatch = arr[0].match(/:(.*?);/);
     const mime = mimeMatch ? mimeMatch[1] : 'image/png';
     const bstr = atob(arr[1]);
     let n = bstr.length;
     const u8arr = new Uint8Array(n);
-    while (n--) {
-      u8arr[n] = bstr.charCodeAt(n);
-    }
-    
-    // Infer extension from MIME if filename not provided or extension mismatched
-    let ext = 'png';
-    if (/jpeg|jpg/i.test(mime)) ext = 'jpg';
-    else if (/png/i.test(mime)) ext = 'png';
-    else if (/webp/i.test(mime)) ext = 'webp';
-    
-    const base = 'kindle-review-image';
-    const inferredName = `${base}.${ext}`;
-    const finalName = (filename && filename.includes('.')) ? filename : inferredName;
-    
+    while (n--) { u8arr[n] = bstr.charCodeAt(n); }
+    let ext = /jpeg|jpg/i.test(mime) ? 'jpg' : (/webp/i.test(mime) ? 'webp' : 'png');
+    const finalName = (filename && filename.includes('.')) ? filename : `kindle-review-image.${ext}`;
     return new File([u8arr], finalName, { type: mime });
   }
 
@@ -306,6 +298,9 @@
       ];
       
       async function dropOn(target, file) {
+        if (imageService && typeof imageService.dropOn === 'function') {
+          return imageService.dropOn(target, file);
+        }
         const dt = new DataTransfer();
         dt.items.add(file);
         const dragEnterEvent = new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt });
