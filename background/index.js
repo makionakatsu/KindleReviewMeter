@@ -26,8 +26,29 @@ let imageGenerationService;
 let socialMediaService;
 let amazonScrapingService;
 
-// Priority-1: Pending image store for binary pull (tweetTabId -> { buffer, mime, imageTabId, receivedAt })
+// Priority-1: Pending image store for binary transfer
+// - pendingImageStore: tweetTabId -> { buffer, mime, imageTabId, receivedAt }
+// - tweetPorts: tweetTabId -> Port (content script connection)
 const pendingImageStore = new Map();
+const tweetPorts = new Map();
+
+function tryPushToTweetPort(tweetTabId) {
+  const record = pendingImageStore.get(tweetTabId);
+  const port = tweetPorts.get(tweetTabId);
+  if (!record || !port) return false;
+  try {
+    const { buffer, mime, imageTabId } = record;
+    port.postMessage({ type: 'image', mime, buffer }, [buffer]);
+    pendingImageStore.delete(tweetTabId);
+    socialMediaService?.workflowService?.tabManager?.markImageAsSent(tweetTabId);
+    socialMediaService?.workflowService?.tabManager?.cleanupImageTab(imageTabId).catch(()=>{});
+    console.log('⚡ Pushed pending image immediately to tweet tab via Port');
+    return true;
+  } catch (e) {
+    console.warn('Failed immediate push to tweet port:', e);
+    return false;
+  }
+}
 
 
 /**
@@ -254,15 +275,26 @@ chrome.runtime.onConnect.addListener((port) => {
             receivedAt: Date.now()
           });
           console.log('🔒 Stored pending image for tweetTabId:', tweetTabId);
+          // If the tweet port is already connected, push immediately
+          tryPushToTweetPort(tweetTabId);
         } catch (e) {
           console.error('Failed to store pending image:', e);
         }
       });
     } else if (port.name === 'krm_image_pull') {
       // Content script → Background (pull binary)
+      const tweetTabId = port.sender?.tab?.id;
+      if (tweetTabId) {
+        tweetPorts.set(tweetTabId, port);
+        port.onDisconnect.addListener(() => {
+          if (tweetPorts.get(tweetTabId) === port) tweetPorts.delete(tweetTabId);
+        });
+        // If an image is already waiting, push immediately
+        tryPushToTweetPort(tweetTabId);
+      }
+
       port.onMessage.addListener(async (msg) => {
         if (!msg || msg.type !== 'pull') return;
-        const tweetTabId = port.sender?.tab?.id;
         const record = pendingImageStore.get(tweetTabId);
         if (!record) {
           console.log('No pending image for tweetTabId yet:', tweetTabId);
