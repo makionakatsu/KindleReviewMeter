@@ -76,6 +76,35 @@
       if (inputs.length > 0) return inputs[0];
       return null;
     }
+
+    /**
+     * Ensure Twitter's file input is available by clicking attachment UI.
+     * Mirrors stable content-script behavior (no timing changes).
+     * @returns {Promise<boolean>} true if a file input is present
+     */
+    async findAndClickAttachmentButton() {
+      // If already present, succeed fast
+      if (document.querySelector('input[type="file"]')) return true;
+
+      const candidates = [
+        '[data-testid="attachments"]',
+        '[data-testid="toolBar"] [role="button"]',
+        'button[aria-label*="画像" i]',
+        'button[aria-label*="写真" i]',
+        'button[aria-label*="Add" i]',
+        'button[aria-label*="Media" i]'
+      ];
+
+      for (const selector of candidates) {
+        const btn = document.querySelector(selector);
+        if (btn) {
+          try { btn.click(); } catch {}
+        }
+        const input = document.querySelector('input[type="file"]');
+        if (input) return true;
+      }
+      return !!document.querySelector('input[type="file"]');
+    }
   }
 
   // Expose to window for future non-module access
