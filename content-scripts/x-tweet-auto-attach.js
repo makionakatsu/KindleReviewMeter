@@ -73,97 +73,23 @@
    * - Handle dynamic content loading and element changes
    * - Provide comprehensive selector coverage for UI variations
    */
+  const selectorService = new (window.TwitterSelectorService || function(){})();
   async function waitForElements(options = {}) {
-    const { requireFileInput = false, timeoutMs = 8000 } = options;
-    const startedAt = Date.now();
-    
-    return new Promise((resolve) => {
-      const checkForElements = () => {
-        console.log('Searching for X/Twitter elements...');
-        
-        // Look for X/Twitter's file input - enhanced selectors
-        const fileInputSelectors = [
-          'input[type="file"][accept*="image"]',
-          'input[type="file"]',
-          'input[data-testid*="fileInput"]',
-          'input[data-testid*="attachments"]',
-          'input[aria-label*="image" i]',
-          'input[aria-label*="photo" i]'
-        ];
-        
-        let fileInput = null;
-        for (const selector of fileInputSelectors) {
-          fileInput = document.querySelector(selector);
-          if (fileInput) {
-            console.log('Found file input with selector:', selector);
-            break;
-          }
-        }
-        
-        // Enhanced composer selectors for latest X/Twitter interface
-        const composerSelectors = [
-          '[data-testid="tweetTextarea_0"]',
-          '[data-testid="tweetButton"]',
-          '[contenteditable="true"]',
-          'textarea[placeholder*="happening"]',
-          '[data-testid="toolBar"]',
-          '[role="textbox"]',
-          '[data-testid="tweet-composer"]',
-          '[data-testid="primaryColumn"] [contenteditable]'
-        ];
-        
-        let composerTextbox = null;
-        for (const selector of composerSelectors) {
-          composerTextbox = document.querySelector(selector);
-          if (composerTextbox) {
-            console.log('Found composer with selector:', selector);
-            break;
-          }
-        }
-        
-        console.log('Element search results:', {
-          hasFileInput: !!fileInput,
-          hasComposerTextbox: !!composerTextbox,
-          fileInputType: fileInput?.type,
-          fileInputAccept: fileInput?.accept
-        });
-        
-        const haveComposer = !!composerTextbox;
-        const haveInput = !!fileInput;
-        const elapsed = Date.now() - startedAt;
-        
-        if (haveComposer && (haveInput || !requireFileInput)) {
-          resolve({ fileInput, composerTextbox });
-        } else if (elapsed > timeoutMs && haveComposer) {
-          console.warn('Timeout waiting for file input; proceeding with composer only');
-          resolve({ fileInput: null, composerTextbox });
-        } else {
-          setTimeout(checkForElements, 400);
-        }
-      };
-      checkForElements();
-    });
+    if (selectorService && selectorService.waitForElements) {
+      return selectorService.waitForElements(options);
+    }
+    // Fallback to legacy inline logic (should not happen once wired)
+    return { fileInput: document.querySelector('input[type="file"]') || null, composerTextbox: document.querySelector('[role="textbox"]') || null };
   }
 
   /**
    * Deep search for any file input in the document
    */
   function findAnyFileInput() {
-    const inputs = document.querySelectorAll('input[type="file"]');
-    for (const input of inputs) {
-      if (input.offsetParent !== null || input.style.display !== 'none') {
-        console.log('Found visible file input:', input);
-        return input;
-      }
+    if (selectorService && selectorService.findAnyFileInput) {
+      return selectorService.findAnyFileInput();
     }
-    
-    // Also check for hidden but functionally available inputs
-    if (inputs.length > 0) {
-      console.log('Found hidden file input, using first available:', inputs[0]);
-      return inputs[0];
-    }
-    
-    return null;
+    return document.querySelector('input[type="file"]');
   }
 
   // ============================================================================
