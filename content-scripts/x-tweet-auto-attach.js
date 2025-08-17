@@ -560,10 +560,12 @@
     try {
       if (!window.__krmBinaryPullStarted) {
         window.__krmBinaryPullStarted = true;
+        window.__krmImageReceived = false;
         const port = chrome.runtime.connect({ name: 'krm_image_pull' });
         port.onMessage.addListener(async (msg) => {
           try {
             if (!msg || msg.type !== 'image' || !msg.buffer) return;
+            window.__krmImageReceived = true;
             const mime = msg.mime || 'image/jpeg';
             const u8 = new Uint8Array(msg.buffer);
             const file = new File([u8], 'kindle-review-image' + (mime.includes('png') ? '.png' : '.jpg'), { type: mime });
@@ -573,8 +575,22 @@
             console.error('Binary attachment failed:', e);
           }
         });
-        // Trigger initial pull request
+        // Trigger pull requests repeatedly until received or timeout
         port.postMessage({ type: 'pull' });
+        let attempts = 0;
+        const maxAttempts = 30; // ~15s at 500ms
+        const pullTimer = setInterval(() => {
+          try {
+            if (window.__krmImageReceived || attempts >= maxAttempts) {
+              clearInterval(pullTimer);
+              return;
+            }
+            attempts++;
+            port.postMessage({ type: 'pull' });
+          } catch (_) {
+            clearInterval(pullTimer);
+          }
+        }, 500);
       }
     } catch (e) {
       console.warn('Binary pull setup failed:', e);
