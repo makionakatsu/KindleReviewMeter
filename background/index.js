@@ -26,6 +26,9 @@ let imageGenerationService;
 let socialMediaService;
 let amazonScrapingService;
 
+// Priority-1: Pending image store for binary pull (tweetTabId -> { buffer, mime, imageTabId, receivedAt })
+const pendingImageStore = new Map();
+
 
 /**
  * Initialize the extension background services
@@ -225,6 +228,64 @@ function setupExtensionLifecycle() {
   
   console.log('📱 Extension lifecycle handlers set up');
 }
+
+// ----------------------------------------------------------------------------
+// Priority-1: Binary image transfer via Port + Pull model for CS
+// ----------------------------------------------------------------------------
+
+chrome.runtime.onConnect.addListener((port) => {
+  try {
+    if (port.name === 'krm_image_gen') {
+      // Image generator → Background (binary)
+      port.onMessage.addListener(async (msg) => {
+        if (!msg || msg.type !== 'image' || !msg.buffer) return;
+        const imageTabId = port.sender?.tab?.id;
+        try {
+          const share = socialMediaService?.workflowService?.tabManager?.findShareByImageTab(imageTabId);
+          if (!share) {
+            console.warn('Pending share not found for image tab:', imageTabId);
+            return;
+          }
+          const tweetTabId = share.tweetTabId;
+          pendingImageStore.set(tweetTabId, {
+            buffer: msg.buffer,
+            mime: msg.mime || 'image/jpeg',
+            imageTabId,
+            receivedAt: Date.now()
+          });
+          console.log('🔒 Stored pending image for tweetTabId:', tweetTabId);
+        } catch (e) {
+          console.error('Failed to store pending image:', e);
+        }
+      });
+    } else if (port.name === 'krm_image_pull') {
+      // Content script → Background (pull binary)
+      port.onMessage.addListener(async (msg) => {
+        if (!msg || msg.type !== 'pull') return;
+        const tweetTabId = port.sender?.tab?.id;
+        const record = pendingImageStore.get(tweetTabId);
+        if (!record) {
+          console.log('No pending image for tweetTabId yet:', tweetTabId);
+          return;
+        }
+        try {
+          // Respond with binary (Transferable)
+          const { buffer, mime, imageTabId } = record;
+          port.postMessage({ type: 'image', mime, buffer }, [buffer]);
+          pendingImageStore.delete(tweetTabId);
+          // Mark as sent and cleanup image tab
+          socialMediaService?.workflowService?.tabManager?.markImageAsSent(tweetTabId);
+          await socialMediaService?.workflowService?.tabManager?.cleanupImageTab(imageTabId);
+          console.log('📤 Sent pending image to tweet tab via Port and cleaned up image tab');
+        } catch (e) {
+          console.error('Failed to send pending image:', e);
+        }
+      });
+    }
+  } catch (e) {
+    console.error('onConnect handler error:', e);
+  }
+});
 
 /**
  * Handle unhandled errors globally

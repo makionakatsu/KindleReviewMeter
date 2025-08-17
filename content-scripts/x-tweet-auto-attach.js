@@ -379,6 +379,89 @@
     }
   }
 
+  /**
+   * Attachment using a prebuilt File object (binary path)
+   */
+  async function attachViaFile(file) {
+    const currentAttemptId = ++attachmentAttemptId;
+    try {
+      if (!file) return false;
+      if (attachmentInProgress) return false;
+      if (attachmentCompleted) return true;
+      attachmentInProgress = true;
+
+      await findAndClickAttachmentButton();
+
+      const waitForFileInputAppears = (ms = 800) => new Promise((resolve) => {
+        let resolved = false;
+        const found = document.querySelector('input[type="file"]');
+        if (found) { resolve(found); return; }
+        const obs = new MutationObserver(() => {
+          const el = document.querySelector('input[type="file"]');
+          if (el && !resolved) { resolved = true; obs.disconnect(); resolve(el); }
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+        setTimeout(() => { if (!resolved) { obs.disconnect(); resolve(null); } }, ms);
+      });
+
+      let { fileInput, composerTextbox } = await waitForElements({ requireFileInput: false, timeoutMs: 1000 });
+      if (!fileInput) {
+        fileInput = document.querySelector('input[type="file"]') || await waitForFileInputAppears(500);
+      }
+
+      // Method 1: Direct input assignment
+      if (fileInput) {
+        try {
+          const dt = new DataTransfer(); dt.items.add(file); fileInput.files = dt.files;
+          ['change','input'].forEach(t => fileInput.dispatchEvent(new Event(t, { bubbles:true })));
+          if (composerTextbox?.focus) composerTextbox.focus();
+          composerTextbox?.dispatchEvent(new Event('focus', { bubbles:true }));
+          document.body.dispatchEvent(new Event('click', { bubbles:true }));
+          attachmentCompleted = true; return true;
+        } catch (_) {}
+      }
+
+      // Method 2: Drag-and-drop
+      const dropOn = async (target, f) => {
+        const dt = new DataTransfer(); dt.items.add(f);
+        const de = new DragEvent('dragenter', { bubbles:true, cancelable:true, dataTransfer:dt });
+        const dover = new DragEvent('dragover', { bubbles:true, cancelable:true, dataTransfer:dt });
+        const dd = new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer:dt });
+        target.dispatchEvent(de); await new Promise(r=>setTimeout(r,15));
+        target.dispatchEvent(dover); await new Promise(r=>setTimeout(r,15));
+        target.dispatchEvent(dd);
+      };
+      const zones = [
+        '[data-testid="attachments"]', '[data-testid="toolBar"]', '[data-testid="primaryColumn"]',
+        '[data-testid="tweetTextarea_0"]', '[role="group"]', '[role="main"]', 'div[contenteditable="true"]'
+      ];
+      for (const sel of zones) {
+        const z = document.querySelector(sel); if (!z) continue;
+        try { await dropOn(z, file); attachmentCompleted = true; return true; } catch {}
+      }
+      try { await dropOn(document.body, file); attachmentCompleted = true; return true; } catch {}
+
+      // Method 3: Paste simulation
+      const targets = [document.querySelector('[data-testid="tweetTextarea_0"]'), document.querySelector('[role="textbox"]'), document.activeElement, document.body].filter(Boolean);
+      for (const t of targets) {
+        try {
+          t.focus?.();
+          const dt = new DataTransfer(); dt.items.add(file);
+          const pe = new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData: dt });
+          t.dispatchEvent(pe); attachmentCompleted = true; return true;
+        } catch {}
+      }
+
+      // Fallback UI
+      showFallbackOverlay(); attachmentCompleted = true; return true;
+    } catch (e) {
+      console.error('attachViaFile error:', e);
+      showFallbackOverlay(); return false;
+    } finally {
+      if (!attachmentCompleted) attachmentInProgress = false;
+    }
+  }
+
   // ============================================================================
   // AUTO-RETRY SYSTEM
   // ============================================================================
@@ -472,6 +555,30 @@
         console.log('Successfully notified background script');
       }
     });
+    
+    // Priority-1: Pull pending image via Port (binary transfer)
+    try {
+      if (!window.__krmBinaryPullStarted) {
+        window.__krmBinaryPullStarted = true;
+        const port = chrome.runtime.connect({ name: 'krm_image_pull' });
+        port.onMessage.addListener(async (msg) => {
+          try {
+            if (!msg || msg.type !== 'image' || !msg.buffer) return;
+            const mime = msg.mime || 'image/jpeg';
+            const u8 = new Uint8Array(msg.buffer);
+            const file = new File([u8], 'kindle-review-image' + (mime.includes('png') ? '.png' : '.jpg'), { type: mime });
+            console.log('Received binary image via Port; attempting attachment');
+            await attachViaFile(file);
+          } catch (e) {
+            console.error('Binary attachment failed:', e);
+          }
+        });
+        // Trigger initial pull request
+        port.postMessage({ type: 'pull' });
+      }
+    } catch (e) {
+      console.warn('Binary pull setup failed:', e);
+    }
   });
 
   // Setup message listener for background script communication
