@@ -215,6 +215,23 @@ function registerServiceHandlers() {
  * Set up extension lifecycle handlers
  */
 function setupExtensionLifecycle() {
+  const createOrUpdateContextMenu = () => {
+    if (!chrome.contextMenus) return;
+    try { chrome.contextMenus.remove('kindle-review-meter'); } catch {}
+    try {
+      chrome.contextMenus.create({
+        id: 'kindle-review-meter',
+        title: 'Kindleレビューメーターで分析',
+        contexts: ['link'],
+        targetUrlPatterns: [
+          '*://*.amazon.co.jp/dp/*', '*://*.amazon.co.jp/gp/product/*',
+          '*://*.amazon.com/dp/*',   '*://*.amazon.com/gp/product/*'
+        ]
+      });
+    } catch (e) {
+      console.warn('Failed to (re)create context menu:', e?.message || e);
+    }
+  };
   // Installation handler
   chrome.runtime.onInstalled.addListener((details) => {
     try {
@@ -223,18 +240,7 @@ function setupExtensionLifecycle() {
         extensionStateManager.updateLastActivity();
         
         // Create context menu for Amazon links
-        if (chrome.contextMenus) {
-          try { chrome.contextMenus.remove('kindle-review-meter'); } catch {}
-          chrome.contextMenus.create({
-            id: 'kindle-review-meter',
-            title: 'Kindleレビューメーターで分析',
-            contexts: ['link'],
-            targetUrlPatterns: [
-              '*://*.amazon.co.jp/dp/*', '*://*.amazon.co.jp/gp/product/*',
-              '*://*.amazon.com/dp/*',   '*://*.amazon.com/gp/product/*'
-            ]
-          });
-        }
+        createOrUpdateContextMenu();
       }
     } catch (error) {
       errorHandler.handle(error, 'INSTALLATION', {
@@ -243,6 +249,9 @@ function setupExtensionLifecycle() {
       });
     }
   });
+
+  // Ensure context menu exists on each startup/sw wake
+  try { createOrUpdateContextMenu(); } catch {}
   
   // Context menu click handler
   if (chrome.contextMenus) {
