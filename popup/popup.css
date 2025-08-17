@@ -251,6 +251,20 @@ body::before {
   font-size: 0.85rem;
 }
 
+/* Inline validation */
+input.error {
+  border-color: var(--danger);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.field-error {
+  margin-top: 4px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+  display: block;
+}
+
 /* Input Group */
 .input-group {
   display: flex;

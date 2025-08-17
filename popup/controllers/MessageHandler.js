@@ -260,20 +260,29 @@ export default class MessageHandler {
   async checkPendingUrl() {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage) {
-        const result = await chrome.storage.local.get('pendingUrl');
-        if (result.pendingUrl) {
-          console.log('MessageHandler: Found pending URL:', result.pendingUrl);
-          
-          // Clear the pending URL immediately
-          await chrome.storage.local.remove('pendingUrl');
-          
-          return result.pendingUrl;
+        // Prefer session storage
+        if (chrome.storage.session) {
+          const ses = await chrome.storage.session.get(['pendingAmazonUrl', 'pendingUrl']);
+          const url = ses?.pendingAmazonUrl || ses?.pendingUrl || null;
+          if (url) {
+            await chrome.storage.session.remove(['pendingAmazonUrl', 'pendingUrl']);
+            console.log('MessageHandler: Found pending URL in session:', url);
+            return url;
+          }
+        }
+
+        // Fallback to local
+        const loc = await chrome.storage.local.get(['pendingAmazonUrl', 'pendingUrl']);
+        const url = loc?.pendingAmazonUrl || loc?.pendingUrl || null;
+        if (url) {
+          await chrome.storage.local.remove(['pendingAmazonUrl', 'pendingUrl']);
+          console.log('MessageHandler: Found pending URL in local:', url);
+          return url;
         }
       }
     } catch (error) {
       console.warn('MessageHandler: Failed to check pending URL:', error);
     }
-    
     return null;
   }
 

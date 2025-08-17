@@ -1047,7 +1047,7 @@
         <div class="btn-group">
           <button class="btn primary" onclick="app.saveData()">💾 保存</button>
           <button class="btn secondary" onclick="app.clearData()">🗑️ クリア</button>
-          <button class="btn primary" onclick="app.exportProgressImage()">🖼️ 画像シェア</button>
+          <button class="btn primary" onclick="app.shareToX()">🐦 Xで共有</button>
         </div>
       </div>
     </div>
@@ -1519,59 +1519,46 @@
        */
       async scrapeAmazonData(url) {
         try {
-          // Multiple CORS proxy attempts for reliability
           const proxies = [
-            'https://api.allorigins.win/get?url=',
-            'https://corsproxy.io/?',
-            'https://cors-anywhere.herokuapp.com/'
+            { base: 'https://api.allorigins.win/get?url=', type: 'json' },
+            { base: 'https://corsproxy.io/?', type: 'html' },
+            { base: 'https://thingproxy.freeboard.io/fetch/', type: 'html' }
           ];
-          
-          let response = null;
-          let htmlContent = null;
-          
-          // Try each proxy until one works
-          for (const proxy of proxies) {
+
+          const controller = new AbortController();
+          const perProxyTimeout = 8000;
+          const overallTimeout = 15000;
+
+          const fetchVia = async (p) => {
+            const proxyUrl = p.base + encodeURIComponent(url);
+            const to = setTimeout(() => controller.abort(), perProxyTimeout);
             try {
-              const proxyUrl = proxy + encodeURIComponent(url);
-              console.log(`Trying proxy: ${proxy}`);
-              
-              const fetchResponse = await fetch(proxyUrl, {
-                method: 'GET',
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                  'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
-                  'Accept-Encoding': 'gzip, deflate, br'
-                }
-              });
-              
-              if (!fetchResponse.ok) {
-                throw new Error(`HTTP error! status: ${fetchResponse.status}`);
+              const res = await fetch(proxyUrl, { signal: controller.signal, cache: 'no-cache' });
+              clearTimeout(to);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              let html;
+              if (p.type === 'json') {
+                const data = await res.json();
+                html = data.contents || data.response || data.data || '';
+              } else {
+                html = await res.text();
               }
-              
-              const data = await fetchResponse.json();
-              htmlContent = data.contents || data.response;
-              
-              if (htmlContent && htmlContent.length > 1000) {
-                console.log('Successfully fetched data with proxy:', proxy);
-                break;
+              if (typeof html === 'string' && html.length > 1000 && /amazon/i.test(html)) {
+                return html;
               }
-            } catch (error) {
-              console.warn(`Proxy ${proxy} failed:`, error);
-              continue;
+              throw new Error('invalid content');
+            } finally {
+              clearTimeout(to);
             }
-          }
-          
-          if (!htmlContent) {
-            throw new Error('All proxies failed');
-          }
-          
+          };
+
+          const attempts = proxies.map(fetchVia);
+          const race = Promise.any(attempts);
+          const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('overall timeout')), overallTimeout));
+          const htmlContent = await Promise.race([race, timeout]);
           return this.parseAmazonHTML(htmlContent, url);
-          
         } catch (error) {
-          console.error('Real scraping failed, falling back to enhanced extraction:', error);
-          
-          // Enhanced fallback - try to extract ASIN and make educated guess
+          console.error('Scraping race failed, falling back to enhanced extraction:', error);
           return this.enhancedAmazonExtraction(url);
         }
       }
@@ -2403,6 +2390,48 @@
       async exportProgressImage() {
         console.log('NEW EXPORT FUNCTION CALLED!');
         return this.exportProgressImageNew();
+      }
+
+      /**
+       * Xで共有（拡張と同様のテキスト仕様）
+       * - 画像は生成・ダウンロードし、X compose を新規タブで開く
+       * - 画像の自動添付は拡張が必要（Web版ではドラッグ&ドロップ/貼り付けを案内）
+       */
+      async shareToX() {
+        try {
+          const data = this.storage.load();
+          if (!data) {
+            this.toast.warning('共有するデータがありません', { title: 'X投稿' });
+            return;
+          }
+
+          // 画像生成（ダウンロード）
+          await this.exportProgressImageNew();
+
+          // ツイート文言（拡張の最新仕様に合わせて簡潔化）
+          const current = Number(data.reviewCount) || 0;
+          const target = Number(data.targetReviews) || 0;
+          let tweet = `「${data.title || '書籍'}」のレビューが${current}件になりました！🎉\nレビューを書いて著者を応援しよう！📚`;
+          if (target > 0 && current < target) {
+            const pct = Math.round((current / target) * 100);
+            const remaining = Math.max(target - current, 0);
+            tweet = `「${data.title || '書籍'}」のレビューが${current}件になりました！\nレビューを書いて著者を応援しよう！\n目標${target}件まで残り${remaining}件です📚 (${pct}%)`;
+          }
+          const url = (data.amazonUrl || '').trim();
+          const hashtag = '#KindleReviewMeter';
+          const full = [tweet, url, hashtag].filter(Boolean).join('\n');
+
+          const composeUrl = 'https://x.com/compose/tweet?text=' + encodeURIComponent(full);
+          window.open(composeUrl, '_blank');
+
+          this.toast.info('X投稿画面を開きました。ダウンロードした画像をドラッグ＆ドロップまたは貼り付けしてください。', {
+            title: 'Xで共有',
+            duration: 8000
+          });
+        } catch (e) {
+          console.error('shareToX failed:', e);
+          this.toast.error('X投稿の準備に失敗しました');
+        }
       }
 
       async drawBookCoverOnCanvas(ctx, imageUrl, x, y, width, height) {
