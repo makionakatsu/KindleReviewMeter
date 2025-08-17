@@ -18,6 +18,9 @@
 
 import AmazonHTMLParser from '../parsers/AmazonHTMLParser.js';
 import MetadataExtractor from '../parsers/MetadataExtractor.js';
+import { normalizeUrl as normalizeAmazonUrl } from './amazon/UrlUtils.js';
+import { extractImageUrlRobust as robustImageExtractor, extractReviewCountRobust as robustReviewExtractor } from './amazon/Extractors.js';
+import HtmlFetcher from './amazon/HtmlFetcher.js';
 
 export default class AmazonScrapingService {
   constructor(cache, proxyManager, errorHandler) {
@@ -28,6 +31,7 @@ export default class AmazonScrapingService {
     // Parsers
     this.htmlParser = new AmazonHTMLParser();
     this.metadataExtractor = new MetadataExtractor();
+    this.htmlFetcher = new HtmlFetcher(proxyManager);
 
     // Performance tracking
     this.stats = {
@@ -99,13 +103,13 @@ export default class AmazonScrapingService {
 
       // 6. Robust overrides (align with origin/main behavior)
       // Image URL
-      const robustImage = this.extractImageUrlRobust(html);
+      const robustImage = robustImageExtractor(html);
       if (robustImage) {
         result.imageUrl = robustImage;
         result.extraction.imageSource = 'robust';
       }
       // Review count
-      const { count: robustReviews, source: reviewSource } = this.extractReviewCountRobust(html) || {};
+      const { count: robustReviews, source: reviewSource } = robustReviewExtractor(html) || {};
       if (typeof robustReviews === 'number' && robustReviews >= 0) {
         result.reviewCount = robustReviews;
         result.currentReviews = robustReviews;
@@ -274,179 +278,21 @@ export default class AmazonScrapingService {
    * Fallback: Open Amazon page in a background tab and extract HTML via scripting
    */
   async fetchHtmlViaTab(url) {
-    return new Promise((resolve, reject) => {
-      try {
-        chrome.tabs.create({ url, active: false }, (tab) => {
-          if (chrome.runtime.lastError || !tab?.id) {
-            return reject(new Error(chrome.runtime.lastError?.message || 'Failed to create tab'));
-          }
-
-          const tabId = tab.id;
-          const timeoutMs = 15000;
-          let done = false;
-
-          const cleanup = () => {
-            try { chrome.tabs.remove(tabId); } catch {}
-            chrome.tabs.onUpdated.removeListener(onUpdated);
-          };
-
-          const onTimeout = setTimeout(() => {
-            if (!done) {
-              done = true;
-              cleanup();
-              reject(new Error('Direct tab fetch timeout'));
-            }
-          }, timeoutMs);
-
-          const onUpdated = (updatedTabId, changeInfo, updatedTab) => {
-            if (updatedTabId === tabId && changeInfo.status === 'complete') {
-              try {
-                chrome.scripting.executeScript(
-                  { target: { tabId }, func: () => document.documentElement.outerHTML },
-                  (results) => {
-                    if (done) return;
-                    done = true;
-                    clearTimeout(onTimeout);
-                    cleanup();
-                    if (chrome.runtime.lastError || !results || !results[0]?.result) {
-                      return reject(new Error(chrome.runtime.lastError?.message || 'Failed to extract HTML'));
-                    }
-                    resolve(String(results[0].result));
-                  }
-                );
-              } catch (e) {
-                if (!done) {
-                  done = true;
-                  clearTimeout(onTimeout);
-                  cleanup();
-                  reject(e);
-                }
-              }
-            }
-          };
-
-          chrome.tabs.onUpdated.addListener(onUpdated);
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
+    return this.htmlFetcher.fetchHtmlViaTab(url);
   }
 
   /**
    * Normalize Amazon URL to standard format
    */
   normalizeUrl(url) {
-    try {
-      if (!url || typeof url !== 'string' || url.trim().length === 0) {
-        return null;
-      }
-
-      const trimmed = url.trim();
-      const withProtocol = (/^https?:\/\//i.test(trimmed)) ? trimmed : ('https://' + trimmed);
-      const u = new URL(withProtocol);
-
-      // Accept broad Amazon hosts (same as origin/main behavior)
-      const amazonHosts = [
-        'amazon.co.jp', 'amazon.com', 'amazon.ca', 'amazon.co.uk',
-        'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es',
-        'www.amazon.co.jp', 'www.amazon.com', 'www.amazon.ca', 'www.amazon.co.uk',
-        'www.amazon.de', 'www.amazon.fr', 'www.amazon.it', 'www.amazon.es'
-      ];
-      const isAmazon = amazonHosts.some(host => u.hostname === host || u.hostname.endsWith('.' + host));
-      if (!isAmazon) return null;
-
-      // Extract ASIN from multiple patterns
-      const patterns = [
-        /\/dp\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,
-        /\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,
-        /\/gp\/product\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,
-        /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,
-        /\/o\/ASIN\/([A-Z0-9]{10})(?:\/|$|\?|#)/i,
-        /ASIN[=/]([A-Z0-9]{10})/i
-      ];
-      let asin = null;
-      for (const rx of patterns) {
-        const m = withProtocol.match(rx);
-        if (m) { asin = m[1]; break; }
-      }
-      if (!asin) return null;
-
-      return `${u.protocol}//${u.hostname}/dp/${asin}`;
-    } catch (e) {
-      return null;
-    }
+    return normalizeAmazonUrl(url);
   }
 
   /**
    * Fetch HTML content using proxy services (parallel race, fast-first)
    */
   async fetchHtmlWithProxies(url) {
-    const proxies = this.proxyManager.getOptimizedProxyList();
-    const createProxyFetch = (proxy, index) => {
-      return new Promise(async (resolve, reject) => {
-        const start = Date.now();
-        const controller = new AbortController();
-        try {
-          const timeout = this.proxyManager.getRecommendedTimeout
-            ? this.proxyManager.getRecommendedTimeout(proxy)
-            : 8000;
-          const timeoutId = setTimeout(() => {
-            controller.abort();
-            reject(new Error(`Timeout after ${timeout}ms`));
-          }, timeout);
-
-          const proxyUrl = this.buildProxyUrl(proxy, url);
-          const response = await fetch(proxyUrl, {
-            method: 'GET',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-              'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
-              'Cache-Control': 'no-cache'
-            },
-            signal: controller.signal
-          });
-
-          clearTimeout(timeoutId);
-          const took = Date.now() - start;
-          if (!response.ok) {
-            this.proxyManager.recordAttempt(proxy, false, took);
-            return reject(new Error(`HTTP ${response.status}`));
-          }
-
-          let htmlContent;
-          const ct = response.headers.get('content-type');
-          if (ct && ct.includes('application/json')) {
-            const data = await response.json();
-            htmlContent = data.contents || data.response || data.data || data;
-          } else {
-            htmlContent = await response.text();
-          }
-
-          if (htmlContent && typeof htmlContent === 'string' && htmlContent.length > 1000 && this.isValidAmazonHtml(htmlContent)) {
-            this.proxyManager.recordAttempt(proxy, true, took);
-            return resolve({ html: htmlContent, proxy, took, index });
-          } else {
-            this.proxyManager.recordAttempt(proxy, false, took);
-            return reject(new Error('Invalid content'));
-          }
-        } catch (error) {
-          const took = Date.now() - start;
-          this.proxyManager.recordAttempt(proxy, false, took);
-          return reject(error);
-        }
-      });
-    };
-
-    const attempts = proxies.map(createProxyFetch);
-    // Resolve on first success, ignore rejections
-    const anySuccess = Promise.any(attempts).catch(() => null);
-    // Overall timeout
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Overall race timeout')), 15000));
-    const result = await Promise.race([anySuccess, timeout]);
-    if (!result) throw new Error('All proxy attempts failed');
-    return result.html;
+    return this.htmlFetcher.fetchHtmlWithProxies(url);
   }
 
   /**
@@ -455,16 +301,7 @@ export default class AmazonScrapingService {
    * - Path prefix style: append raw url (e.g., cors-anywhere, isomorphic-git, thingproxy)
    */
   buildProxyUrl(proxy, url) {
-    const lower = proxy.toLowerCase();
-    const pathStyleHosts = [
-      'cors-anywhere.herokuapp.com/',
-      'cors.isomorphic-git.org/',
-      'thingproxy.freeboard.io/fetch/'
-    ];
-    if (pathStyleHosts.some(h => lower.includes(h))) {
-      return proxy + url; // raw URL after prefix
-    }
-    return proxy + encodeURIComponent(url);
+    return this.htmlFetcher.buildProxyUrl(proxy, url);
   }
 
   // Parsing handled by dedicated parser classes in fetchBookData
@@ -502,31 +339,7 @@ export default class AmazonScrapingService {
    * @returns {boolean} Whether HTML appears to be valid Amazon page
    */
   isValidAmazonHtml(html) {
-    const requiredPatterns = [
-      /amazon/i,
-      /<title/i,
-      /<body/i
-    ];
-    
-    const suspiciousPatterns = [
-      /error/i,
-      /not found/i,
-      /access denied/i,
-      /blocked/i
-    ];
-    
-    // Check for required content
-    const hasRequired = requiredPatterns.every(pattern => pattern.test(html));
-    
-    // Check for suspicious content in title
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (titleMatch) {
-      const title = titleMatch[1].toLowerCase();
-      const hasSuspicious = suspiciousPatterns.some(pattern => pattern.test(title));
-      if (hasSuspicious) return false;
-    }
-    
-    return hasRequired;
+    return this.htmlFetcher.isValidAmazonHtml(html);
   }
 
   /**

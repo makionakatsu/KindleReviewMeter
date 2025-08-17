@@ -34,172 +34,21 @@
   const qs = new URLSearchParams(location.search);
   let data = null;
 
-  /**
-   * Multi-Source Data Loading System
-   * 
-   * Responsibilities:
-   * - Load book data from URL parameters (primary)
-   * - Fallback to Chrome storage for data retrieval
-   * - Handle data parsing and error recovery
-   * - Support multiple data input methods
-   */
-  async function loadData() {
-    try {
-      if (qs.has('data')) {
-        data = JSON.parse(decodeURIComponent(qs.get('data')));
-      }
-    } catch (e) {
-      console.warn('Failed to parse data from query:', e);
-    }
-
-    if (!data && chrome?.storage?.local) {
-      const res = await chrome.storage.local.get(['pendingImageData']);
-      data = res.pendingImageData || null;
-    }
-
-    return data;
-  }
-
   // ============================================================================
   // CANVAS DRAWING UTILITIES
   // ============================================================================
   
-  /**
-   * Canvas Drawing Helper Functions
-   * 
-   * These utility functions provide enhanced drawing capabilities for the Canvas API,
-   * including rounded rectangles, text wrapping, and image handling.
-   */
-  
-  /**
-   * Draw rounded rectangle path
-   * @param {CanvasRenderingContext2D} ctx - Canvas context
-   * @param {number} x - X coordinate
-   * @param {number} y - Y coordinate  
-   * @param {number} w - Width
-   * @param {number} h - Height
-   * @param {number} r - Border radius
-   */
-  function roundRect(ctx, x, y, w, h, r){
-    ctx.beginPath();
-    ctx.moveTo(x+r, y);
-    ctx.lineTo(x+w-r, y);
-    ctx.quadraticCurveTo(x+w, y, x+w, y+r);
-    ctx.lineTo(x+w, y+h-r);
-    ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-    ctx.lineTo(x+r, y+h);
-    ctx.quadraticCurveTo(x, y+h, x, y+h-r);
-    ctx.lineTo(x, y+r);
-    ctx.quadraticCurveTo(x, y, x+r, y);
-    ctx.closePath();
-  }
+  // Import helpers from KRMImage namespaces
+  const { roundRect, wrapTextBoundedCenter } = (window.KRMImage?.Canvas || {});
+  const {
+    drawBookPlaceholder,
+    drawBookCoverOnCanvas,
+    fetchImageObjectUrl
+  } = (window.KRMImage?.ImageProcessing || {});
 
-  function wrapTextBoundedCenter(ctx, text, centerX, top, left, right, lineHeight) {
-    const maxWidth = Math.max(0, right - left);
-    const originalAlign = ctx.textAlign;
-    const originalBaseline = ctx.textBaseline;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-
-    // Grapheme segmentation for robust wrapping (handles Japanese and emoji)
-    let graphemes;
-    try {
-      const seg = new Intl.Segmenter('ja', { granularity: 'grapheme' });
-      graphemes = Array.from(seg.segment(text), s => s.segment);
-    } catch {
-      graphemes = Array.from(text);
-    }
-
-    const isWs = (ch) => ch === ' ' || ch === '\u3000' || /\s/.test(ch);
-    const lines = [];
-    let line = '';
-    for (let i = 0; i < graphemes.length; i++) {
-      const ch = graphemes[i];
-      // Collapse leading whitespace of a new line
-      const glyph = (isWs(ch) && line.length === 0) ? '' : ch;
-      const test = line + glyph;
-      const w = ctx.measureText(test).width;
-      if (w > maxWidth && line) {
-        lines.push(line.replace(/\s+$/,'').replace(/^\s+/,''));
-        line = isWs(ch) ? '' : ch; // start next line without leading space
-      } else {
-        line = test;
-      }
-    }
-    if (line) lines.push(line.replace(/\s+$/,'').replace(/^\s+/,''));
-
-    let y = top;
-    for (const l of lines) {
-      ctx.fillText(l, centerX, y);
-      y += lineHeight;
-    }
-    ctx.textAlign = originalAlign;
-    ctx.textBaseline = originalBaseline;
-    return y - lineHeight;
-  }
-
-  function drawBookPlaceholder(ctx, x, y, width, height) {
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 15;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 8;
-    const gradient = ctx.createLinearGradient(x, y, x, y + height);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
-    ctx.fillStyle = gradient;
-    roundRect(ctx, x, y, width, height, 16);
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 2;
-    roundRect(ctx, x, y, width, height, 16);
-    ctx.stroke();
-    ctx.font = '48px Inter, system-ui';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.textAlign = 'center';
-    ctx.fillText('📚', x + width / 2, y + height / 2 + 10);
-    ctx.font = '12px Inter, system-ui';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.fillText('画像なし', x + width / 2, y + height / 2 + 35);
-  }
-
-  function drawBookCoverOnCanvas(ctx, imageUrl, x, y, width, height) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      // Using object URLs from fetched blobs avoids canvas taint; crossOrigin not required
-      img.onload = () => {
-        ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-        ctx.shadowBlur = 15;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 8;
-        roundRect(ctx, x, y, width, height, 16);
-        ctx.clip();
-        ctx.drawImage(img, x, y, width, height);
-        ctx.restore();
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 3;
-        roundRect(ctx, x, y, width, height, 16);
-        ctx.stroke();
-        ctx.restore();
-        resolve();
-      };
-      img.onerror = reject;
-      img.src = imageUrl;
-    });
-  }
-
-  // Fetch remote image as Blob and return an object URL to avoid canvas taint
-  async function fetchImageObjectUrl(url) {
-    const res = await fetch(url, { credentials: 'omit', cache: 'no-cache' });
-    if (!res.ok) throw new Error(`image fetch failed: ${res.status}`);
-    const blob = await res.blob();
-    if (!blob || blob.size === 0) throw new Error('empty image blob');
-    return URL.createObjectURL(blob);
+  // Fallback guards: ensure helpers exist
+  if (!roundRect || !wrapTextBoundedCenter || !drawBookPlaceholder || !drawBookCoverOnCanvas || !fetchImageObjectUrl) {
+    console.error('Image generator helpers missing. Ensure imagegen/*.js are loaded before image-generator.js');
   }
 
   // ============================================================================
@@ -388,230 +237,13 @@
         console.log('[ImageGen] layout check:', { barY, barH, statsY, overlap });
       }
 
-      // Global variables for clipboard functionality
-      let globalCanvas = canvas;
-      let globalBlob = null;
-      
-      // Direct download without preview
-      const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
-      const triggerDownload = (href) => {
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      };
+      const quickMode = qs.has('quickMode');
+      if (quickMode) {
+        await (window.KRMImage?.Output?.handleQuickMode?.(canvas, status));
+        return;
+      }
 
-      // Setup clipboard button with multiple methods
-      const setupClipboardButton = (blob) => {
-        const copyBtn = document.getElementById('copyToClipboard');
-        if (copyBtn) {
-          copyBtn.style.display = 'inline-flex';
-          copyBtn.onclick = async () => {
-            let success = false;
-            let lastError = null;
-            
-            // Method 1: Modern Clipboard API
-            try {
-              await navigator.clipboard.write([
-                new ClipboardItem({
-                  'image/png': blob
-                })
-              ]);
-              success = true;
-              console.log('Clipboard copy succeeded with modern API');
-            } catch (error) {
-              lastError = error;
-              console.warn('Modern clipboard API failed:', error);
-            }
-            
-            
-            if (success) {
-              copyBtn.textContent = 'コピー完了！';
-              copyBtn.style.background = '#10b981';
-              setTimeout(() => {
-                copyBtn.textContent = 'クリップボードにコピー';
-                copyBtn.style.background = '';
-              }, 2000);
-              
-              if (chrome?.runtime) {
-                chrome.runtime.sendMessage({
-                  action: 'clipboardCopySuccess',
-                  success: true
-                });
-              }
-            } else {
-              console.error('All clipboard copy methods failed. Last error:', {
-                name: lastError?.name,
-                message: lastError?.message,
-                code: lastError?.code,
-                stack: lastError?.stack
-              });
-              copyBtn.textContent = `コピー失敗 (${lastError?.name || 'Unknown'})`;
-              copyBtn.style.background = '#ef4444';
-              setTimeout(() => {
-                copyBtn.textContent = 'クリップボードにコピー';
-                copyBtn.style.background = '';
-              }, 3000);
-              
-              // Show detailed error to user
-              const statusEl = document.getElementById('status');
-              if (statusEl) {
-                statusEl.innerHTML = `クリップボードエラー: ${lastError?.name || 'Unknown'}<br>手動で画像をダウンロードしてX投稿画面にドラッグ&ドロップしてください。`;
-              }
-            }
-          };
-        }
-      };
-
-      canvas.toBlob(async (blob)=>{
-        const urlParams = new URLSearchParams(window.location.search);
-        const quickMode = urlParams.has('quickMode');
-
-        // Quick mode: クリップボードを使わず、データURLを背景→Xタブへ転送
-        if (quickMode) {
-          try {
-            console.log('Quick mode: generating image data URL');
-            // Prefer JPEG in quick mode to reduce payload size
-            const jpegDataUrl = await new Promise((resolve, reject) => {
-              try {
-                canvas.toBlob(async (jpegBlob) => {
-                  try {
-                    if (!jpegBlob) {
-                      // Fallback to PNG data URL
-                      return resolve(canvas.toDataURL('image/png'));
-                    }
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsDataURL(jpegBlob);
-                  } catch (e) { reject(e); }
-                }, 'image/jpeg', 0.9);
-              } catch (e) { reject(e); }
-            });
-            const dataUrl = jpegDataUrl;
-            
-            console.log('Data URL generated, length:', dataUrl?.length);
-            if (chrome?.runtime?.sendMessage) {
-              console.log('Sending imageGenerated message to background');
-              const response = await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl });
-              console.log('Background response:', response);
-              status.textContent = '画像データを送信しました';
-            } else {
-              console.error('Chrome runtime not available for message sending');
-            }
-          } catch (e) {
-            console.error('Quick mode send failed, falling back to download:', e);
-            const fallbackUrl = blob ? URL.createObjectURL(blob) : canvas.toDataURL('image/png');
-            triggerDownload(fallbackUrl);
-          } finally {
-            setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
-          }
-          return;
-        }
-
-        // 通常モード: 既存のダウンロード + 任意のクリップボードコピー
-        if (blob) {
-          // Setup manual clipboard button
-          setupClipboardButton(blob);
-          const helpText = document.getElementById('helpText');
-          if (helpText) helpText.style.display = 'block';
-          const objectUrl = URL.createObjectURL(blob);
-          const filename = `kindle-review-progress-${current}-${target}-${Date.now()}.png`;
-          if (chrome?.downloads?.download) {
-            try {
-              const downloadId = await new Promise((resolve, reject) => {
-                chrome.downloads.download({ url: objectUrl, filename, saveAs: false, conflictAction: 'uniquify' }, (id) => {
-                  if (chrome.runtime.lastError || !id) return reject(chrome.runtime.lastError || new Error('download failed'));
-                  resolve(id);
-                });
-              });
-              setTimeout(() => { try { chrome.downloads.show(downloadId); } catch {} }, 300);
-            } catch (e) {
-              console.warn('chrome.downloads failed, fallback to anchor:', e?.message || e);
-              triggerDownload(objectUrl);
-            } finally {
-              setTimeout(()=>URL.revokeObjectURL(objectUrl), 2000);
-            }
-          } else {
-            triggerDownload(objectUrl);
-            setTimeout(()=>URL.revokeObjectURL(objectUrl), 2000);
-          }
-          try {
-            const permission = await navigator.permissions.query({name: 'clipboard-write'});
-            const userActivated = !!(navigator.userActivation?.isActive);
-            const canAutoCopy = permission.state === 'granted' && userActivated && document.hasFocus();
-            if (canAutoCopy) {
-              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
-              status.textContent = 'ダウンロードを開始しました';
-              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
-            } else {
-              // Skip auto copy silently when not allowed (no user gesture or permission)
-              console.debug('Skipping optional clipboard copy (no user activation or permission)');
-            }
-          } catch (clipboardError) {
-            console.debug('Optional clipboard copy failed:', clipboardError);
-            status.textContent = 'ダウンロードを開始しました';
-            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
-          }
-        } else {
-          const dataUrl = canvas.toDataURL('image/png');
-          if (chrome?.downloads?.download) {
-            try {
-              const downloadId = await new Promise((resolve, reject) => {
-                chrome.downloads.download({ url: dataUrl, filename: `kindle-review-progress-${current}-${target}-${Date.now()}.png`, saveAs: false, conflictAction: 'uniquify' }, (id) => {
-                  if (chrome.runtime.lastError || !id) return reject(chrome.runtime.lastError || new Error('download failed'));
-                  resolve(id);
-                });
-              });
-              setTimeout(() => { try { chrome.downloads.show(downloadId); } catch {} }, 300);
-            } catch (e) {
-              console.warn('chrome.downloads failed, fallback to anchor:', e?.message || e);
-              triggerDownload(dataUrl);
-            }
-          } else {
-            triggerDownload(dataUrl);
-          }
-          try {
-            const permission = await navigator.permissions.query({name: 'clipboard-write'});
-            const userActivated = !!(navigator.userActivation?.isActive);
-            const canAutoCopy = permission.state === 'granted' && userActivated && document.hasFocus();
-            if (canAutoCopy) {
-              const resp = await fetch(dataUrl);
-              const clipBlob = await resp.blob();
-              await navigator.clipboard.write([ new ClipboardItem({ 'image/png': clipBlob }) ]);
-              status.textContent = 'ダウンロードを開始しました';
-              if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: true });
-            } else {
-              console.debug('Skipping optional clipboard copy (no user activation or permission)');
-            }
-          } catch (clipboardError) {
-            console.debug('Optional clipboard copy (data URL) failed:', clipboardError);
-            status.textContent = 'ダウンロードを開始しました';
-            if (chrome?.runtime) chrome.runtime.sendMessage({ action: 'clipboardCopySuccess', success: false, error: `${clipboardError.name}: ${clipboardError.message}` });
-          }
-        }
-
-        // 通常モード: オートクローズ制御（既存挙動維持）
-        const silent = urlParams.has('silent');
-        if (silent) {
-          const clipboardSuccess = false;
-          if (chrome?.runtime) {
-            chrome.runtime.sendMessage({ action: 'imageGenerationComplete', success: clipboardSuccess, error: clipboardSuccess ? null : 'Clipboard copy failed' });
-          }
-          setTimeout(() => { try { window.close(); } catch(_) {} }, 1000);
-        } else {
-          const autoClose = urlParams.has('autoClose');
-          if (autoClose) {
-            setTimeout(() => {
-              const statusEl = document.getElementById('status');
-              // 自動クローズの挙動は、クリップボードには依存させない
-              try { window.close(); } catch(_) {}
-            }, 3000);
-          }
-        }
-      }, 'image/png');
+      await (window.KRMImage?.Output?.handleNormalMode?.(canvas, status, current, target));
     } catch (e) {
       console.error(e);
       document.getElementById('status').textContent = '画像生成に失敗しました: ' + e.message;
@@ -620,7 +252,7 @@
 
   // Initialize
   document.addEventListener('DOMContentLoaded', async () => {
-    const d = await loadData();
+    const d = await (window.KRMImage?.DataLoader?.loadData?.() || Promise.resolve(null));
     await generateImage(d);
 
     // Also support message-based injection from background (fallback)

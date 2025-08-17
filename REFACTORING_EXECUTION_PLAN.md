@@ -358,12 +358,22 @@ fi
 2. CanvasRenderer.js - Canvas描画・ユーティリティ  
 3. ImageProcessor.js - 画像処理・レイアウト計算
 4. OutputManager.js - ダウンロード・クリップボード
+# 進捗: 完了（構造分割のみ・機能変更なし）
+# 検証: 通常/quickMode/autoClose/silent/メッセージ受信の既存挙動を保持
+# リスク対処: HTML読み込み順固定、Entryでnamespace存在チェック追加
 ```
 
 #### Day 8-9: Background Services 最適化
 ```bash
-# AmazonScrapingService.js → 2ファイル分離
-# SocialMediaService.js → 3ファイル分離
+# AmazonScrapingService.js → 2ファイル分離（予定）
+# SocialMediaService.js → 3ファイル分離（完了・挙動不変）
+# 追加ファイル:
+# - background/services/socialmedia/ContentScriptManager.js
+# - background/services/socialmedia/AttachmentManager.js
+# - background/services/socialmedia/TabUtils.js
+# SocialMediaService は新マネージャへ委譲。旧実装は薄いラッパー化（段階的削除前の安全策）。
+# リスク対処: メッセージ契約(resp.ok/resp.error)、タイムアウト、ログ、リトライ模式を厳密踏襲。
+# 次段: 手動回帰確認後に旧ラッパーを削除してLFRを更に低減。
 ```
 
 #### Day 10: Phase 2 完了・統合テスト

@@ -28,7 +28,11 @@
  * 
  * EXTRACTED FROM: Original trySendImageToTweetTab function
  * OPTIMIZATION TARGET: a2830b6 fastest record (40-50% speed improvement)
- */
+*/
+
+import ContentScriptManager from './socialmedia/ContentScriptManager.js';
+import AttachmentManager from './socialmedia/AttachmentManager.js';
+import { getTabInfo as utilGetTabInfo, isValidTweetUrl as utilIsValidTweetUrl, isFatalError as utilIsFatalError, cleanupImageTab as utilCleanupImageTab, showManualAttachmentNotification as utilShowManual } from './socialmedia/TabUtils.js';
 
 export default class SocialMediaService {
   constructor(extensionStateManager, errorHandler) {
@@ -47,6 +51,14 @@ export default class SocialMediaService {
     this.timeoutFirstAttempt = 2000;   // 2s for attempt 0
     this.timeoutEarlyAttempts = 4000;  // 4s for attempts 1-2  
     this.timeoutLaterAttempts = 6000;  // 6s for attempts 3+
+
+    // Delegated managers
+    this.contentScriptManager = new ContentScriptManager({ pingTimeoutMs: this.pingTimeoutMs });
+    this.attachmentManager = new AttachmentManager({
+      timeoutFirstAttempt: this.timeoutFirstAttempt,
+      timeoutEarlyAttempts: this.timeoutEarlyAttempts,
+      timeoutLaterAttempts: this.timeoutLaterAttempts
+    });
   }
 
   /**
@@ -161,7 +173,7 @@ export default class SocialMediaService {
         }
         
         // Validate tab status
-        const tabInfo = await this.getTabInfo(tweetTabId);
+        const tabInfo = await utilGetTabInfo(tweetTabId);
         if (!tabInfo) {
           console.warn('Tweet tab no longer exists');
           continue;
@@ -176,13 +188,13 @@ export default class SocialMediaService {
         }
         
         // Validate URL
-        if (!this.isValidTweetUrl(tabInfo.url)) {
+        if (!utilIsValidTweetUrl(tabInfo.url)) {
           console.warn('Tweet tab URL not valid for attachment:', tabInfo.url);
           continue;
         }
         
         // OPTIMIZED CONTENT SCRIPT READINESS: Reduced from 5 → 3 attempts
-        const contentScriptReady = await this.ensureContentScriptReady(tweetTabId, this.maxPingAttempts);
+        const contentScriptReady = await this.contentScriptManager.ensureContentScriptReady(tweetTabId, this.maxPingAttempts);
         if (!contentScriptReady) {
           console.warn(`⚠️ Content script not ready after ${this.maxPingAttempts} ping attempts, will try attachment anyway`);
         }
@@ -190,7 +202,7 @@ export default class SocialMediaService {
         // Attempt image attachment with connection retry
         let attachResult = false;
         try {
-          attachResult = await this.attemptImageAttachment(tweetTabId, dataUrl, attempt);
+          attachResult = await this.attachmentManager.attemptImageAttachment(tweetTabId, dataUrl, attempt);
         } catch (attachError) {
           console.warn(`💥 Attachment attempt failed: ${attachError.message}`);
           
@@ -202,7 +214,7 @@ export default class SocialMediaService {
             
             try {
               // Check if script is responsive first
-              const scriptResponsive = await this.pingContentScript(tweetTabId);
+              const scriptResponsive = await this.contentScriptManager.pingContentScript(tweetTabId);
               if (!scriptResponsive) {
                 console.log('⚠️ Script not responsive, but avoiding re-injection to prevent duplicate instances');
                 console.log('ℹ️ Will retry attachment without script re-injection');
@@ -216,7 +228,7 @@ export default class SocialMediaService {
               
               // Retry attachment once without re-injection
               console.log('🔄 Retrying attachment without script re-injection...');
-              attachResult = await this.attemptImageAttachment(tweetTabId, dataUrl, attempt);
+              attachResult = await this.attachmentManager.attemptImageAttachment(tweetTabId, dataUrl, attempt);
             } catch (retryError) {
               console.error('💥 Attachment retry failed:', retryError.message);
               // Continue with the original error handling below
@@ -233,9 +245,7 @@ export default class SocialMediaService {
           console.log('🎉 Successfully sent image to tweet tab');
           
           // Cleanup image generation tab
-          if (imageTabId) {
-            await this.cleanupImageTab(imageTabId);
-          }
+          if (imageTabId) { await utilCleanupImageTab(imageTabId); }
           
           // Mark as sent and update state
           this.stateManager.updatePendingXShare(tweetTabId, { imageSent: true });
@@ -251,7 +261,7 @@ export default class SocialMediaService {
         });
         
         // Check if this is a fatal error that shouldn't be retried
-        if (this.isFatalError(error)) {
+        if (utilIsFatalError(error)) {
           console.error('🛑 Fatal error detected, aborting all retry attempts');
           break;
         }
@@ -268,7 +278,7 @@ export default class SocialMediaService {
     console.error('💀 All attempts to send image to tweet tab failed after', this.maxRetryAttempts, 'attempts');
     
     // Show user notification about manual attachment
-    await this.showManualAttachmentNotification();
+    await utilShowManual();
     
     // Update state to reflect failure
     this.stateManager.updatePendingXShare(tweetTabId, { imageSent: false });
@@ -279,275 +289,19 @@ export default class SocialMediaService {
   // CONTENT SCRIPT MANAGEMENT
   // ============================================================================
 
-  /**
-   * Ensure content script is ready and responsive
-   * @private
-   * @param {number} tabId - Tab ID
-   * @param {number} maxAttempts - Maximum ping attempts
-   * @returns {Promise<boolean>} Whether content script is ready
-   */
-  async ensureContentScriptReady(tabId, maxAttempts = 3) {
-    for (let pingAttempt = 0; pingAttempt < maxAttempts; pingAttempt++) {
-      console.log(`Ping/inject attempt ${pingAttempt + 1}/${maxAttempts}`);
-      
-      // First, check if content script is already responsive
-      const existingScript = await this.pingContentScript(tabId);
-      if (existingScript) {
-        console.log('✅ Content script already responsive, skipping injection');
-        return true;
-      }
-      
-      // Avoid script injection on first attempt to prevent duplicate instances
-      if (chrome?.scripting?.executeScript && pingAttempt > 0) {
-        try {
-          console.log(`Injecting content script only after initial failure (attempt ${pingAttempt + 1})`);
-          await chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            files: ['content-scripts/x-tweet-auto-attach.js']
-          });
-          
-          // Optimized script initialization timing (fastest record: 500-1500ms)
-          const initWait = Math.min(500 + (pingAttempt * 300), 1500);
-          console.log(`Waiting ${initWait}ms for content script initialization`);
-          await new Promise(r => setTimeout(r, initWait));
-        } catch (injectionError) {
-          console.warn(`Content script injection failed (attempt ${pingAttempt + 1}):`, injectionError.message);
-          
-          // If tab doesn't exist, abort immediately
-          if (injectionError.message.includes('No tab with id')) {
-            console.error('Tweet tab no longer exists, aborting');
-            throw new Error('Tweet tab was closed');
-          }
-        }
-      } else if (pingAttempt === 0) {
-        console.log('Skipping script injection on first attempt to avoid duplicates');
-      }
-      
-      // Test if content script is responsive
-      const pingResult = await this.pingContentScript(tabId);
-      
-      if (pingResult) {
-        console.log('✅ Content script is ready and responding');
-        return true;
-      }
-      
-      // Optimized linear backoff (fastest record pattern)
-      if (pingAttempt < maxAttempts - 1) {
-        const waitTime = Math.min(300 + (pingAttempt * 200), 1000);
-        console.log(`❌ Ping failed, waiting ${waitTime}ms before retry`);
-        await new Promise(r => setTimeout(r, waitTime));
-      }
-    }
-    
-    return false;
-  }
-
-  /**
-   * Ping content script to check responsiveness
-   * @private
-   * @param {number} tabId - Tab ID
-   * @returns {Promise<boolean>} Whether ping was successful
-   */
-  async pingContentScript(tabId) {
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        console.log(`Ping timeout after ${this.pingTimeoutMs}ms`);
-        resolve(false);
-      }, this.pingTimeoutMs);
-      
-      chrome.tabs.sendMessage(tabId, { action: 'krmPing' }, (resp) => {
-        clearTimeout(timeout);
-        const success = !chrome.runtime.lastError && resp?.pong;
-        console.log(`Ping result:`, { 
-          success, 
-          response: resp, 
-          error: chrome.runtime.lastError?.message 
-        });
-        resolve(success);
-      });
-    });
-  }
+  
 
   // ============================================================================
   // IMAGE ATTACHMENT
   // ============================================================================
 
-  /**
-   * Attempt to attach image to tweet composition
-   * @private
-   * @param {number} tabId - Tweet tab ID
-   * @param {string} dataUrl - Image data URL
-   * @returns {Promise<boolean>} Success status
-   */
-  async attemptImageAttachment(tabId, dataUrl, attemptNumber = 0) {
-    console.log('🎯 Attempting image attachment...');
-    
-    return new Promise((resolve, reject) => {
-      let responseReceived = false;
-      
-      // PROGRESSIVE TIMEOUT: Exact a2830b6 fastest record implementation
-      let timeoutDuration;
-      if (attemptNumber === 0) {
-        timeoutDuration = this.timeoutFirstAttempt; // 2 seconds for first attempt
-      } else if (attemptNumber <= 2) {
-        timeoutDuration = this.timeoutEarlyAttempts; // 4 seconds for attempts 1-2
-      } else {
-        timeoutDuration = this.timeoutLaterAttempts; // 6 seconds for attempts 3+
-      }
-      
-      const timeout = setTimeout(() => {
-        if (!responseReceived) {
-          console.error(`🔥 Image attachment timed out after ${timeoutDuration}ms (attempt ${attemptNumber + 1})`);
-          reject(new Error(`Image attachment timeout after ${timeoutDuration}ms`));
-        }
-      }, timeoutDuration);
-      
-      try {
-        // Check if tab still exists before sending message
-        chrome.tabs.get(tabId, (tab) => {
-          if (chrome.runtime.lastError) {
-            clearTimeout(timeout);
-            console.error('❌ Tweet tab no longer exists:', chrome.runtime.lastError.message);
-            return reject(new Error('Tweet tab was closed or inaccessible'));
-          }
-          
-          console.log('📤 Sending attachment message to tab:', tab.url);
-          
-          chrome.tabs.sendMessage(tabId, {
-            action: 'attachImageDataUrl',
-            dataUrl: dataUrl
-          }, (resp) => {
-            responseReceived = true;
-            clearTimeout(timeout);
-            
-            const lastError = chrome.runtime.lastError;
-            console.log('📨 Attachment response received:', {
-              response: resp,
-              lastError: lastError?.message,
-              timestamp: new Date().toISOString()
-            });
-            
-            if (lastError) {
-              console.error('💥 Chrome runtime error during attachment:', lastError.message);
-              
-              // Handle specific error cases with more detailed information
-              if (lastError.message.includes('message channel closed') || 
-                  lastError.message.includes('receiving end does not exist')) {
-                return reject(new Error(`Content script connection lost - tab may have navigated or refreshed (${lastError.message})`));
-              }
-              
-              if (lastError.message.includes('Extension ID') || 
-                  lastError.message.includes('specify an Extension ID')) {
-                return reject(new Error(`Content script running in wrong context - may need re-injection (${lastError.message})`));
-              }
-              
-              return reject(new Error(`Chrome runtime error: ${lastError.message}`));
-            }
-            
-            // Handle null/undefined response (content script may have crashed)
-            if (!resp) {
-              console.warn('⚠️ Received null response from content script');
-              return reject(new Error('Content script did not respond (may have crashed or been unloaded)'));
-            }
-            
-            if (resp.ok) {
-              console.log('✅ Content script confirmed successful image attachment');
-              return resolve(true);
-            }
-            
-            const errorMsg = resp.error || 'Unknown attachment error';
-            console.error('❌ Content script attachment failed:', errorMsg);
-            reject(new Error(`Content script attachment failed: ${errorMsg}`));
-          });
-        });
-      } catch (sendError) {
-        clearTimeout(timeout);
-        console.error('💥 Failed to send attachment message:', sendError.message);
-        reject(new Error(`Message send failed: ${sendError.message}`));
-      }
-    });
-  }
+  
 
   // ============================================================================
   // UTILITY METHODS
   // ============================================================================
 
-  /**
-   * Get tab information safely
-   * @private
-   * @param {number} tabId - Tab ID
-   * @returns {Promise<Object|null>} Tab info or null
-   */
-  async getTabInfo(tabId) {
-    return new Promise((resolve) => {
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError) {
-          console.warn('Tab query failed:', chrome.runtime.lastError.message);
-          return resolve(null);
-        }
-        resolve(tab);
-      });
-    });
-  }
-
-  /**
-   * Check if URL is valid for tweet attachment
-   * @private
-   * @param {string} url - URL to validate
-   * @returns {boolean} Whether URL is valid
-   */
-  isValidTweetUrl(url) {
-    return /^https:\/\/(?:mobile\.)?(?:x|twitter)\.com\//.test(url);
-  }
-
-  /**
-   * Check if error is fatal and shouldn't be retried
-   * @private
-   * @param {Error} error - Error to check
-   * @returns {boolean} Whether error is fatal
-   */
-  isFatalError(error) {
-    const fatalErrors = [
-      'Tweet tab was closed',
-      'No tab with id',
-      'Cannot access'
-    ];
-    
-    return fatalErrors.some(fatal => error.message.includes(fatal));
-  }
-
-  /**
-   * Cleanup image generation tab
-   * @private
-   * @param {number} imageTabId - Image tab ID
-   */
-  async cleanupImageTab(imageTabId) {
-    try { 
-      console.log('🧹 Cleaning up image generation tab:', imageTabId);
-      await chrome.tabs.remove(imageTabId); 
-    } catch (cleanupError) {
-      console.warn('⚠️ Failed to cleanup image tab:', cleanupError.message);
-    }
-  }
-
-  /**
-   * Show notification about manual attachment fallback
-   * @private
-   */
-  async showManualAttachmentNotification() {
-    if (typeof chrome !== 'undefined' && chrome.notifications) {
-      try {
-        await chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'Kindle Review Meter',
-          message: '画像の自動添付に失敗しました。手動で画像をX投稿に添付してください。'
-        });
-      } catch (notifError) {
-        console.warn('Failed to show notification:', notifError.message);
-      }
-    }
-  }
+  
 
   /**
    * Handle image generation completion
@@ -581,9 +335,7 @@ export default class SocialMediaService {
       if (!targetShare) {
         console.warn('No matching pending X share found for image tab:', imageTabId);
         // Clean up the image tab anyway
-        if (imageTabId) {
-          await this.cleanupImageTab(imageTabId);
-        }
+        if (imageTabId) { await utilCleanupImageTab(imageTabId); }
         return false;
       }
       
