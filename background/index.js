@@ -245,16 +245,21 @@ function setupExtensionLifecycle() {
     chrome.contextMenus.onClicked.addListener((info, tab) => {
       try {
         if (info.menuItemId === 'kindle-review-meter' && info.linkUrl) {
-          // Store pending URL in session storage for popup to consume safely
-          if (chrome.storage?.session) {
-            chrome.storage.session.set({ pendingAmazonUrl: info.linkUrl }).catch(()=>{});
-          } else if (chrome.storage?.local) {
-            // Fallback if session storage is not available
-            chrome.storage.local.set({ pendingAmazonUrl: info.linkUrl }).catch(()=>{});
-          }
-          // Open popup (popup will read and clear pending URL)
-          chrome.action.openPopup();
-          console.log('Context menu clicked for URL (stored for popup):', info.linkUrl);
+          // Store pending URL then open popup after storage completes
+          (async () => {
+            try {
+              if (chrome.storage?.session && chrome.storage.session.set) {
+                await chrome.storage.session.set({ pendingAmazonUrl: info.linkUrl });
+              } else if (chrome.storage?.local && chrome.storage.local.set) {
+                await chrome.storage.local.set({ pendingAmazonUrl: info.linkUrl });
+              }
+            } catch (_) {
+              // ignore storage errors, still open popup
+            } finally {
+              chrome.action.openPopup();
+              console.log('Context menu clicked for URL (stored for popup):', info.linkUrl);
+            }
+          })();
         }
       } catch (error) {
         errorHandler.handle(error, 'CONTEXT_MENU', {
