@@ -96,23 +96,17 @@
   // UTILITY FUNCTIONS
   // ============================================================================
 
-  // Image service delegation (safe wrapper)
+  // Service delegation (safe wrappers)
   const imageService = new (window.ImageAttachmentService || function(){})();
+  const fallbackService = new (window.TwitterUIFallbackService || function(){})();
   function dataUrlToFile(dataUrl, filename = null) {
     if (imageService && typeof imageService.dataUrlToFile === 'function') {
       return imageService.dataUrlToFile(dataUrl, filename);
     }
-    // Fallback local implementation
+    // Minimal fallback
     const arr = dataUrl.split(',');
-    const mimeMatch = arr[0].match(/:(.*?);/);
-    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) { u8arr[n] = bstr.charCodeAt(n); }
-    let ext = /jpeg|jpg/i.test(mime) ? 'jpg' : (/webp/i.test(mime) ? 'webp' : 'png');
-    const finalName = (filename && filename.includes('.')) ? filename : `kindle-review-image.${ext}`;
-    return new File([u8arr], finalName, { type: mime });
+    const u8arr = new Uint8Array(atob(arr[1]).split('').map(c => c.charCodeAt(0)));
+    return new File([u8arr], filename || 'kindle-review-image.png', { type: 'image/png' });
   }
 
   // ============================================================================
@@ -123,56 +117,11 @@
    * Find and click attachment button to reveal file input
    */
   async function findAndClickAttachmentButton() {
-    // Prevent duplicate attachment button clicks globally across all script instances
-    if (window.krmAttachmentSession.attachmentButtonClicked) {
-      console.log('Attachment button already clicked globally, skipping to prevent duplicate finder dialogs');
-      return false;
+    if (selectorService && selectorService.findAndClickAttachmentButton) {
+      return selectorService.findAndClickAttachmentButton();
     }
-    
-    // CRITICAL: Do not click attachment button to prevent finder dialog opening
-    // Instead, search for existing file inputs that may already be available
-    console.log('Searching for existing file input instead of clicking attachment button to prevent finder dialog');
-    
-    // Attachment button selectors (kept for reference, but not used to prevent finder dialog)
-    // const attachButtonSelectors = [
-    //   '[data-testid="attachments"]',
-    //   '[data-testid="toolBarAttachments"]',
-    //   'button[aria-label*="Add photos" i]',
-    //   'button[aria-label*="Add media" i]',
-    //   '[aria-label*="Media" i]',
-    //   '[aria-label*="写真" i]',
-    //   '[aria-label*="画像" i]',
-    //   '[aria-label*="メディア" i]',
-    //   '[data-testid="toolBar"] [role="button"]',
-    // ];
-    
-    // MODIFIED APPROACH: Search for existing file inputs instead of clicking buttons
-    // This prevents the native file picker dialog from opening
-    try {
-      // Search for any existing file inputs that may be available
-      const existingFileInput = document.querySelector('input[type="file"]');
-      if (existingFileInput) {
-        console.log('Found existing file input without clicking attachment button');
-        window.krmAttachmentSession.attachmentButtonClicked = true; // Mark as handled
-        return true;
-      }
-      
-      // Check if file input elements exist in shadow DOM or are hidden
-      const allInputs = document.querySelectorAll('input');
-      for (const input of allInputs) {
-        if (input.type === 'file' || input.accept) {
-          console.log('Found file input element (may be hidden):', input);
-          window.krmAttachmentSession.attachmentButtonClicked = true; // Mark as handled
-          return true;
-        }
-      }
-      
-      console.log('No file input found, skipping attachment button click to prevent finder dialog');
-      return false;
-    } catch (error) {
-      console.error('Error in findAndClickAttachmentButton:', error);
-      return false;
-    }
+    // Minimal fallback
+    return !!document.querySelector('input[type="file"]');
   }
 
   // ============================================================================
@@ -438,27 +387,20 @@
    * Setup auto-retry mechanism for UI changes
    */
   function setupAutoRetry(maxMs = 15000) {
-    const start = Date.now();
-    const observer = new MutationObserver(async () => {
-      if (attachmentCompleted) { 
-        observer.disconnect(); 
-        return; 
-      }
-      
-      const elapsed = Date.now() - start;
-      if (elapsed > maxMs) { 
-        observer.disconnect(); 
-        return; 
-      }
-      
-      if (!attachmentInProgress && pendingDataUrl) {
-        console.log('UI changed; retrying attachment');
+    if (fallbackService && fallbackService.setupAutoRetry) {
+      return fallbackService.setupAutoRetry(maxMs, () => {
+        if (!attachmentInProgress && pendingDataUrl) {
+          console.log('UI changed; retrying attachment');
+          attachViaDataUrl(pendingDataUrl);
+        }
+      });
+    }
+    // Minimal fallback
+    setTimeout(() => {
+      if (!attachmentCompleted && !attachmentInProgress && pendingDataUrl) {
         attachViaDataUrl(pendingDataUrl);
       }
-    });
-    
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => observer.disconnect(), maxMs + 200);
+    }, maxMs / 2);
   }
 
   // ============================================================================
@@ -469,160 +411,13 @@
    * User-Friendly Fallback Interface
    */
   function showFallbackOverlay(dataUrl) {
-    // Remove any existing overlay first
-    const existingOverlay = document.querySelector('#krm-fallback-overlay');
-    if (existingOverlay) existingOverlay.remove();
-    
-    console.log('Showing fallback overlay for manual attachment');
-    
-    const overlay = document.createElement('div');
-    overlay.id = 'krm-fallback-overlay';
-    overlay.innerHTML = `
-      <div style="
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.8);
-        backdrop-filter: blur(8px);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      ">
-        <div style="
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border-radius: 20px;
-          padding: 40px;
-          max-width: 500px;
-          text-align: center;
-          color: white;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-          position: relative;
-        ">
-          <div style="font-size: 48px; margin-bottom: 20px;">📖</div>
-          <h2 style="margin: 0 0 16px 0; font-size: 24px; font-weight: 600;">
-            Kindle Review Meter
-          </h2>
-          <p style="margin: 0 0 24px 0; opacity: 0.9; line-height: 1.6;">
-            自動画像添付に失敗しました。<br>
-            以下の方法で手動で添付してください：
-          </p>
-          
-          <div style="background: rgba(255, 255, 255, 0.1); border-radius: 12px; padding: 20px; margin: 20px 0; text-align: left;">
-            <p style="margin: 0 0 12px 0; font-weight: 500;">📎 手動添付方法:</p>
-            <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
-              <li>下の「画像をダウンロード」をクリック</li>
-              <li>X/Twitterの画像添付ボタンをクリック</li>
-              <li>ダウンロードした画像ファイルを選択</li>
-            </ol>
-          </div>
-          
-          <div style="margin-top: 30px;">
-            <button id="krm-download-btn" style="
-              background: rgba(255, 255, 255, 0.2);
-              border: 2px solid rgba(255, 255, 255, 0.3);
-              color: white;
-              padding: 12px 24px;
-              border-radius: 25px;
-              font-size: 16px;
-              font-weight: 500;
-              cursor: pointer;
-              margin: 0 8px;
-              transition: all 0.3s ease;
-            " onmouseover="this.style.background='rgba(255,255,255,0.3)'" 
-               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-              🔽 画像をダウンロード
-            </button>
-            
-            <button id="krm-new-tab-btn" style="
-              background: rgba(255, 255, 255, 0.2);
-              border: 2px solid rgba(255, 255, 255, 0.3);
-              color: white;
-              padding: 12px 24px;
-              border-radius: 25px;
-              font-size: 16px;
-              font-weight: 500;
-              cursor: pointer;
-              margin: 0 8px;
-              transition: all 0.3s ease;
-            " onmouseover="this.style.background='rgba(255,255,255,0.3)'" 
-               onmouseout="this.style.background='rgba(255,255,255,0.2)'">
-              🔗 新しいタブで開く
-            </button>
-          </div>
-          
-          <button id="krm-close-btn" style="
-            position: absolute;
-            top: 15px;
-            right: 20px;
-            background: none;
-            border: none;
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 24px;
-            cursor: pointer;
-            padding: 5px;
-            line-height: 1;
-          " title="閉じる">
-            ✕
-          </button>
-          
-          <p style="margin: 24px 0 0 0; font-size: 12px; opacity: 0.7;">
-            このダイアログは10秒後に自動的に閉じます
-          </p>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(overlay);
-    
-    // Event handlers
-    const downloadBtn = document.getElementById('krm-download-btn');
-    const newTabBtn = document.getElementById('krm-new-tab-btn');
-    const closeBtn = document.getElementById('krm-close-btn');
-    
-    downloadBtn.addEventListener('click', () => {
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = 'kindle-review-progress.png';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Show success feedback
-      downloadBtn.innerHTML = '✅ ダウンロード完了';
-      downloadBtn.style.background = 'rgba(46, 204, 113, 0.8)';
-    });
-    
-    newTabBtn.addEventListener('click', () => {
-      const newWindow = window.open();
-      const html = `
-        <html>
-          <head><title>Kindle Review Progress Image</title></head>
-          <body style="margin:0; background:#f0f0f0; display:flex; justify-content:center; align-items:center; min-height:100vh;">
-            <img src="${dataUrl}" style="max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
-          </body>
-        </html>
-      `;
-      newWindow.document.write(html);
-      newWindow.document.close();
-    });
-    
-    closeBtn.addEventListener('click', () => {
-      overlay.remove();
-    });
-    
-    // Auto-dismiss after 10 seconds
-    setTimeout(() => {
-      if (overlay.parentNode) {
-        overlay.remove();
-      }
-    }, 10000);
-    
-    // Setup enhanced retry mechanism
-    setupAutoRetry(15000);
+    if (fallbackService && fallbackService.showFallbackOverlay) {
+      fallbackService.showFallbackOverlay(dataUrl);
+      setupAutoRetry(15000);
+    } else {
+      console.log('Fallback overlay service not available, showing basic notification');
+      alert('画像の自動添付に失敗しました。手動で画像を添付してください。');
+    }
   }
 
   // ============================================================================
