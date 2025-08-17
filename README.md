@@ -53,11 +53,20 @@ Amazon書籍のレビュー数を追跡し、目標達成までの進捗を可�
   - 取得: `background/services/AmazonScrapingService.js`（プロキシ並列レース＋フォールバック）
   - 画像: `background/services/ImageGenerationService.js`
   - X連携: `background/services/SocialMediaService.js`
-- コンテンツスクリプト: `content-scripts/x-tweet-auto-attach.js`
-- ポップアップ: `popup/popup.html` + `popup/popup.js`（MVC移行中: `popup/controllers|models|views`）
+- コンテンツスクリプト: `content-scripts/x-tweet-auto-attach.js`（オーケストレーター）
+  - サービス: `content-scripts/twitter/services/{TwitterSelectorService, ImageAttachmentService, TwitterUIFallbackService}.js`
+- ポップアップ: `popup/popup.html` + `popup/main.js`（MVC: `popup/controllers|models|views`）
 - 共有DTO: `background/types.js`（BookDataDTO）
 
 補足: `background/background.js` はレガシーな単一ファイル実装（参照用）。現在のManifestは`background/index.js`をエントリとして使用します。
+
+### X画像添付の最速ロジック（固定方針）
+- 転送: image generator → background へ dataURL（`imageGenerated`）でpush
+- 背景: `pendingXShare` に保持し、注入→ping→送信（タイムアウト 2s/4s/6s、最大12回）でCSへ集中送信
+- CS: 添付ボタンを実クリックして `<input type="file">` を確実に出現、DnD待機は80ms（安定値）
+- ロバスト性:
+  - 送信先タブが閉じられていた場合、開いているcomposeタブを探索して自動再バインド
+  - CSは`attachImageDataUrl`受信時に即応答（fire-and-forget）し、添付は非同期継続
 
 ### 便利な使い方（コンテキストメニュー）
 - Amazonの商品リンクを右クリック →「Kindle Review Meter で分析」を選択
