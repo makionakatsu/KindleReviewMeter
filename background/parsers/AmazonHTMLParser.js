@@ -106,12 +106,12 @@ export default class AmazonHTMLParser {
           .replace(/\s*[-–|:]\s*Amazon.*$/i, '') // Remove Amazon suffix
           .trim();
         
-        // Debug logging for author extraction
-        if (contentType === 'author' && this.debugMode) {
-          console.log(`🔍 Author pattern ${i + 1} matched:`, {
+        // Enhanced debug logging for all content types
+        if (this.debugMode) {
+          console.log(`🔍 ${contentType} pattern ${i + 1} matched:`, {
             patternSource: pattern.source.substring(0, 100) + '...',
-            rawMatch: rawContent.substring(0, 100),
-            extractedText: content.substring(0, 100),
+            rawMatch: rawContent.substring(0, 200),
+            extractedText: content.substring(0, 200),
             textLength: content.length
           });
           
@@ -296,8 +296,17 @@ export default class AmazonHTMLParser {
    */
   extractAuthorsFromAnchors(html, pushAuthor) {
     const anchorRegexes = [
+      // Standard author link patterns
       /<a[^>]*class="[^"]*contributorNameID[^"]*"[^>]*>([\s\S]*?)<\/a>/ig,
-      /<a[^>]*class="[^"]*(?:by-author|author)[^"]*"[^>]*>([\s\S]*?)<\/a>/ig
+      /<a[^>]*class="[^"]*(?:by-author|author)[^"]*"[^>]*>([\s\S]*?)<\/a>/ig,
+      
+      // Kindle-specific author patterns
+      /<a[^>]*class="[^"]*a-link-normal[^"]*"[^>]*href="[^"]*\/author\/[^"]*"[^>]*>([\s\S]*?)<\/a>/ig,
+      /<a[^>]*href="[^"]*\/e\/[A-Z0-9]+[^"]*"[^>]*>([\s\S]*?)<\/a>/ig,
+      
+      // Meta property patterns for authors
+      /<meta[^>]*property=["']book:author["'][^>]*content=["']([^"']+)["'][^>]*>/ig,
+      /<meta[^>]*name=["']author["'][^>]*content=["']([^"']+)["'][^>]*>/ig
     ];
     
     for (const rx of anchorRegexes) {
@@ -377,11 +386,23 @@ export default class AmazonHTMLParser {
    */
   extractTitle(html) {
     const titlePatterns = [
+      // Standard Amazon product title
       /<span[^>]*id="productTitle"[^>]*>([^<]+)<\/span>/i,
       /<h1[^>]*class="[^"]*a-size-large[^"]*"[^>]*>([^<]+)<\/h1>/i,
-      /<title>\s*([^<]+?)\s*[-–|:]\s*Amazon/i,
+      
+      // Kindle-specific title patterns
+      /<h1[^>]*id="title"[^>]*>([^<]+)<\/h1>/i,
+      /<span[^>]*class="[^"]*kindle-[^"]*title[^"]*"[^>]*>([^<]+)<\/span>/i,
+      
+      // Meta and title tag fallbacks
       /<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-      /<h1[^>]*>([^<]+)<\/h1>/i
+      /<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+      /<title>\s*([^<]+?)\s*[-–|:]\s*Amazon/i,
+      /<title>([^<]+?)\s*</i,
+      
+      // Generic fallbacks
+      /<h1[^>]*>([^<]+)<\/h1>/i,
+      /<h2[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)<\/h2>/i
     ];
 
     return this.findBySelector(html, titlePatterns, 'title');
@@ -394,11 +415,22 @@ export default class AmazonHTMLParser {
    */
   extractImageUrl(html) {
     const imagePatterns = [
+      // Standard Amazon product images
       /<img[^>]*id="landingImage"[^>]*src="([^"]+)"/i,
       /<img[^>]*data-old-hires="([^"]+)"/i,
       /<img[^>]*data-a-dynamic-image="[^"]*([^"]+\.jpg)[^"]*"/i,
+      
+      // Kindle-specific image patterns
+      /<img[^>]*id="ebooksImgBlkFront"[^>]*src="([^"]+)"/i,
+      /<img[^>]*class="[^"]*kindle-[^"]*image[^"]*"[^>]*src="([^"]+)"/i,
+      
+      // Meta property fallbacks
       /<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-      /<img[^>]*class="[^"]*a-dynamic-image[^"]*"[^>]*src="([^"]+)"/i
+      /<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+      
+      // Dynamic image patterns
+      /<img[^>]*class="[^"]*a-dynamic-image[^"]*"[^>]*src="([^"]+)"/i,
+      /<img[^>]*data-src="([^"]+)"/i
     ];
 
     const imageUrl = this.findBySelector(html, imagePatterns, 'image');
