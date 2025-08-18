@@ -278,11 +278,17 @@ function setupExtensionLifecycle() {
         const u = new URL(url);
         const host = u.hostname;
         if (!/amazon\.(co\.jp|com)$/i.test(host) && !/\.amazon\.(co\.jp|com)$/i.test(host)) return false;
-        // match dp, -/dp, gp/product, gp/aw/d
-        return (/\/dp\//.test(u.pathname) ||
-                /\/-\/dp\//.test(u.pathname) ||
-                /\/gp\/product\//.test(u.pathname) ||
-                /\/gp\/aw\/d\//.test(u.pathname));
+        
+        // Enhanced URL patterns to support more Amazon product page formats
+        const productPatterns = [
+          /\/dp\//, /\/-\/dp\//, /\/gp\/product\//, /\/gp\/aw\/d\//, // Original patterns
+          /\/e\//, /\/kindle-dbs\//, /\/b\//, /\/stores\//, // Kindle/Author/Brand pages
+          /\/exec\/obidos\/ASIN\//, /\/o\/ASIN\//, // Legacy ASIN formats
+          /\/products\//, /\/detail\//, // Alternative product paths
+          /\/audiobooks\//, /\/kindle\//, // Media-specific paths
+        ];
+        
+        return productPatterns.some(pattern => pattern.test(u.pathname));
       } catch (_) { return false; }
     };
 
@@ -305,43 +311,121 @@ function setupExtensionLifecycle() {
           let hasValidAmazon = candidateUrl && isAmazonProductUrl(candidateUrl);
 
           (async () => {
+            let extractionMethod = 'none';
+            let extractionSuccess = false;
+            
             try {
-              // If not valid yet, try to extract canonical/og:url from the page DOM
+              // Log initial URL extraction method
+              if (info.linkUrl) {
+                extractionMethod = 'link';
+              } else if (info.selectionText) {
+                extractionMethod = 'selection';
+              } else if (tab?.url) {
+                extractionMethod = 'tab_url';
+              }
+              
+              console.log('Context menu clicked:', {
+                extractionMethod,
+                initialUrl: candidateUrl,
+                hasValidAmazon,
+                tabId: tab?.id
+              });
+
+              // If not valid yet, try to extract canonical/og:url from the page DOM with retry mechanism
               if (!hasValidAmazon && tab?.id && chrome?.scripting?.executeScript) {
-                try {
-                  const [{ result: domUrl } = {}] = await chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    func: () => {
-                      try {
-                        const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
-                        const og = document.querySelector('meta[property="og:url"]')?.content || '';
-                        return canonical || og || location.href;
-                      } catch (_) {
-                        return location.href;
+                const extractWithRetry = async (tabId, maxRetries = 3) => {
+                  for (let attempt = 0; attempt < maxRetries; attempt++) {
+                    try {
+                      // Add delay between retries to allow page content to load
+                      if (attempt > 0) {
+                        await new Promise(resolve => setTimeout(resolve, attempt * 500));
+                      }
+                      
+                      const [{ result: domUrl } = {}] = await chrome.scripting.executeScript({
+                        target: { tabId },
+                        func: () => {
+                          try {
+                            const canonical = document.querySelector('link[rel="canonical"]')?.href || '';
+                            const og = document.querySelector('meta[property="og:url"]')?.content || '';
+                            const currentUrl = location.href;
+                            
+                            // Return the most reliable URL found
+                            return canonical || og || currentUrl;
+                          } catch (_) {
+                            return location.href;
+                          }
+                        }
+                      });
+                      
+                      if (domUrl && typeof domUrl === 'string' && isAmazonProductUrl(domUrl)) {
+                        return domUrl;
+                      }
+                    } catch (extractError) {
+                      console.warn(`DOM extraction attempt ${attempt + 1} failed:`, extractError?.message);
+                      if (attempt === maxRetries - 1) {
+                        errorHandler.handle(extractError, 'CONTEXT_MENU', {
+                          operation: 'dom_extraction',
+                          attempt: attempt + 1,
+                          tabId: tabId,
+                          extractionMethod
+                        });
                       }
                     }
-                  });
-                  if (domUrl && typeof domUrl === 'string' && isAmazonProductUrl(domUrl)) {
-                    candidateUrl = domUrl;
-                    hasValidAmazon = true;
                   }
-                } catch (_) {
-                  // ignore DOM extraction errors
+                  return null;
+                };
+
+                try {
+                  const extractedUrl = await extractWithRetry(tab.id);
+                  if (extractedUrl) {
+                    candidateUrl = extractedUrl;
+                    hasValidAmazon = true;
+                    extractionMethod = 'dom';
+                    console.log('Successfully extracted URL from DOM:', extractedUrl);
+                  }
+                } catch (domError) {
+                  errorHandler.handle(domError, 'CONTEXT_MENU', {
+                    operation: 'dom_extraction_wrapper',
+                    extractionMethod,
+                    tabId: tab?.id
+                  });
                 }
               }
 
               if (hasValidAmazon) {
-                if (chrome.storage?.session && chrome.storage.session.set) {
-                  await chrome.storage.session.set({ pendingAmazonUrl: candidateUrl });
-                } else if (chrome.storage?.local && chrome.storage.local.set) {
-                  await chrome.storage.local.set({ pendingAmazonUrl: candidateUrl });
+                try {
+                  if (chrome.storage?.session && chrome.storage.session.set) {
+                    await chrome.storage.session.set({ pendingAmazonUrl: candidateUrl });
+                  } else if (chrome.storage?.local && chrome.storage.local.set) {
+                    await chrome.storage.local.set({ pendingAmazonUrl: candidateUrl });
+                  }
+                  extractionSuccess = true;
+                } catch (storageError) {
+                  errorHandler.handleStorageError(storageError, {
+                    operation: 'store_pending_url',
+                    key: 'pendingAmazonUrl',
+                    extractionMethod
+                  });
                 }
               }
-            } catch (_) {
-              // ignore storage errors, still open popup
+            } catch (overallError) {
+              errorHandler.handle(overallError, 'CONTEXT_MENU', {
+                operation: 'context_menu_processing',
+                extractionMethod,
+                hasValidAmazon,
+                tabId: tab?.id
+              });
             } finally {
               chrome.action.openPopup();
-              console.log('Context menu clicked. Stored URL:', hasValidAmazon ? candidateUrl : '(none)');
+              
+              // Enhanced logging with success/failure details
+              console.log('Context menu processing completed:', {
+                extractionMethod,
+                extractionSuccess,
+                hasValidAmazon,
+                finalUrl: hasValidAmazon ? candidateUrl : '(none)',
+                tabId: tab?.id
+              });
             }
           })();
         }
