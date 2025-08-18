@@ -416,13 +416,41 @@ function setupExtensionLifecycle() {
                 tabId: tab?.id
               });
             } finally {
-              chrome.action.openPopup();
+              // Safely open popup with active window detection
+              const openPopupSafely = async () => {
+                try {
+                  // First check if there are any active windows
+                  const windows = await chrome.windows.getAll({ populate: false });
+                  const currentWindow = await chrome.windows.getCurrent().catch(() => null);
+                  
+                  if (windows.length === 0 || !currentWindow) {
+                    console.warn('No active browser windows found, cannot open popup');
+                    return false;
+                  }
+                  
+                  await chrome.action.openPopup();
+                  return true;
+                } catch (popupError) {
+                  // Handle cases where no active browser window exists
+                  console.warn('Failed to open popup:', popupError?.message);
+                  errorHandler.handle(popupError, 'CONTEXT_MENU', {
+                    operation: 'open_popup',
+                    extractionMethod,
+                    hasValidAmazon,
+                    error: popupError?.message
+                  });
+                  return false;
+                }
+              };
+              
+              const popupOpened = await openPopupSafely();
               
               // Enhanced logging with success/failure details
               console.log('Context menu processing completed:', {
                 extractionMethod,
                 extractionSuccess,
                 hasValidAmazon,
+                popupOpened,
                 finalUrl: hasValidAmazon ? candidateUrl : '(none)',
                 tabId: tab?.id
               });
