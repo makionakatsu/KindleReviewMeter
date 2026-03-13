@@ -44,6 +44,7 @@
   let attachmentInProgress = false;
   let attachmentCompleted = false;
   let pendingDataUrl = null;
+  let pendingTweetText = '';
   let attachmentAttemptId = 0; // Track attachment attempts for debugging
   
   // Global session state to prevent duplicate script execution
@@ -107,6 +108,290 @@
     const arr = dataUrl.split(',');
     const u8arr = new Uint8Array(atob(arr[1]).split('').map(c => c.charCodeAt(0)));
     return new File([u8arr], filename || 'kindle-review-image.png', { type: 'image/png' });
+  }
+
+  /**
+   * Best-effort confirmation that media is attached in current compose UI.
+   * We avoid fragile single selectors by combining file input + media UI indicators.
+   */
+  function hasAttachedMediaIndicator() {
+    try {
+      const root = document.querySelector('[data-testid="primaryColumn"]') || document;
+      const inputs = root.querySelectorAll('input[type="file"]');
+      for (const input of inputs) {
+        if (input?.files && input.files.length > 0) {
+          return true;
+        }
+      }
+
+      const selectors = [
+        '[data-testid="removeMedia"]',
+        '[data-testid="removeMediaButton"]',
+        '[aria-label*="Remove media" i]',
+        '[aria-label*="メディアを削除" i]',
+        '[aria-label*="画像を削除" i]',
+        '[data-testid="attachmentsSection"] img'
+      ];
+
+      for (const selector of selectors) {
+        if (root.querySelector(selector) || document.querySelector(selector)) {
+          return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function waitForAttachmentConfirmation(timeoutMs = 4000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (hasAttachedMediaIndicator()) return true;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    return hasAttachedMediaIndicator();
+  }
+
+  const COMPOSER_TEXTBOX_SELECTORS = [
+    '[data-testid="tweetTextarea_0"]',
+    '[role="textbox"][contenteditable="true"]',
+    '[data-testid="primaryColumn"] [contenteditable="true"]',
+    'div[contenteditable="true"]',
+    '[role="textbox"]',
+    '[contenteditable="true"]'
+  ];
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function normalizeComposeText(text = '') {
+    return String(text ?? '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\u200b/g, '')
+      .trimEnd();
+  }
+
+  function isUsableComposerTextbox(element) {
+    if (!(element instanceof Element)) return false;
+    return !!(
+      element.isContentEditable ||
+      element.getAttribute('role') === 'textbox' ||
+      element.matches('[contenteditable="true"]')
+    );
+  }
+
+  function isVisibleElement(element) {
+    try {
+      const rect = element?.getBoundingClientRect?.();
+      return !!rect && rect.width > 0 && rect.height > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function resolveComposerTextbox(preferred = null) {
+    const directCandidates = [preferred, document.activeElement]
+      .filter((element) => isUsableComposerTextbox(element));
+    const visibleDirect = directCandidates.find(isVisibleElement);
+    if (visibleDirect) return visibleDirect;
+    if (directCandidates.length > 0) return directCandidates[0];
+
+    const selectorMatches = COMPOSER_TEXTBOX_SELECTORS
+      .map((selector) => document.querySelector(selector))
+      .filter((element) => isUsableComposerTextbox(element));
+    const visibleSelectorMatch = selectorMatches.find(isVisibleElement);
+    if (visibleSelectorMatch) return visibleSelectorMatch;
+    if (selectorMatches.length > 0) return selectorMatches[0];
+
+    const allEditable = Array.from(document.querySelectorAll('[contenteditable="true"], [role="textbox"]'))
+      .filter((element) => isUsableComposerTextbox(element));
+    const visibleEditable = allEditable.find(isVisibleElement);
+    return visibleEditable || allEditable[0] || null;
+  }
+
+  function readComposerText(textbox) {
+    if (!textbox) return '';
+    const rawText = textbox.innerText || textbox.textContent || '';
+    return normalizeComposeText(rawText);
+  }
+
+  function focusComposerTextbox(textbox) {
+    if (!textbox) return;
+    try { textbox.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+    try { textbox.focus(); } catch {}
+    try { textbox.click(); } catch {}
+  }
+
+  function selectComposerContents(textbox) {
+    try {
+      const selection = window.getSelection();
+      if (!selection) return false;
+      const range = document.createRange();
+      range.selectNodeContents(textbox);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function moveCursorToComposerEnd(textbox) {
+    try {
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(textbox);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } catch (_) {}
+  }
+
+  async function waitForComposeTextConfirmation(expectedText, preferredTextbox = null, timeoutMs = 2500) {
+    const normalizedExpected = normalizeComposeText(expectedText);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const textbox = resolveComposerTextbox(preferredTextbox);
+      if (textbox && readComposerText(textbox) === normalizedExpected) {
+        return true;
+      }
+      await sleep(120);
+    }
+    const textbox = resolveComposerTextbox(preferredTextbox);
+    return !!textbox && readComposerText(textbox) === normalizedExpected;
+  }
+
+  async function applyComposeTextViaPaste(textbox, tweetText) {
+    try {
+      focusComposerTextbox(textbox);
+      selectComposerContents(textbox);
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', tweetText);
+      const pasteEvent = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData
+      });
+      textbox.dispatchEvent(pasteEvent);
+      return await waitForComposeTextConfirmation(tweetText, textbox, 1800);
+    } catch (error) {
+      console.warn('Compose text paste injection failed:', error);
+      return false;
+    }
+  }
+
+  async function applyComposeTextViaExecCommand(textbox, tweetText) {
+    try {
+      focusComposerTextbox(textbox);
+      selectComposerContents(textbox);
+      if (typeof document.execCommand === 'function') {
+        try { document.execCommand('delete', false); } catch {}
+        const lines = normalizeComposeText(tweetText).split('\n');
+        lines.forEach((line, index) => {
+          if (line) {
+            try { document.execCommand('insertText', false, line); } catch {}
+          }
+          if (index < lines.length - 1) {
+            try { document.execCommand('insertLineBreak', false); } catch {}
+          }
+        });
+      }
+      moveCursorToComposerEnd(textbox);
+      return await waitForComposeTextConfirmation(tweetText, textbox, 1800);
+    } catch (error) {
+      console.warn('Compose text execCommand injection failed:', error);
+      return false;
+    }
+  }
+
+  async function applyComposeTextViaDom(textbox, tweetText) {
+    try {
+      focusComposerTextbox(textbox);
+      const normalizedText = normalizeComposeText(tweetText);
+      const lines = normalizedText.split('\n');
+      const fragment = document.createDocumentFragment();
+      lines.forEach((line, index) => {
+        fragment.appendChild(document.createTextNode(line));
+        if (index < lines.length - 1) {
+          fragment.appendChild(document.createElement('br'));
+        }
+      });
+      textbox.replaceChildren(fragment);
+      try {
+        textbox.dispatchEvent(new InputEvent('input', {
+          bubbles: true,
+          inputType: 'insertText',
+          data: normalizedText
+        }));
+      } catch {
+        textbox.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      textbox.dispatchEvent(new Event('change', { bubbles: true }));
+      moveCursorToComposerEnd(textbox);
+      return await waitForComposeTextConfirmation(normalizedText, textbox, 1800);
+    } catch (error) {
+      console.warn('Compose text DOM injection failed:', error);
+      return false;
+    }
+  }
+
+  async function applyComposeText(tweetText) {
+    const normalizedTweetText = normalizeComposeText(tweetText);
+    if (!normalizedTweetText) return true;
+
+    const { composerTextbox } = await waitForElements({
+      requireFileInput: false,
+      timeoutMs: 8000
+    });
+    const textbox = resolveComposerTextbox(composerTextbox);
+    if (!textbox) {
+      console.warn('Composer textbox not found for tweet text injection');
+      return false;
+    }
+
+    if (readComposerText(textbox) === normalizedTweetText) {
+      return true;
+    }
+
+    const methods = [
+      { name: 'paste', run: applyComposeTextViaPaste },
+      { name: 'execCommand', run: applyComposeTextViaExecCommand },
+      { name: 'dom', run: applyComposeTextViaDom }
+    ];
+
+    for (const method of methods) {
+      const currentTextbox = resolveComposerTextbox(textbox);
+      if (!currentTextbox) continue;
+      const applied = await method.run(currentTextbox, normalizedTweetText);
+      if (applied) {
+        console.log(`Compose text applied via ${method.name}`);
+        return true;
+      }
+    }
+
+    console.warn('Failed to apply compose text after all strategies');
+    return false;
+  }
+
+  async function applyComposePayload({ dataUrl, tweetText = '' } = {}) {
+    const normalizedTweetText = normalizeComposeText(tweetText);
+    if (normalizedTweetText) {
+      const textApplied = await applyComposeText(normalizedTweetText);
+      if (!textApplied) {
+        throw new Error('Compose text not applied');
+      }
+      pendingTweetText = normalizedTweetText;
+    }
+
+    const attached = await attachViaDataUrl(dataUrl);
+    if (!attached) {
+      throw new Error('Auto attachment not confirmed');
+    }
+    return true;
   }
 
   // ============================================================================
@@ -245,10 +530,14 @@
           if (composerTextbox && composerTextbox.focus) composerTextbox.focus();
           composerTextbox?.dispatchEvent(new Event('focus', { bubbles: true }));
           document.body.dispatchEvent(new Event('click', { bubbles: true }));
-          
-          console.log(`[Attempt ${currentAttemptId}] Image attached via file input`);
-          attachmentCompleted = true;
-          return true;
+
+          const confirmed = await waitForAttachmentConfirmation(4500);
+          if (confirmed) {
+            console.log(`[Attempt ${currentAttemptId}] Image attached via file input`);
+            attachmentCompleted = true;
+            return true;
+          }
+          console.warn(`[Attempt ${currentAttemptId}] File input dispatched but media preview was not confirmed`);
         } catch (e) {
           console.warn('File input attach failed:', e);
         }
@@ -287,10 +576,13 @@
           try {
             console.log(`Attempting method 2: drag and drop on ${selector}`);
             await dropOn(dropZone, file);
-            
-            console.log(`Image attached via drag-drop on ${selector}`);
-            attachmentCompleted = true;
-            return true;
+            const confirmed = await waitForAttachmentConfirmation(3500);
+            if (confirmed) {
+              console.log(`Image attached via drag-drop on ${selector}`);
+              attachmentCompleted = true;
+              return true;
+            }
+            console.warn(`Drag-drop on ${selector} dispatched but media preview was not confirmed`);
           } catch (e) {
             console.warn(`Drag-drop on ${selector} failed:`, e);
           }
@@ -301,9 +593,13 @@
       try {
         console.log('Attempting method 2 fallback: drag and drop on document.body');
         await dropOn(document.body, file);
-        console.log('Image attached via drag-drop on body');
-        attachmentCompleted = true;
-        return true;
+        const confirmed = await waitForAttachmentConfirmation(3500);
+        if (confirmed) {
+          console.log('Image attached via drag-drop on body');
+          attachmentCompleted = true;
+          return true;
+        }
+        console.warn('Body drag-drop dispatched but media preview was not confirmed');
       } catch (e) {
         console.warn('Body drag-drop fallback failed:', e);
       }
@@ -322,7 +618,11 @@
           console.log('Attempting method 3: paste simulation on', target.tagName);
           if (imageService && typeof imageService.simulatePaste === 'function') {
             const ok = await imageService.simulatePaste(target, file);
-            if (ok) { attachmentCompleted = true; return true; }
+            if (ok) {
+              const confirmed = await waitForAttachmentConfirmation(3500);
+              if (confirmed) { attachmentCompleted = true; return true; }
+              console.warn('Paste simulation dispatched but media preview was not confirmed');
+            }
           } else {
             // Fallback inline simulation (behavior unchanged)
             if (target.focus) target.focus();
@@ -330,7 +630,9 @@
             clipboardData.items.add(file);
             const pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData });
             target.dispatchEvent(pasteEvent);
-            attachmentCompleted = true; return true;
+            const confirmed = await waitForAttachmentConfirmation(3500);
+            if (confirmed) { attachmentCompleted = true; return true; }
+            console.warn('Inline paste dispatched but media preview was not confirmed');
           }
         } catch (e) {
           console.warn('Paste simulation failed:', e);
@@ -362,12 +664,15 @@
           fileInput.files = hiddenInput.files;
           fileInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        
         document.body.removeChild(hiddenInput);
-        
-        console.log('Image attached via hidden file input method');
-        attachmentCompleted = true;
-        return true;
+
+        const confirmed = await waitForAttachmentConfirmation(3500);
+        if (confirmed) {
+          console.log('Image attached via hidden file input method');
+          attachmentCompleted = true;
+          return true;
+        }
+        console.warn('Hidden file input dispatched but media preview was not confirmed');
       } catch (e) {
         console.warn('Hidden file input method failed:', e);
       }
@@ -375,20 +680,14 @@
       // Method 5: Show user-friendly fallback overlay
       console.log('All automatic attachment methods failed, showing fallback UI');
       showFallbackOverlay(dataUrl);
-      
-      // Return true to indicate the process completed (even if manually)
-      attachmentCompleted = true;
-      return true;
+      return false;
       
     } catch (error) {
       console.error('attachViaDataUrl error:', error);
       showFallbackOverlay(dataUrl);
       return false;
     } finally {
-      // Only reset inProgress flag if attachment wasn't completed successfully
-      if (!attachmentCompleted) {
-        attachmentInProgress = false;
-      }
+      attachmentInProgress = false;
     }
   }
 
@@ -431,7 +730,8 @@
           if (composerTextbox?.focus) composerTextbox.focus();
           composerTextbox?.dispatchEvent(new Event('focus', { bubbles:true }));
           document.body.dispatchEvent(new Event('click', { bubbles:true }));
-          attachmentCompleted = true; return true;
+          const confirmed = await waitForAttachmentConfirmation(4500);
+          if (confirmed) { attachmentCompleted = true; return true; }
         } catch (_) {}
       }
 
@@ -454,9 +754,17 @@
       ];
       for (const sel of zones) {
         const z = document.querySelector(sel); if (!z) continue;
-        try { await dropOn(z, file); attachmentCompleted = true; return true; } catch {}
+        try {
+          await dropOn(z, file);
+          const confirmed = await waitForAttachmentConfirmation(3500);
+          if (confirmed) { attachmentCompleted = true; return true; }
+        } catch {}
       }
-      try { await dropOn(document.body, file); attachmentCompleted = true; return true; } catch {}
+      try {
+        await dropOn(document.body, file);
+        const confirmed = await waitForAttachmentConfirmation(3500);
+        if (confirmed) { attachmentCompleted = true; return true; }
+      } catch {}
 
       // Method 3: Paste simulation
       const targets = [document.querySelector('[data-testid="tweetTextarea_0"]'), document.querySelector('[role="textbox"]'), document.activeElement, document.body].filter(Boolean);
@@ -464,23 +772,29 @@
         try {
           if (imageService && typeof imageService.simulatePaste === 'function') {
             const ok = await imageService.simulatePaste(t, file);
-            if (ok) { attachmentCompleted = true; return true; }
+            if (ok) {
+              const confirmed = await waitForAttachmentConfirmation(3500);
+              if (confirmed) { attachmentCompleted = true; return true; }
+            }
           } else {
             t.focus?.();
             const dt = new DataTransfer(); dt.items.add(file);
             const pe = new ClipboardEvent('paste', { bubbles:true, cancelable:true, clipboardData: dt });
-            t.dispatchEvent(pe); attachmentCompleted = true; return true;
+            t.dispatchEvent(pe);
+            const confirmed = await waitForAttachmentConfirmation(3500);
+            if (confirmed) { attachmentCompleted = true; return true; }
           }
         } catch {}
       }
 
       // Fallback UI
-      showFallbackOverlay(); attachmentCompleted = true; return true;
+      showFallbackOverlay();
+      return false;
     } catch (e) {
       console.error('attachViaFile error:', e);
       showFallbackOverlay(); return false;
     } finally {
-      if (!attachmentCompleted) attachmentInProgress = false;
+      attachmentInProgress = false;
     }
   }
 
@@ -496,14 +810,18 @@
       return fallbackService.setupAutoRetry(maxMs, () => {
         if (!attachmentInProgress && pendingDataUrl) {
           console.log('UI changed; retrying attachment');
-          attachViaDataUrl(pendingDataUrl);
+          applyComposePayload({ dataUrl: pendingDataUrl, tweetText: pendingTweetText }).catch((error) => {
+            console.warn('Auto-retry compose payload failed:', error?.message || error);
+          });
         }
       });
     }
     // Minimal fallback
     setTimeout(() => {
       if (!attachmentCompleted && !attachmentInProgress && pendingDataUrl) {
-        attachViaDataUrl(pendingDataUrl);
+        applyComposePayload({ dataUrl: pendingDataUrl, tweetText: pendingTweetText }).catch((error) => {
+          console.warn('Delayed compose payload retry failed:', error?.message || error);
+        });
       }
     }, maxMs / 2);
   }
@@ -625,6 +943,11 @@
       console.log('Content script received message:', request.action, 'at', new Date().toISOString());
       
       try {
+        // Ignore messages that are explicitly routed to background.
+        if (request?.target === 'background') {
+          return false;
+        }
+
         if (request.action === 'krmPing') {
           console.log('Content script responding to ping');
           const response = { 
@@ -646,19 +969,42 @@
             sendResponse({ ok: false, error: 'Invalid data URL format' });
             return false; // Synchronous response for validation errors
           }
+
+          // Reset per-attachment state so a prior binary attempt cannot block reliable dataURL path.
+          attachmentInProgress = false;
+          attachmentCompleted = false;
           
           pendingDataUrl = request.dataUrl;
+          pendingTweetText = typeof request.tweetText === 'string' ? request.tweetText : '';
           // Setup auto-retry (non-blocking)
           setupAutoRetry(15000);
 
-          // Fire-and-forget attachment to avoid background timeout
+          // Return attachment result (not immediate ACK) to prevent false-positive success in background.
           Promise.resolve()
-            .then(() => attachViaDataUrl(request.dataUrl))
-            .catch(e => console.error('Content script attach error:', e));
+            .then(async () => {
+              await applyComposePayload({
+                dataUrl: request.dataUrl,
+                tweetText: pendingTweetText
+              });
+              pendingDataUrl = null;
+              pendingTweetText = '';
+              sendResponse({
+                ok: true,
+                accepted: true,
+                timestamp: Date.now()
+              });
+            })
+            .catch((e) => {
+              console.error('Content script attach error:', e);
+              sendResponse({
+                ok: false,
+                accepted: true,
+                error: e?.message || 'Attachment error',
+                timestamp: Date.now()
+              });
+            });
 
-          // Immediately acknowledge receipt to keep fastest path responsive
-          sendResponse({ ok: true, accepted: true, timestamp: Date.now() });
-          return false; // Synchronous response completed
+          return true; // Async response
         }
         
         // Unknown action

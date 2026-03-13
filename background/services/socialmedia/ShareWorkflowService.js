@@ -24,35 +24,64 @@ export default class ShareWorkflowService {
    * Execute complete share-to-X workflow
    * @param {Object} data - Book data for sharing
    * @param {string} tweetUrl - X compose URL
+   * @param {string} tweetText - Text to inject into the compose box
    * @returns {Promise<Object>} Share result with tab IDs
    */
-  async executeShareWorkflow(data, tweetUrl) {
+  async executeShareWorkflow(data, tweetUrl, tweetText = '') {
     try {
       console.log('🚀 Starting X share with image process');
       console.log('📊 Data:', data);
       console.log('🔗 Tweet URL:', tweetUrl);
+      const shareId = this.generateShareId();
       
       // Create tweet tab and set up state
-      const { tweetTab, shareData } = await this.tabManager.createTweetTab(tweetUrl, data);
+      const { tweetTab } = await this.tabManager.createTweetTab(tweetUrl, data, shareId, tweetText);
       
       // Create image generation tab in background
-      const { backgroundTab } = await this.tabManager.createImageGenerationTab(data, tweetTab.id);
+      const { backgroundTab } = await this.tabManager.createImageGenerationTab(data, tweetTab.id, shareId, tweetText);
       
       return { 
         success: true, 
+        policy: 'strict_affinity',
+        shareId,
         tweetTabId: tweetTab.id, 
         imageTabId: backgroundTab.id 
       };
       
     } catch (error) {
       console.error('X share with image failed:', error);
-      const errorInfo = this.errorHandler.handleSocialMediaError(error, {
-        operation: 'share_to_x_with_image',
-        tweetUrl,
-        hasData: !!data
-      });
-      throw new Error(`X投稿準備に失敗しました: ${error.message}`);
+      const failedReason = this.inferFailureReason(error);
+      try {
+        if (this.errorHandler?.handleXSharingError) {
+          this.errorHandler.handleXSharingError(error, {
+            operation: 'share_to_x_with_image',
+            tweetUrl,
+            hasData: !!data,
+            failedReason,
+            policy: 'strict_affinity'
+          });
+        }
+      } catch {}
+
+      return {
+        success: false,
+        policy: 'strict_affinity',
+        failedReason,
+        error: `X投稿準備に失敗しました: ${error.message}`
+      };
     }
+  }
+
+  generateShareId() {
+    return `xshare_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  inferFailureReason(error) {
+    const message = String(error?.message || '').toLowerCase();
+    if (message.includes('tweet url')) return 'invalid_tweet_url';
+    if (message.includes('data is required') || message.includes('book')) return 'invalid_share_data';
+    if (message.includes('tab') && message.includes('closed')) return 'tab_closed_during_setup';
+    return 'share_setup_failed';
   }
 
   /**
@@ -189,7 +218,9 @@ export default class ShareWorkflowService {
 
     // Attempt image attachment
     try {
-      const attachResult = await this.attachmentManager.attemptImageAttachment(tweetTabId, dataUrl, attempt);
+      const pendingShare = this.tabManager?.stateManager?.getPendingXShare?.(tweetTabId);
+      const tweetText = typeof pendingShare?.tweetText === 'string' ? pendingShare.tweetText : '';
+      const attachResult = await this.attachmentManager.attemptImageAttachment(tweetTabId, dataUrl, attempt, tweetText);
       return attachResult ? { success: true } : { success: false, shouldRetry: true, error: 'Attachment failed' };
       
     } catch (attachError) {
@@ -237,7 +268,9 @@ export default class ShareWorkflowService {
       
       // Retry attachment once without re-injection
       console.log('🔄 Retrying attachment without script re-injection...');
-      const attachResult = await this.attachmentManager.attemptImageAttachment(tweetTabId, dataUrl, attempt);
+      const pendingShare = this.tabManager?.stateManager?.getPendingXShare?.(tweetTabId);
+      const tweetText = typeof pendingShare?.tweetText === 'string' ? pendingShare.tweetText : '';
+      const attachResult = await this.attachmentManager.attemptImageAttachment(tweetTabId, dataUrl, attempt, tweetText);
       return attachResult;
       
     } catch (retryError) {

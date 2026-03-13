@@ -51,9 +51,9 @@ export default class SocialMediaService {
     };
     
     const attachmentConfig = {
-      timeoutFirstAttempt: 2000,   // 2s for attempt 0
-      timeoutEarlyAttempts: 4000,  // 4s for attempts 1-2  
-      timeoutLaterAttempts: 6000   // 6s for attempts 3+
+      timeoutFirstAttempt: 7000,   // wait for content-script-side attach confirmation
+      timeoutEarlyAttempts: 10000, // attempts 1-2
+      timeoutLaterAttempts: 12000  // attempts 3+
     };
 
     // Initialize specialized services
@@ -74,10 +74,11 @@ export default class SocialMediaService {
    * Main method to share content to X with image attachment
    * @param {Object} data - Book data for image generation
    * @param {string} tweetUrl - X compose URL
+   * @param {string} tweetText - Text to inject into the compose box
    * @returns {Promise<Object>} Share result with tab IDs
    */
-  async shareToXWithImage(data, tweetUrl) {
-    return this.workflowService.executeShareWorkflow(data, tweetUrl);
+  async shareToXWithImage(data, tweetUrl, tweetText = '') {
+    return this.workflowService.executeShareWorkflow(data, tweetUrl, tweetText);
   }
 
   /**

@@ -20,15 +20,21 @@ export default class TabManagementService {
    * Create X tweet tab and set up initial state
    * @param {string} tweetUrl - X compose URL
    * @param {Object} data - Book data for sharing
+   * @param {string} shareId - Strict share affinity ID
+   * @param {string} tweetText - Text to inject into the compose box
    * @returns {Promise<Object>} Created tab and state info
    */
-  async createTweetTab(tweetUrl, data) {
+  async createTweetTab(tweetUrl, data, shareId, tweetText = '') {
     if (!tweetUrl) {
       throw new Error('Tweet URL is required but not provided');
     }
     
     if (!data) {
       throw new Error('Data is required but not provided');
+    }
+
+    if (!shareId) {
+      throw new Error('shareId is required for strict affinity mode');
     }
 
     console.log('🌐 Creating X tweet tab...');
@@ -41,9 +47,13 @@ export default class TabManagementService {
     
     // Store share state
     const shareData = this.stateManager.setPendingXShare(tweetTab.id, {
+      shareId,
       url: tweetUrl,
+      tweetText,
       data: data,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      policy: 'strict_affinity',
+      status: 'awaiting_image'
     });
 
     return { tweetTab, shareData };
@@ -53,16 +63,30 @@ export default class TabManagementService {
    * Create image generation tab in background
    * @param {Object} data - Book data for image generation
    * @param {number} tweetTabId - Associated tweet tab ID
+   * @param {string} shareId - Strict share affinity ID
+   * @param {string} tweetText - Text to inject into the compose box
    * @returns {Promise<Object>} Created image tab info
    */
-  async createImageGenerationTab(data, tweetTabId) {
+  async createImageGenerationTab(data, tweetTabId, shareId, tweetText = '') {
+    if (!shareId) {
+      throw new Error('shareId is required for strict affinity mode');
+    }
+
     // Store data for image generation
     await chrome.storage.local.set({ 'pendingImageData': data });
     console.log('Stored data in chrome.storage for image generation');
     
     // Create image generation page URL
-    const encodedData = encodeURIComponent(JSON.stringify(data));
-    const imagePageUrl = chrome.runtime.getURL(`popup/image-generator.html?data=${encodedData}&quickMode=true&tweetTabId=${tweetTabId}`);
+    const imagePageParams = new URLSearchParams({
+      data: JSON.stringify(data),
+      quickMode: 'true',
+      tweetTabId: String(tweetTabId),
+      shareId: shareId || ''
+    });
+    if (tweetText) {
+      imagePageParams.set('tweetText', tweetText);
+    }
+    const imagePageUrl = chrome.runtime.getURL(`popup/image-generator.html?${imagePageParams.toString()}`);
     
     // Create image generation tab in background
     const backgroundTab = await chrome.tabs.create({
@@ -73,7 +97,13 @@ export default class TabManagementService {
     console.log('Created image generation tab:', backgroundTab.id);
     
     // Update share state with image tab ID
-    this.stateManager.updatePendingXShare(tweetTabId, { imageTabId: backgroundTab.id });
+    this.stateManager.updatePendingXShare(tweetTabId, {
+      shareId,
+      imageTabId: backgroundTab.id,
+      tweetText,
+      policy: 'strict_affinity',
+      status: 'awaiting_image'
+    });
     
     return { backgroundTab };
   }

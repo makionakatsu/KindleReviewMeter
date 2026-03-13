@@ -25,8 +25,15 @@ let proxyManagerService;
 let imageGenerationService;
 let socialMediaService;
 
-// Legacy push-model pending share (dataURL based)
-let pendingXShare = null; // { tweetTabId, imageTabId, dataUrl, imageSent }
+// Strict share affinity state (fail-closed)
+// - shareById: shareId -> share state
+// - shareIdByTweetTabId: tweet tab index
+// - shareIdByImageTabId: image generation tab index
+const shareById = new Map();
+const shareIdByTweetTabId = new Map();
+const shareIdByImageTabId = new Map();
+const sendLockByShareId = new Map();
+let shareCreationInFlightPromise = null;
 let amazonScrapingService;
 
 // Priority-1: Pending image store for binary transfer
@@ -34,15 +41,234 @@ let amazonScrapingService;
 // - tweetPorts: tweetTabId -> Port (content script connection)
 const pendingImageStore = new Map();
 const tweetPorts = new Map();
+// Idempotency cache for shareToXWithImage requests from popup retries.
+const shareRequestCache = new Map(); // requestId -> { createdAt, promise }
+const SHARE_TTL_MS = 10 * 60 * 1000;
+const SHARE_DONE_TTL_MS = 2 * 60 * 1000;
+let shareMaintenanceInterval = null;
+let lifecycleTabListenersAttached = false;
+let lifecycleRuntimeListenersAttached = false;
+
+function pruneShareRequestCache() {
+  const now = Date.now();
+  const ttlMs = 5 * 60 * 1000; // 5 minutes
+
+  for (const [requestId, entry] of shareRequestCache.entries()) {
+    if (!entry?.createdAt || (now - entry.createdAt) > ttlMs) {
+      shareRequestCache.delete(requestId);
+    }
+  }
+
+  // Hard cap to avoid unbounded growth
+  if (shareRequestCache.size > 200) {
+    const sorted = Array.from(shareRequestCache.entries())
+      .sort((a, b) => (a[1]?.createdAt || 0) - (b[1]?.createdAt || 0));
+    const overflow = shareRequestCache.size - 200;
+    for (let i = 0; i < overflow; i++) {
+      shareRequestCache.delete(sorted[i][0]);
+    }
+  }
+}
+
+function generateShareId() {
+  return `xshare_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isComposeTweetUrl(url) {
+  if (typeof url !== 'string') return false;
+  return /^https:\/\/(?:mobile\.)?(?:x|twitter)\.com\/(?:i\/(?:flow\/)?|)?compose\/(?:tweet|post)(?:[/?#]|$)/i.test(url);
+}
+
+function logShareEvent(event, shareOrMeta = {}, extra = {}) {
+  const meta = shareOrMeta && typeof shareOrMeta === 'object'
+    ? {
+        shareId: shareOrMeta.shareId || null,
+        tweetTabId: shareOrMeta.tweetTabId || null,
+        imageTabId: shareOrMeta.imageTabId || null,
+        status: shareOrMeta.status || null,
+        failureReason: shareOrMeta.failureReason || null
+      }
+    : {};
+  console.log(`[X_SHARE] ${event}`, { ...meta, ...extra });
+}
+
+function indexShare(share) {
+  if (!share?.shareId) return;
+  if (Number.isInteger(share.tweetTabId)) {
+    shareIdByTweetTabId.set(share.tweetTabId, share.shareId);
+  }
+  if (Number.isInteger(share.imageTabId)) {
+    shareIdByImageTabId.set(share.imageTabId, share.shareId);
+  }
+}
+
+function unindexShare(share) {
+  if (!share) return;
+  if (Number.isInteger(share.tweetTabId) && shareIdByTweetTabId.get(share.tweetTabId) === share.shareId) {
+    shareIdByTweetTabId.delete(share.tweetTabId);
+  }
+  if (Number.isInteger(share.imageTabId) && shareIdByImageTabId.get(share.imageTabId) === share.shareId) {
+    shareIdByImageTabId.delete(share.imageTabId);
+  }
+}
+
+function syncExtensionPendingShare(share) {
+  if (!share) return;
+  const tweetTabId = Number(share.tweetTabId);
+  if (!Number.isInteger(tweetTabId)) return;
+
+  const syncPayload = {
+    shareId: share.shareId || null,
+    imageTabId: Number.isInteger(share.imageTabId) ? share.imageTabId : null,
+    status: share.status || null,
+    imageSent: !!share.imageSent,
+    failureReason: share.failureReason || null,
+    policy: share.policy || 'strict_affinity',
+    updatedAt: share.updatedAt || Date.now()
+  };
+
+  try {
+    const existing = extensionStateManager.getPendingXShare(tweetTabId);
+    if (existing) {
+      extensionStateManager.updatePendingXShare(tweetTabId, syncPayload);
+      logShareEvent('state_synced', share, { syncMode: 'update' });
+    } else {
+      extensionStateManager.setPendingXShare(tweetTabId, {
+        ...syncPayload,
+        createdAt: share.createdAt || Date.now()
+      });
+      logShareEvent('state_synced', share, { syncMode: 'set' });
+    }
+  } catch (e) {
+    console.warn('Failed to sync strict share state to ExtensionStateManager:', e?.message || e);
+  }
+}
+
+function upsertShare(share, extra = {}) {
+  if (!share?.shareId) return null;
+  const existing = shareById.get(share.shareId);
+  if (existing) {
+    unindexShare(existing);
+  }
+  const next = {
+    ...existing,
+    ...share,
+    updatedAt: Date.now(),
+    ...extra
+  };
+  shareById.set(next.shareId, next);
+  indexShare(next);
+  syncExtensionPendingShare(next);
+  return next;
+}
+
+function getShareByTweetTabId(tabId) {
+  const id = Number(tabId);
+  if (!Number.isInteger(id)) return null;
+  const shareId = shareIdByTweetTabId.get(id);
+  return shareId ? (shareById.get(shareId) || null) : null;
+}
+
+function clearShare(shareId, reason = 'cleared') {
+  const share = shareById.get(shareId);
+  if (!share) return;
+  const tweetTabId = Number(share.tweetTabId);
+  let extensionCleared = false;
+
+  if (Number.isInteger(tweetTabId)) {
+    try {
+      extensionCleared = !!extensionStateManager.clearPendingXShare(tweetTabId);
+    } catch (e) {
+      console.warn('Failed to clear ExtensionStateManager pending share:', e?.message || e);
+    }
+  }
+
+  unindexShare(share);
+  shareById.delete(shareId);
+  sendLockByShareId.delete(shareId);
+  logShareEvent('cleared', share, { reason, extensionCleared });
+}
+
+function markShareFailed(shareId, reason, extra = {}) {
+  const share = shareById.get(shareId);
+  if (!share) return null;
+  const failed = upsertShare(
+    {
+      ...share,
+      status: 'failed',
+      failureReason: reason
+    },
+    { updatedAt: Date.now() }
+  );
+  logShareEvent('failed', failed, { reason, ...extra });
+  return failed;
+}
+
+async function notifyStrictFailure(share, reason) {
+  const msg = `自動添付を中断しました（${reason}）。誤添付防止のため再実行してください。`;
+  logShareEvent('strict_failure_notified', share || {}, { reason, message: msg });
+  if (typeof chrome !== 'undefined' && chrome.notifications) {
+    try {
+      await chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'Kindle Review Meter',
+        message: msg
+      });
+    } catch (e) {
+      console.warn('Failed to show strict failure notification:', e?.message || e);
+    }
+  }
+}
+
+function pruneStaleShares() {
+  const now = Date.now();
+  for (const [shareId, share] of shareById.entries()) {
+    const age = now - (share.updatedAt || share.createdAt || now);
+    const done = share.status === 'completed' || share.status === 'failed';
+    const maxAge = done ? SHARE_DONE_TTL_MS : SHARE_TTL_MS;
+    if (age > maxAge) {
+      clearShare(shareId, 'stale');
+    }
+  }
+}
+
+function startShareMaintenance() {
+  if (shareMaintenanceInterval) return;
+  shareMaintenanceInterval = setInterval(() => {
+    try {
+      pruneStaleShares();
+      pruneShareRequestCache();
+    } catch (e) {
+      console.warn('Share maintenance failed:', e?.message || e);
+    }
+  }, 60 * 1000);
+}
+
+function stopShareMaintenance() {
+  if (!shareMaintenanceInterval) return;
+  clearInterval(shareMaintenanceInterval);
+  shareMaintenanceInterval = null;
+}
 
 function tryPushToTweetPort(tweetTabId) {
   const record = pendingImageStore.get(tweetTabId);
   const port = tweetPorts.get(tweetTabId);
   if (!record || !port) return false;
   try {
-    const { buffer, mime, imageTabId } = record;
-    port.postMessage({ type: 'image', mime, buffer }, [buffer]);
+    const { buffer, mime, imageTabId, shareId } = record;
+    port.postMessage({ type: 'image', mime, buffer });
     pendingImageStore.delete(tweetTabId);
+    if (shareId && shareById.has(shareId)) {
+      const share = shareById.get(shareId);
+      upsertShare({
+        ...share,
+        status: 'completed',
+        imageSent: true,
+        sentAt: Date.now()
+      });
+      clearShare(shareId, 'binary_port_sent');
+    }
     socialMediaService?.workflowService?.tabManager?.markImageAsSent(tweetTabId);
     socialMediaService?.workflowService?.tabManager?.cleanupImageTab(imageTabId).catch(()=>{});
     console.log('⚡ Pushed pending image immediately to tweet tab via Port');
@@ -73,6 +299,7 @@ async function initializeExtension() {
     
     // Set up extension lifecycle handlers
     setupExtensionLifecycle();
+    startShareMaintenance();
     
     console.log('✅ Kindle Review Meter background services initialized successfully');
     
@@ -118,34 +345,225 @@ function registerServiceHandlers() {
   
   // X sharing with automatic image attachment
   messageRouter.registerHandler('shareToXWithImage', async (request) => {
+    pruneStaleShares();
+    const requestId = typeof request?._id === 'string' ? request._id : null;
+    const tweetText = typeof request?.tweetText === 'string' ? request.tweetText : '';
+    if (requestId) {
+      pruneShareRequestCache();
+      const cached = shareRequestCache.get(requestId);
+      if (cached?.promise) {
+        console.warn('shareToXWithImage duplicate request detected; reusing prior result', { requestId });
+        return await cached.promise;
+      }
+    }
+
+    if (shareCreationInFlightPromise) {
+      if (requestId) {
+        shareRequestCache.set(requestId, {
+          createdAt: Date.now(),
+          promise: shareCreationInFlightPromise
+        });
+      }
+      console.warn('shareToXWithImage in-flight guard: reusing existing creation promise');
+      return await shareCreationInFlightPromise;
+    }
+
+    const executeShare = (async () => {
+      try {
+        console.log('🎯 Handling shareToXWithImage with SocialMediaService');
+        const result = await socialMediaService.shareToXWithImage(request.data, request.tweetUrl, tweetText);
+
+        if (!result?.success) {
+          const failedReason = result?.failedReason || 'share_setup_failed';
+          console.warn('shareToXWithImage returned unsuccessful result:', failedReason);
+          return {
+            ...result,
+            policy: 'strict_affinity'
+          };
+        }
+
+        const shareId = typeof result?.shareId === 'string' && result.shareId
+          ? result.shareId
+          : generateShareId();
+        const tweetTabId = Number(result?.tweetTabId);
+        const imageTabId = Number(result?.imageTabId);
+
+        if (!Number.isInteger(tweetTabId) || !Number.isInteger(imageTabId)) {
+          throw new Error('shareToXWithImage did not return required tab IDs');
+        }
+
+        const share = upsertShare({
+          shareId,
+          tweetTabId,
+          imageTabId,
+          tweetText,
+          dataUrl: null,
+          imageSent: false,
+          status: 'awaiting_image',
+          failureReason: null,
+          policy: 'strict_affinity',
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        logShareEvent('created', share, { requestId });
+
+        return {
+          ...result,
+          shareId,
+          policy: 'strict_affinity'
+        };
+      } catch (error) {
+        console.error('❌ shareToXWithImage failed:', error);
+        throw error;
+      }
+    })();
+    shareCreationInFlightPromise = executeShare;
+
+    if (requestId) {
+      shareRequestCache.set(requestId, { createdAt: Date.now(), promise: executeShare });
+    }
+
     try {
-      console.log('🎯 Handling shareToXWithImage with SocialMediaService');
-      const result = await socialMediaService.shareToXWithImage(request.data, request.tweetUrl);
-      // Initialize legacy push-model pending share state
-      pendingXShare = {
-        tweetTabId: result?.tweetTabId || null,
-        imageTabId: result?.imageTabId || null,
-        dataUrl: null,
-        imageSent: false
-      };
-      console.log('🧭 Pending X share initialized:', pendingXShare);
+      const result = await executeShare;
+      if (requestId) {
+        const entry = shareRequestCache.get(requestId);
+        if (entry) entry.createdAt = Date.now();
+      }
       return result;
     } catch (error) {
-      console.error('❌ shareToXWithImage failed:', error);
+      if (requestId) shareRequestCache.delete(requestId);
       throw error;
+    } finally {
+      if (shareCreationInFlightPromise === executeShare) {
+        shareCreationInFlightPromise = null;
+      }
     }
   });
   
   // Image generation completion
   messageRouter.registerHandler('imageGenerated', async (request, sender) => {
     try {
-      console.log('🖼️ Handling imageGenerated (legacy push model)');
+      pruneStaleShares();
+      console.log('🖼️ Handling imageGenerated (strict affinity)');
       if (!request?.dataUrl) throw new Error('No image data');
-      if (!pendingXShare?.tweetTabId) throw new Error('No pending X share');
-      pendingXShare.dataUrl = request.dataUrl;
-      // Attempt to send immediately
-      trySendImageToTweetTab();
-      return true;
+
+      const requestedShareId = typeof request?.shareId === 'string' ? request.shareId : null;
+      const requestedTweetTabId = Number(request?.tweetTabId) || null;
+      const requestedImageTabId = Number(request?.imageTabId) || null;
+      const requestedTweetText = typeof request?.tweetText === 'string' ? request.tweetText : '';
+      const senderImageTabId = sender?.tab?.id || null;
+      const sourceImageTabId = senderImageTabId || requestedImageTabId;
+
+      let share = null;
+      let resolution = null;
+
+      if (requestedShareId) {
+        share = shareById.get(requestedShareId) || null;
+        resolution = 'share_id';
+      }
+
+      if (!share) {
+        // Restore strict share affinity when SW was restarted and in-memory maps were lost.
+        if (requestedShareId && requestedTweetTabId) {
+          const composeTab = await new Promise((resolve) => {
+            chrome.tabs.get(requestedTweetTabId, (tab) => {
+              if (chrome.runtime.lastError || !tab) return resolve(null);
+              resolve(tab);
+            });
+          });
+          if (composeTab && isComposeTweetUrl(composeTab.url)) {
+            share = upsertShare({
+              shareId: requestedShareId,
+              tweetTabId: requestedTweetTabId,
+              imageTabId: Number.isInteger(sourceImageTabId) ? sourceImageTabId : null,
+              tweetText: requestedTweetText,
+              dataUrl: null,
+              imageSent: false,
+              status: 'awaiting_image',
+              failureReason: null,
+              policy: 'strict_affinity',
+              createdAt: Date.now(),
+              updatedAt: Date.now()
+            });
+            resolution = 'reconstructed_from_request';
+            logShareEvent('reconstructed', share, {
+              requestedTweetTabId,
+              senderImageTabId,
+              requestedImageTabId
+            });
+          }
+        }
+      }
+
+      if (!share) {
+        // Backward-compatible path: require BOTH tweetTabId + sender imageTabId and exact same share mapping.
+        if (requestedTweetTabId && sourceImageTabId) {
+          const shareIdByTweet = shareIdByTweetTabId.get(requestedTweetTabId) || null;
+          const shareIdByImage = shareIdByImageTabId.get(sourceImageTabId) || null;
+          if (shareIdByTweet && shareIdByTweet === shareIdByImage) {
+            share = shareById.get(shareIdByTweet) || null;
+            resolution = 'tweet_image_exact';
+          }
+        }
+      }
+
+      if (!share) {
+        throw new Error('No strict share match for imageGenerated');
+      }
+
+      if (requestedTweetTabId && share.tweetTabId !== requestedTweetTabId) {
+        const failed = markShareFailed(share.shareId, 'tweet_tab_mismatch', {
+          requestedTweetTabId,
+          actualTweetTabId: share.tweetTabId
+        });
+        await notifyStrictFailure(failed, 'tweet_tab_mismatch');
+        clearShare(share.shareId, 'tweet_tab_mismatch');
+        throw new Error('Strict affinity mismatch: tweetTabId');
+      }
+
+      if (sourceImageTabId && Number.isInteger(share.imageTabId) && share.imageTabId !== sourceImageTabId) {
+        const failed = markShareFailed(share.shareId, 'image_tab_mismatch', {
+          senderImageTabId: sourceImageTabId,
+          expectedImageTabId: share.imageTabId
+        });
+        await notifyStrictFailure(failed, 'image_tab_mismatch');
+        clearShare(share.shareId, 'image_tab_mismatch');
+        throw new Error('Strict affinity mismatch: imageTabId');
+      }
+
+      if (share.status === 'completed') {
+        return {
+          queued: false,
+          alreadyCompleted: true,
+          shareId: share.shareId,
+          tweetTabId: share.tweetTabId,
+          policy: 'strict_affinity'
+        };
+      }
+
+      if (share.status === 'failed') {
+        throw new Error(`Share already failed: ${share.failureReason || 'unknown'}`);
+      }
+
+      const next = upsertShare({
+        ...share,
+        tweetText: requestedTweetText || share.tweetText || '',
+        dataUrl: request.dataUrl,
+        status: 'image_ready',
+        failureReason: null
+      });
+
+      scheduleShareSend(next.shareId, 'imageGenerated').catch((e) => {
+        console.warn('scheduleShareSend failed:', e?.message || e);
+      });
+
+      return {
+        queued: true,
+        shareId: next.shareId,
+        tweetTabId: next.tweetTabId,
+        policy: 'strict_affinity',
+        resolution
+      };
     } catch (error) {
       console.error('❌ imageGenerated handling failed:', error);
       throw error;
@@ -179,14 +597,26 @@ function registerServiceHandlers() {
   // Content script on X compose page signals readiness
   messageRouter.registerHandler('xTweetPageReady', async (_request, sender) => {
     try {
+      pruneStaleShares();
       const tabId = sender.tab?.id || null;
-      console.log('✅ xTweetPageReady acknowledged', { tabId });
-      // Resume pending push-model share if we have data
-      if (pendingXShare?.tweetTabId === tabId && pendingXShare?.dataUrl && !pendingXShare?.imageSent) {
-        console.log('🔁 Tweet tab ready and pending image exists; trying to send now');
-        trySendImageToTweetTab();
+      const share = tabId ? getShareByTweetTabId(tabId) : null;
+      console.log('✅ xTweetPageReady acknowledged', {
+        tabId,
+        shareId: share?.shareId || null
+      });
+
+      if (share?.dataUrl && !share?.imageSent && share?.status !== 'failed' && share?.status !== 'completed') {
+        scheduleShareSend(share.shareId, 'xTweetPageReady').catch((e) => {
+          console.warn('scheduleShareSend from xTweetPageReady failed:', e?.message || e);
+        });
       }
-      return { ready: true, tabId };
+
+      return {
+        ready: true,
+        tabId,
+        shareId: share?.shareId || null,
+        policy: 'strict_affinity'
+      };
     } catch (error) {
       console.error('❌ xTweetPageReady handling failed:', error);
       throw error;
@@ -418,6 +848,26 @@ function setupExtensionLifecycle() {
             } finally {
               // Safely open popup with active window detection
               const openPopupSafely = async () => {
+                const openPopupPageFallback = async (baseError = null) => {
+                  try {
+                    const popupUrl = chrome.runtime.getURL('popup/popup.html');
+                    await chrome.tabs.create({ url: popupUrl, active: true });
+                    console.warn('openPopup failed; opened popup page in a new tab as fallback', {
+                      reason: baseError?.message || null
+                    });
+                    return true;
+                  } catch (fallbackError) {
+                    console.error('Fallback popup tab opening failed:', fallbackError?.message || fallbackError);
+                    errorHandler.handle(fallbackError, 'CONTEXT_MENU', {
+                      operation: 'open_popup_fallback_tab',
+                      extractionMethod,
+                      hasValidAmazon,
+                      originalPopupError: baseError?.message || null
+                    });
+                    return false;
+                  }
+                };
+
                 try {
                   // First check if there are any active windows
                   const windows = await chrome.windows.getAll({ populate: false });
@@ -425,21 +875,25 @@ function setupExtensionLifecycle() {
                   
                   if (windows.length === 0 || !currentWindow) {
                     console.warn('No active browser windows found, cannot open popup');
-                    return false;
+                    // Fall back to opening popup page in a new tab
+                    return await openPopupPageFallback();
                   }
                   
                   await chrome.action.openPopup();
                   return true;
                 } catch (popupError) {
-                  // Handle cases where no active browser window exists
+                  // Open extension page fallback when action popup cannot be opened
                   console.warn('Failed to open popup:', popupError?.message);
-                  errorHandler.handle(popupError, 'CONTEXT_MENU', {
-                    operation: 'open_popup',
-                    extractionMethod,
-                    hasValidAmazon,
-                    error: popupError?.message
-                  });
-                  return false;
+                  const fallbackOpened = await openPopupPageFallback(popupError);
+                  if (!fallbackOpened) {
+                    errorHandler.handle(popupError, 'CONTEXT_MENU', {
+                      operation: 'open_popup',
+                      extractionMethod,
+                      hasValidAmazon,
+                      error: popupError?.message
+                    });
+                  }
+                  return fallbackOpened;
                 }
               };
               
@@ -466,6 +920,41 @@ function setupExtensionLifecycle() {
       }
     });
   }
+
+  if (!lifecycleTabListenersAttached && chrome.tabs?.onRemoved) {
+    lifecycleTabListenersAttached = true;
+    chrome.tabs.onRemoved.addListener(async (tabId) => {
+      try {
+        const numericTabId = Number(tabId);
+        if (!Number.isInteger(numericTabId)) return;
+
+        pendingImageStore.delete(numericTabId);
+        tweetPorts.delete(numericTabId);
+
+        const byTweet = shareIdByTweetTabId.get(numericTabId) || null;
+        const byImage = shareIdByImageTabId.get(numericTabId) || null;
+        const impacted = new Set([byTweet, byImage].filter(Boolean));
+
+        for (const shareId of impacted) {
+          const share = shareById.get(shareId);
+          if (!share) continue;
+          const reason = share.tweetTabId === numericTabId ? 'tweet_tab_closed' : 'image_tab_closed';
+          markShareFailed(shareId, reason, { removedTabId: numericTabId });
+          await notifyStrictFailure(share, reason);
+          clearShare(shareId, reason);
+        }
+      } catch (e) {
+        console.warn('tab.onRemoved strict cleanup failed:', e?.message || e);
+      }
+    });
+  }
+
+  if (!lifecycleRuntimeListenersAttached && chrome.runtime?.onSuspend) {
+    lifecycleRuntimeListenersAttached = true;
+    chrome.runtime.onSuspend.addListener(() => {
+      stopShareMaintenance();
+    });
+  }
   
   console.log('📱 Extension lifecycle handlers set up');
 }
@@ -482,24 +971,61 @@ chrome.runtime.onConnect.addListener((port) => {
         if (!msg || msg.type !== 'image' || !msg.buffer) return;
         const imageTabId = port.sender?.tab?.id;
         try {
-          let tweetTabId = Number(msg.tweetTabId) || null;
-          if (!tweetTabId) {
-            const share = socialMediaService?.workflowService?.tabManager?.findShareByImageTab(imageTabId);
-            if (!share) {
-              console.warn('Pending share not found for image tab and no tweetTabId provided:', imageTabId);
-              return;
+          pruneStaleShares();
+          let share = null;
+          const requestedShareId = typeof msg.shareId === 'string' ? msg.shareId : null;
+          const requestedTweetTabId = Number(msg.tweetTabId) || null;
+
+          if (requestedShareId) {
+            share = shareById.get(requestedShareId) || null;
+          } else if (requestedTweetTabId && imageTabId) {
+            const sidFromTweet = shareIdByTweetTabId.get(requestedTweetTabId) || null;
+            const sidFromImage = shareIdByImageTabId.get(imageTabId) || null;
+            if (sidFromTweet && sidFromTweet === sidFromImage) {
+              share = shareById.get(sidFromTweet) || null;
             }
-            tweetTabId = share.tweetTabId;
           }
-          pendingImageStore.set(tweetTabId, {
+
+          if (!share) {
+            console.warn('Strict binary store failed: no matching share', {
+              requestedShareId,
+              requestedTweetTabId,
+              imageTabId
+            });
+            return;
+          }
+
+          if (requestedTweetTabId && share.tweetTabId !== requestedTweetTabId) {
+            markShareFailed(share.shareId, 'binary_tweet_tab_mismatch', {
+              expectedTweetTabId: share.tweetTabId,
+              requestedTweetTabId
+            });
+            await notifyStrictFailure(share, 'binary_tweet_tab_mismatch');
+            clearShare(share.shareId, 'binary_tweet_tab_mismatch');
+            return;
+          }
+
+          if (imageTabId && Number.isInteger(share.imageTabId) && share.imageTabId !== imageTabId) {
+            markShareFailed(share.shareId, 'binary_image_tab_mismatch', {
+              expectedImageTabId: share.imageTabId,
+              senderImageTabId: imageTabId
+            });
+            await notifyStrictFailure(share, 'binary_image_tab_mismatch');
+            clearShare(share.shareId, 'binary_image_tab_mismatch');
+            return;
+          }
+
+          pendingImageStore.set(share.tweetTabId, {
             buffer: msg.buffer,
             mime: msg.mime || 'image/jpeg',
             imageTabId,
+            shareId: share.shareId,
             receivedAt: Date.now()
           });
-          console.log('🔒 Stored pending image for tweetTabId:', tweetTabId);
+          logShareEvent('binary_stored', share);
+          try { port.postMessage({ type: 'stored', tweetTabId: share.tweetTabId, imageTabId, shareId: share.shareId }); } catch {}
           // If the tweet port is already connected, push immediately
-          tryPushToTweetPort(tweetTabId);
+          tryPushToTweetPort(share.tweetTabId);
         } catch (e) {
           console.error('Failed to store pending image:', e);
         }
@@ -525,9 +1051,19 @@ chrome.runtime.onConnect.addListener((port) => {
         }
         try {
           // Respond with binary (Transferable)
-          const { buffer, mime, imageTabId } = record;
-          port.postMessage({ type: 'image', mime, buffer }, [buffer]);
+          const { buffer, mime, imageTabId, shareId } = record;
+          port.postMessage({ type: 'image', mime, buffer });
           pendingImageStore.delete(tweetTabId);
+          if (shareId && shareById.has(shareId)) {
+            const share = shareById.get(shareId);
+            upsertShare({
+              ...share,
+              status: 'completed',
+              imageSent: true,
+              sentAt: Date.now()
+            });
+            clearShare(shareId, 'binary_pull_sent');
+          }
           // Mark as sent and cleanup image tab
           socialMediaService?.workflowService?.tabManager?.markImageAsSent(tweetTabId);
           await socialMediaService?.workflowService?.tabManager?.cleanupImageTab(imageTabId);
@@ -543,135 +1079,183 @@ chrome.runtime.onConnect.addListener((port) => {
 });
 
 // ----------------------------------------------------------------------------
-// Legacy push-model sender: replicate fastest-record behavior
+// Strict share sender (fail-closed)
 // ----------------------------------------------------------------------------
-async function trySendImageToTweetTab(maxAttempts = 12) {
-  const snapshot = pendingXShare ? {
-    tweetTabId: pendingXShare.tweetTabId,
-    dataUrl: pendingXShare.dataUrl,
-    imageTabId: pendingXShare.imageTabId,
-    imageSent: !!pendingXShare.imageSent,
-  } : null;
+async function scheduleShareSend(shareId, trigger = 'unknown') {
+  if (typeof shareId !== 'string' || !shareId) return false;
+  const existing = sendLockByShareId.get(shareId);
+  if (existing) return existing;
 
-  console.log('trySendImageToTweetTab:', {
-    hasPending: !!pendingXShare,
-    tweetTabId: snapshot?.tweetTabId,
-    hasDataUrl: !!snapshot?.dataUrl,
-    imageSent: !!snapshot?.imageSent
-  });
+  const runner = (async () => {
+    try {
+      logShareEvent('send_scheduled', shareById.get(shareId) || { shareId }, { trigger });
+      return await trySendImageToTweetTab(shareId);
+    } finally {
+      if (sendLockByShareId.get(shareId) === runner) {
+        sendLockByShareId.delete(shareId);
+      }
+    }
+  })();
 
-  if (!snapshot?.tweetTabId || !snapshot?.dataUrl) return false;
-  if (snapshot.imageSent) return true;
+  sendLockByShareId.set(shareId, runner);
+  return runner;
+}
 
-  // Helper: find any open X compose tab as fallback when the original tab closed
-  const findComposeTab = async () => {
-    return new Promise((resolve) => {
-      try {
-        chrome.tabs.query({
-          url: [
-            'https://x.com/compose/tweet*',
-            'https://twitter.com/compose/tweet*',
-            'https://mobile.twitter.com/compose/tweet*'
-          ]
-        }, (tabs) => {
-          if (chrome.runtime.lastError || !tabs) return resolve(null);
-          // Prefer active tab, else the most recently opened
-          const active = tabs.find(t => t.active);
-          if (active) return resolve(active);
-          if (tabs.length > 0) return resolve(tabs.sort((a,b)=> (b.id||0)-(a.id||0))[0]);
-          resolve(null);
-        });
-      } catch (_) { resolve(null); }
-    });
-  };
+async function trySendImageToTweetTab(shareId, maxAttempts = 12) {
+  pruneStaleShares();
+  const initial = shareById.get(shareId);
+  if (!initial) {
+    console.warn('trySendImageToTweetTab skipped: share not found', { shareId });
+    return false;
+  }
+  if (initial.status === 'completed') return true;
+  if (initial.status === 'failed') return false;
+  if (!initial.dataUrl) return false;
+
+  let lastError = null;
+  upsertShare({ ...initial, status: 'sending' });
 
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const delay = i === 0 ? 0 : Math.min(600 + (i * 150), 1500);
-      if (delay > 0) await new Promise(r => setTimeout(r, delay));
+      const share = shareById.get(shareId);
+      if (!share) return false;
+      if (share.status === 'completed') return true;
+      if (share.status === 'failed') return false;
 
-      // Ensure tab exists and is ready
-      let tab = await new Promise((resolve) => {
-        chrome.tabs.get(snapshot.tweetTabId, (t) => {
+      const targetTweetTabId = Number(share.tweetTabId) || null;
+      if (!targetTweetTabId) {
+        throw new Error('missing_tweet_tab_id');
+      }
+
+      const delay = i === 0 ? 0 : Math.min(600 + (i * 150), 1500);
+      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+
+      const tab = await new Promise((resolve) => {
+        chrome.tabs.get(targetTweetTabId, (t) => {
           if (chrome.runtime.lastError) return resolve(null);
           resolve(t);
         });
       });
-      if (!tab) {
-        // Try to find any compose tab and update pending share mapping
-        const alt = await findComposeTab();
-        if (alt?.id) {
-          pendingXShare.tweetTabId = alt.id;
-          tab = alt;
-        } else {
-          continue;
-        }
-      }
-      if (tab.status === 'loading') continue;
-      if (!/^https:\/\/(?:mobile\.)?(?:x|twitter)\.com\//.test(tab.url)) continue;
 
-      // Inject CS (idempotent) then ping up to 3 times
-      let ready = false;
+      if (!tab) {
+        markShareFailed(shareId, 'tweet_tab_closed');
+        await notifyStrictFailure(share, 'tweet_tab_closed');
+        clearShare(shareId, 'tweet_tab_closed');
+        return false;
+      }
+
+      if (tab.status === 'loading') continue;
+
+      if (!isComposeTweetUrl(tab.url)) {
+        markShareFailed(shareId, 'invalid_compose_url', { tabUrl: tab.url });
+        await notifyStrictFailure(share, 'invalid_compose_url');
+        clearShare(shareId, 'invalid_compose_url');
+        return false;
+      }
+
       for (let pingAttempt = 0; pingAttempt < 3; pingAttempt++) {
         try {
           if (chrome?.scripting?.executeScript) {
-            await chrome.scripting.executeScript({ target: { tabId: snapshot.tweetTabId }, files: ['content-scripts/x-tweet-auto-attach.js'] });
+            await chrome.scripting.executeScript({
+              target: { tabId: targetTweetTabId },
+              files: ['content-scripts/x-tweet-auto-attach.js']
+            });
             const initWait = Math.min(500 + (pingAttempt * 300), 1500);
-            await new Promise(r => setTimeout(r, initWait));
+            await new Promise((r) => setTimeout(r, initWait));
           }
         } catch {}
 
         const ping = await new Promise((resolve) => {
           const timeout = setTimeout(() => resolve(false), 2000);
-          chrome.tabs.sendMessage(snapshot.tweetTabId, { action: 'krmPing' }, (resp) => {
+          chrome.tabs.sendMessage(targetTweetTabId, { action: 'krmPing' }, (resp) => {
             clearTimeout(timeout);
             resolve(!chrome.runtime.lastError && resp?.pong);
           });
         });
-        if (ping) { ready = true; break; }
-        if (pingAttempt < 2) await new Promise(r => setTimeout(r, Math.min(300 + (pingAttempt * 200), 1000)));
+        if (ping) break;
+        if (pingAttempt < 2) {
+          await new Promise((r) => setTimeout(r, Math.min(300 + (pingAttempt * 200), 1000)));
+        }
       }
 
-      // Send attachment message with progressive timeout
       const ok = await new Promise((resolve, reject) => {
         let responseReceived = false;
         let timeoutDuration;
-        if (i === 0) timeoutDuration = 2000; else if (i <= 2) timeoutDuration = 4000; else timeoutDuration = 6000;
-        const to = setTimeout(() => { if (!responseReceived) reject(new Error('timeout')); }, timeoutDuration);
+        if (i === 0) timeoutDuration = 7000;
+        else if (i <= 2) timeoutDuration = 10000;
+        else timeoutDuration = 12000;
+        const to = setTimeout(() => {
+          if (!responseReceived) reject(new Error('timeout'));
+        }, timeoutDuration);
         try {
-          chrome.tabs.get(pendingXShare.tweetTabId, () => {
-            if (chrome.runtime.lastError) { clearTimeout(to); return reject(new Error('tab closed')); }
-            chrome.tabs.sendMessage(pendingXShare.tweetTabId, { action: 'attachImageDataUrl', dataUrl: snapshot.dataUrl }, (resp) => {
-              responseReceived = true; clearTimeout(to);
-              if (chrome.runtime.lastError || !resp) return reject(new Error(chrome.runtime.lastError?.message || 'no response'));
-              if (resp.ok) return resolve(true);
-              return reject(new Error(resp.error || 'attach failed'));
-            });
+          chrome.tabs.get(targetTweetTabId, () => {
+            if (chrome.runtime.lastError) {
+              clearTimeout(to);
+              return reject(new Error('tab closed'));
+            }
+            chrome.tabs.sendMessage(
+              targetTweetTabId,
+              {
+                action: 'attachImageDataUrl',
+                dataUrl: share.dataUrl,
+                tweetText: share.tweetText || ''
+              },
+              (resp) => {
+                responseReceived = true;
+                clearTimeout(to);
+                if (chrome.runtime.lastError || !resp) {
+                  return reject(new Error(chrome.runtime.lastError?.message || 'no response'));
+                }
+                if (resp.ok) return resolve(true);
+                return reject(new Error(resp.error || 'attach failed'));
+              }
+            );
           });
-        } catch (e) { clearTimeout(to); reject(e); }
+        } catch (e) {
+          clearTimeout(to);
+          reject(e);
+        }
       });
 
       if (ok) {
-        pendingXShare.imageSent = true;
-        // cleanup image tab if exists
-        try {
-          if (snapshot.imageTabId) {
-            chrome.tabs.get(snapshot.imageTabId, (t) => {
+        upsertShare({
+          ...share,
+          status: 'completed',
+          imageSent: true,
+          failureReason: null,
+          sentAt: Date.now()
+        });
+
+        if (Number.isInteger(share.imageTabId)) {
+          try {
+            chrome.tabs.get(share.imageTabId, (t) => {
               if (!chrome.runtime.lastError && t) {
-                try { chrome.tabs.remove(snapshot.imageTabId); } catch {}
+                try { chrome.tabs.remove(share.imageTabId); } catch {}
               }
             });
-          }
-        } catch {}
-        console.log('✅ Legacy push-model attachment succeeded');
+          } catch {}
+        }
+
+        logShareEvent('attached', share, { attempts: i + 1 });
+        clearShare(shareId, 'completed');
         return true;
       }
     } catch (e) {
-      console.warn(`Attempt ${i + 1} failed:`, e?.message || e);
+      lastError = e;
+      console.warn(`Attempt ${i + 1} failed for share ${shareId}:`, e?.message || e);
       continue;
     }
   }
-  console.error('❌ Failed to attach image after attempts');
+
+  const failed = markShareFailed(shareId, 'attach_failed', {
+    message: lastError?.message || null
+  });
+  await notifyStrictFailure(failed, 'attach_failed');
+  clearShare(shareId, 'attach_failed');
+  console.error('❌ Failed to attach image after attempts', {
+    shareId,
+    error: lastError?.message || null
+  });
   return false;
 }
 

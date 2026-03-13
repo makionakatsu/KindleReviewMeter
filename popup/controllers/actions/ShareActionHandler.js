@@ -39,24 +39,34 @@ export default class ShareActionHandler {
       const tweetText = this.bookModel.generateTweetText();
       console.log('ShareActionHandler: Generated tweet text:', tweetText);
       
-      // Create X compose URL
-      const tweetUrl = `https://x.com/compose/tweet?text=${encodeURIComponent(tweetText)}`;
+      // Open a blank compose and inject text inside the same draft as the image.
+      const tweetUrl = this.createXComposeUrl();
       
       // Send message to background script for X share with image
       const response = await this.messageHandler.sendMessageToBackground({
         action: 'shareToXWithImage',
         data: this.bookModel.exportForImageGeneration(),
-        tweetUrl: tweetUrl
-      });
-      
-      if (response?.success || response?.data?.success) {
-        this.uiManager.showSuccess('X投稿ページを開きました。画像は自動で添付されます。');
-        
+        tweetUrl: tweetUrl,
+        tweetText
+      }, 30000, 0); // no retry: avoid duplicate compose tab creation on transient callback issues
+
+      const payload = response?.data || response || {};
+      const succeeded = !!response?.success && payload?.success !== false;
+
+      if (succeeded) {
+        const shareId = typeof payload?.shareId === 'string' ? payload.shareId : null;
+        const policy = payload?.policy === 'strict_affinity' ? 'strict_affinity' : null;
+        const suffix = shareId ? ` (shareId: ${shareId})` : '';
+        const policyText = policy ? ' [strict]' : '';
+        this.uiManager.showSuccess(`X投稿ページを開きました。画像は自動で添付されます。${policyText}${suffix}`);
+
         // Auto-save after successful share initiation
         await this.autoSaveAfterShare();
       } else {
-        const errorMsg = response.error || 'X投稿の準備に失敗しました';
-        this.uiManager.showError(errorMsg);
+        const failedReason = payload?.failedReason || response?.failedReason || null;
+        const errorMsg = payload?.error || response?.error || 'X投稿の準備に失敗しました';
+        const detail = failedReason ? ` (${failedReason})` : '';
+        this.uiManager.showError(`自動添付中断（再実行してください）: ${errorMsg}${detail}`);
       }
       
     } catch (error) {
@@ -137,12 +147,12 @@ export default class ShareActionHandler {
   }
 
   /**
-   * Create X compose URL with tweet text
-   * @param {string} tweetText - Text to include in tweet
+   * Create X compose URL.
+   * Text is injected after the compose page loads so text and image stay in one draft.
    * @returns {string} X compose URL
    */
-  createXComposeUrl(tweetText) {
-    return `https://x.com/compose/tweet?text=${encodeURIComponent(tweetText)}`;
+  createXComposeUrl() {
+    return 'https://x.com/compose/tweet';
   }
 
   /**

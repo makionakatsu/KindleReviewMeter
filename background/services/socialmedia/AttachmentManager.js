@@ -3,7 +3,7 @@
  */
 
 export default class AttachmentManager {
-  constructor({ timeoutFirstAttempt = 2000, timeoutEarlyAttempts = 4000, timeoutLaterAttempts = 6000 } = {}) {
+  constructor({ timeoutFirstAttempt = 7000, timeoutEarlyAttempts = 10000, timeoutLaterAttempts = 12000 } = {}) {
     this.timeoutFirstAttempt = timeoutFirstAttempt;
     this.timeoutEarlyAttempts = timeoutEarlyAttempts;
     this.timeoutLaterAttempts = timeoutLaterAttempts;
@@ -14,9 +14,10 @@ export default class AttachmentManager {
    * @param {number} tabId
    * @param {string} dataUrl
    * @param {number} attemptNumber
+   * @param {string} tweetText
    * @returns {Promise<boolean>}
    */
-  async attemptImageAttachment(tabId, dataUrl, attemptNumber = 0) {
+  async attemptImageAttachment(tabId, dataUrl, attemptNumber = 0, tweetText = '') {
     console.log('🎯 Attempting image attachment...');
 
     return new Promise((resolve, reject) => {
@@ -48,7 +49,7 @@ export default class AttachmentManager {
 
           console.log('📤 Sending attachment message to tab:', tab.url);
 
-          chrome.tabs.sendMessage(tabId, { action: 'attachImageDataUrl', dataUrl }, (resp) => {
+          chrome.tabs.sendMessage(tabId, { action: 'attachImageDataUrl', dataUrl, tweetText }, (resp) => {
             responseReceived = true;
             clearTimeout(timeout);
 

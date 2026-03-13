@@ -88,19 +88,143 @@
   Output.handleQuickMode = async function handleQuickMode(canvas, statusEl) {
     const urlParams = new URLSearchParams(window.location.search);
     const tweetTabId = Number(urlParams.get('tweetTabId')) || null;
+    const shareId = (urlParams.get('shareId') || '').trim();
+    const tweetText = urlParams.get('tweetText') || '';
+    const enableBinary = urlParams.get('binary') === '1';
+    let shouldAutoClose = false;
+
+    const sendFailureTelemetry = async (reason) => {
+      try {
+        await chrome.runtime.sendMessage({
+          action: 'clipboardCopySuccess',
+          success: false,
+          error: reason || 'quick_mode_send_failed'
+        });
+      } catch {}
+    };
+
+    const validateImageGeneratedResponse = (response, expectedShareId) => {
+      const payload = response?.data ?? response ?? {};
+
+      if (response?.success !== true) {
+        throw new Error(
+          payload?.error ||
+          response?.error ||
+          payload?.failedReason ||
+          'imageGenerated_request_failed'
+        );
+      }
+
+      if (typeof payload?.shareId === 'string' &&
+          payload.shareId &&
+          payload.shareId !== expectedShareId) {
+        throw new Error('share_id_mismatch');
+      }
+
+      if (payload?.queued === false && payload?.alreadyCompleted !== true) {
+        throw new Error(payload?.failedReason || 'image_not_queued');
+      }
+
+      return payload;
+    };
+
     try {
-      console.log('Quick mode: generating image data URL (legacy push path)');
+      if (!shareId) {
+        if (statusEl) statusEl.textContent = '自動添付を中断しました（shareId欠落）';
+        throw new Error('strict_affinity_shareId_missing');
+      }
+
       const dataUrl = (() => {
         try { return canvas.toDataURL('image/jpeg', 0.9); } catch { return canvas.toDataURL('image/png'); }
       })();
-      await chrome.runtime.sendMessage({ action: 'imageGenerated', dataUrl, tweetTabId });
+      const imageTabId = await new Promise((resolve) => {
+        try {
+          if (chrome?.tabs?.getCurrent) {
+            chrome.tabs.getCurrent((tab) => resolve(Number(tab?.id) || null));
+          } else {
+            resolve(null);
+          }
+        } catch (_) {
+          resolve(null);
+        }
+      });
+
+      // Strict affinity: shareId is mandatory to prevent cross-draft attachment.
+      const response = await chrome.runtime.sendMessage({
+        action: 'imageGenerated',
+        target: 'background',
+        dataUrl,
+        shareId,
+        tweetTabId,
+        imageTabId,
+        tweetText,
+        binarySent: false,
+        policy: 'strict_affinity'
+      });
+      validateImageGeneratedResponse(response, shareId);
+
+      // Optional binary path for experiments/debugging only.
+      if (enableBinary) {
+        try {
+          if (chrome?.runtime?.connect) {
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+            if (blob) {
+              const buffer = await blob.arrayBuffer();
+              await new Promise((resolve) => {
+                const port = chrome.runtime.connect({ name: 'krm_image_gen' });
+                let settled = false;
+                const finish = () => {
+                  if (settled) return;
+                  settled = true;
+                  try { port.disconnect(); } catch {}
+                  resolve();
+                };
+
+                const timeout = setTimeout(finish, 1000);
+                port.onMessage.addListener((msg) => {
+                  if (msg?.type === 'stored') {
+                    clearTimeout(timeout);
+                    finish();
+                  }
+                });
+                port.onDisconnect.addListener(() => {
+                  clearTimeout(timeout);
+                  finish();
+                });
+
+                try {
+                  port.postMessage({
+                    type: 'image',
+                    shareId,
+                    tweetTabId,
+                    mime: blob.type || 'image/jpeg',
+                    buffer
+                  });
+                } catch (_) {
+                  clearTimeout(timeout);
+                  finish();
+                }
+              });
+            }
+          }
+        } catch (binaryError) {
+          console.warn('Quick mode binary send failed (non-fatal):', binaryError);
+        }
+      }
+
       if (statusEl) statusEl.textContent = '画像データを送信しました';
+      shouldAutoClose = true;
     } catch (e) {
+      const reason = e?.message || 'quick_mode_send_failed';
       console.error('Quick mode send failed, falling back to download:', e);
+      if (statusEl) statusEl.textContent = `自動添付に失敗しました: ${reason}`;
+      await sendFailureTelemetry(reason);
       const fallbackUrl = canvas.toDataURL('image/png');
       Output.triggerDownload(fallbackUrl, `kindle-review-progress-${Date.now()}.png`);
     } finally {
-      setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
+      if (shouldAutoClose) {
+        setTimeout(() => { try { window.close(); } catch(_) {} }, 600);
+      }
     }
   };
 
